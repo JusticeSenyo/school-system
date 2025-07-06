@@ -181,7 +181,7 @@ export default function SchoolLogin() {
                   <p className="text-sm text-red-700 mt-1">{error}</p>
                   {error.includes('role') && !isDemoMode && (
                     <p className="text-xs text-red-600 mt-2">
-                      💡 Tip: Enable Demo Mode above to test with different roles
+                      💡 Tip:  Mode above to test with different roles
                     </p>
                   )}
                 </div>

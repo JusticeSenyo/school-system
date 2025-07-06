@@ -181,7 +181,7 @@ export default function SchoolLogin() {
                   <p className="text-sm text-red-700 mt-1">{error}</p>
                   {error.includes('role') && !isDemoMode && (
                     <p className="text-xs text-red-600 mt-2">
-                      💡 Tip:  Mode above to test with different roles
+                      💡 Tip: Enable Demo Mode above to test with different roles
                     </p>
                   )}
                 </div>
@@ -300,7 +300,7 @@ export default function SchoolLogin() {
                     className={`block w-full pl-10 pr-12 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                       error ? 'border-red-300 bg-red-50' : 'border-gray-300'
                     }`}
-                    placeholder="••••••••"
+                    placeholder="xxxxxx"
                     required
                   />
                   <button

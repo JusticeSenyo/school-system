@@ -141,7 +141,7 @@ export default function SchoolLogin() {
             {/* Test Credentials */}
             <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
               <p className="text-sm text-blue-800 font-medium mb-2">Test Credentials:</p>
-              <p className="text-xs text-blue-700">Email: amoahkingsford1@gmail.com</p>
+              <p className="text-xs text-blue-700">Email: test@school.edu</p>
               <p className="text-xs text-blue-700">Password: abcd</p>
               <p className="text-xs text-blue-600 mt-1">API Role: TE (Teacher)</p>
               <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded">

@@ -1,45 +1,51 @@
-// App.js - Fixed for your AuthContext
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import LoadingSpinner from './components/LoadingSpinner';
 import SchoolLogin from './SchoolLogin';
+import SignUpPage from './pages/SignUpPage';
+import OnboardingDashboard from './pages/OnboardingDashboard';
+import AddUsersPage from './pages/AddUsersPage';
+import AddClassesSubjectsPage from './pages/AddClassesSubjectsPage';
+import AddFeesPage from './pages/AddFeesPage';
+import AddStudentsPage from './pages/AddStudentsPage';
+import SetupCompletePage from './pages/SetupCompletePage';
+import SchoolDetailsPage from './pages/SchoolDetailsPage';
 
-// Import DataProvider with proper error handling
+// Optional Data Context (fallback)
 let DataProvider;
 try {
   const DataContextModule = require('./contexts/DataContext');
   DataProvider = DataContextModule.DataProvider;
 } catch (error) {
   console.warn('DataContext not found, using fallback');
-  // Fallback DataProvider
   DataProvider = ({ children }) => children;
 }
 
-// Lazy load dashboard components for better performance
+// Lazy-loaded dashboards
 const TeacherDashboard = lazy(() => import('./dashboards/TeacherDashboard'));
 const AdminDashboard = lazy(() => import('./dashboards/AdminDashboard'));
 const StudentDashboard = lazy(() => import('./dashboards/StudentDashboard'));
 
-// Additional lazy-loaded pages with error handling
-const Profile = lazy(() => 
-  import('./pages/Profile').catch(() => ({ 
-    default: () => <div className="p-8 text-center">Profile page not available</div> 
+// Lazy-loaded pages
+const Profile = lazy(() =>
+  import('./pages/Profile').catch(() => ({
+    default: () => <div className="p-8 text-center">Profile page not available</div>
   }))
 );
-const Settings = lazy(() => 
-  import('./pages/Settings').catch(() => ({ 
-    default: () => <div className="p-8 text-center">Settings page not available</div> 
+const Settings = lazy(() =>
+  import('./pages/Settings').catch(() => ({
+    default: () => <div className="p-8 text-center">Settings page not available</div>
   }))
 );
-const NotFound = lazy(() => 
-  import('./pages/NotFound').catch(() => ({ 
-    default: () => <div className="p-8 text-center">Page not found</div> 
+const NotFound = lazy(() =>
+  import('./pages/NotFound').catch(() => ({
+    default: () => <div className="p-8 text-center">Page not found</div>
   }))
 );
 
-// Loading component with school branding
+// Loading spinner component
 const DashboardLoading = () => (
   <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
     <div className="text-center">
@@ -49,29 +55,21 @@ const DashboardLoading = () => (
   </div>
 );
 
-// Enhanced Protected Route Component with loading state
+// Protect private routes
 const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuth(); // Note: using isLoading from your AuthContext
-  
-  if (isLoading) {
-    return <DashboardLoading />;
-  }
-  
-  return isAuthenticated ? children : <Navigate to="/login" replace />;
+  const { isAuthenticated, isLoading, isInitializing } = useAuth();
+  if (isInitializing) return <DashboardLoading />;
+  if (isLoading) return children;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  return children;
 };
 
-// Enhanced Dashboard Router with error handling
+// Dynamic dashboard routing
 const DashboardRouter = () => {
-  const { user, isLoading } = useAuth(); // Note: using isLoading from your AuthContext
-  
-  if (isLoading) {
-    return <DashboardLoading />;
-  }
-  
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
-  
+  const { user, isLoading, isInitializing } = useAuth();
+  if (isInitializing || isLoading) return <DashboardLoading />;
+  if (!user) return <Navigate to="/login" replace />;
+
   switch (user.userType) {
     case 'teacher':
       return (
@@ -92,32 +90,40 @@ const DashboardRouter = () => {
         </Suspense>
       );
     default:
-      console.warn(`Unknown user type: ${user.userType}`);
       return <Navigate to="/login" replace />;
   }
 };
 
-// Enhanced App Routes with additional functionality
+// Login route
+const LoginRoute = () => {
+  const { isAuthenticated, isLoading, isInitializing } = useAuth();
+  if (isAuthenticated && !isLoading && !isInitializing) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <SchoolLogin />;
+};
+
+// App routes
 const AppRoutes = () => {
-  const { isAuthenticated, isLoading } = useAuth(); // Note: using isLoading from your AuthContext
-  
+  const { isAuthenticated, isLoading, isInitializing } = useAuth();
+
   return (
     <Routes>
       {/* Public Routes */}
-      <Route 
-        path="/login" 
-        element={
-          isLoading ? (
-            <DashboardLoading />
-          ) : isAuthenticated ? (
-            <Navigate to="/dashboard" replace />
-          ) : (
-            <SchoolLogin />
-          )
-        } 
-      />
-      
-      {/* Protected Routes */}
+      <Route path="/login" element={<LoginRoute />} />
+      <Route path="/signup" element={<SignUpPage />} />
+
+      {/* Onboarding (temporary open access for UI) */}
+      <Route path="/setup" element={<OnboardingDashboard />} />
+      <Route path="/setup/school-details" element={<SchoolDetailsPage />} />
+      <Route path="/setup/add-users" element={<AddUsersPage />} />
+      <Route path="/setup/classes-subjects" element={<AddClassesSubjectsPage />} />
+      <Route path="/setup/fees" element={<AddFeesPage />} />
+      <Route path="/setup/students" element={<AddStudentsPage />} />
+      <Route path="/setup/complete" element={<SetupCompletePage />} />
+      {/* Later: /setup/complete */}
+
+      {/* Dashboards (protected) */}
       <Route
         path="/dashboard"
         element={
@@ -126,7 +132,8 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       />
-      
+
+      {/* Profile/Settings (protected) */}
       <Route
         path="/profile"
         element={
@@ -137,7 +144,6 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       />
-      
       <Route
         path="/settings"
         element={
@@ -148,35 +154,35 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       />
-      
-      {/* Default redirect */}
-      <Route 
-        path="/" 
+
+      {/* Redirects */}
+      <Route
+        path="/"
         element={
-          isLoading ? (
+          isInitializing ? (
             <DashboardLoading />
-          ) : isAuthenticated ? (
+          ) : isAuthenticated && !isLoading ? (
             <Navigate to="/dashboard" replace />
           ) : (
             <Navigate to="/login" replace />
           )
-        } 
+        }
       />
-      
-      {/* 404 Page */}
-      <Route 
-        path="*" 
+
+      {/* 404 */}
+      <Route
+        path="*"
         element={
           <Suspense fallback={<DashboardLoading />}>
             <NotFound />
           </Suspense>
-        } 
+        }
       />
     </Routes>
   );
 };
 
-// Enhanced App Component with all providers and error handling
+// App wrapper
 function App() {
   return (
     <ErrorBoundary>

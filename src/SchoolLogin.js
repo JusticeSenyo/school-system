@@ -1,5 +1,9 @@
 import { useState } from "react";
-import { Eye, EyeOff, Mail, Lock, GraduationCap, Users, BookOpen, Shield, Loader2, AlertCircle } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import {
+  Eye, EyeOff, Mail, Lock, GraduationCap, Users, BookOpen,
+  Shield, Loader2, AlertCircle
+} from "lucide-react";
 import { useAuth } from './AuthContext';
 
 export default function SchoolLogin() {
@@ -10,18 +14,17 @@ export default function SchoolLogin() {
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [error, setError] = useState("");
 
-  const { login, isLoading } = useAuth(); // Using isLoading from your AuthContext
+  const { login, isLoading } = useAuth();
+  const navigate = useNavigate();
 
   const handleSubmit = async () => {
-    // Clear any previous errors
     setError("");
-    
+
     if (!email || !password) {
       setError("Please fill in all fields");
       return;
     }
 
-    // Basic email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       setError("Please enter a valid email address");
@@ -29,29 +32,20 @@ export default function SchoolLogin() {
     }
 
     try {
-      // Call your login function and wait for the response
       const result = await login(email, password, userType, isDemoMode);
-      
-      // Check if login was successful
       if (!result.success) {
-        // Display the specific error message from your API
         setError(result.error || "Login failed. Please check your credentials.");
       }
-      // If successful, routing will happen automatically via App.js
     } catch (error) {
-      // Handle any unexpected errors
       console.error('Login error:', error);
       setError("An unexpected error occurred. Please try again.");
     }
   };
 
   const handleKeyPress = (e) => {
-    if (e.key === 'Enter') {
-      handleSubmit();
-    }
+    if (e.key === 'Enter') handleSubmit();
   };
 
-  // Clear error when user starts typing
   const handleEmailChange = (e) => {
     setEmail(e.target.value);
     if (error) setError("");
@@ -84,7 +78,6 @@ export default function SchoolLogin() {
           </p>
         </div>
 
-        {/* Features */}
         <div className="grid grid-cols-1 gap-6">
           <div className="flex items-center space-x-4">
             <div className="flex-shrink-0 w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
@@ -123,7 +116,6 @@ export default function SchoolLogin() {
       {/* Right Panel - Login Form */}
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-md">
-          {/* Mobile Logo */}
           <div className="lg:hidden text-center mb-8">
             <div className="inline-flex items-center space-x-2 text-indigo-600">
               <GraduationCap className="h-8 w-8" />
@@ -132,253 +124,110 @@ export default function SchoolLogin() {
           </div>
 
           <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
-            {/* Header */}
             <div className="text-center mb-8">
               <h2 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h2>
               <p className="text-gray-600">Sign in to access your dashboard</p>
             </div>
 
-            {/* Test Credentials */}
-            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm text-blue-800 font-medium mb-2">Test Credentials:</p>
-              <p className="text-xs text-blue-700">Email: test@school.edu</p>
-              <p className="text-xs text-blue-700">Password: abcd</p>
-              <p className="text-xs text-blue-600 mt-1">API Role: TE (Teacher)</p>
-              <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded">
-                <p className="text-xs text-yellow-800">
-                  🔒 <strong>Security:</strong> Your credentials must match the selected role.
-                </p>
+            {/* User Type Selector */}
+            <div className="mb-6 text-center">
+              <p className="text-sm text-gray-700 mb-2 font-medium">Login as:</p>
+              <div className="flex justify-center gap-3">
+                {['admin', 'teacher', 'student'].map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => handleUserTypeChange(type)}
+                    className={`px-4 py-1 rounded-full border text-sm font-medium transition ${
+                      userType === type
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
+                    }`}
+                  >
+                    {type.charAt(0).toUpperCase() + type.slice(1)}
+                  </button>
+                ))}
               </div>
             </div>
 
-            {/* Demo Mode Toggle */}
+            {/* Email */}
             <div className="mb-4">
-              <label className="flex items-center justify-center p-3 bg-gray-50 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors">
+              <label className="block text-sm text-gray-600 mb-1">Email</label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-3 text-gray-400" />
                 <input
-                  type="checkbox"
-                  checked={isDemoMode}
-                  onChange={(e) => setIsDemoMode(e.target.checked)}
+                  type="email"
+                  value={email}
+                  onChange={handleEmailChange}
+                  onKeyPress={handleKeyPress}
                   disabled={isLoading}
-                  className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                  className="pl-10 pr-4 py-2 w-full border rounded-lg"
+                  placeholder="you@example.com"
+                  required
                 />
-                <span className="ml-2 text-sm text-gray-700">
-                  🧪 <strong>Demo Mode</strong> - Allow role mismatches for testing
-                </span>
-              </label>
-              {isDemoMode && (
-                <p className="text-xs text-orange-600 mt-1 text-center">
-                  ⚠️ Demo mode enabled - Role validation disabled
-                </p>
-              )}
+              </div>
             </div>
 
-            {/* Enhanced Error Message Display */}
-            {error && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-3">
-                <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
-                <div className="flex-1">
-                  <p className="text-sm text-red-800 font-medium">Login Failed</p>
-                  <p className="text-sm text-red-700 mt-1">{error}</p>
-                  {error.includes('role') && !isDemoMode && (
-                    <p className="text-xs text-red-600 mt-2">
-                      💡 Tip: Enable Demo Mode above to test with different roles
-                    </p>
-                  )}
-                </div>
+            {/* Password */}
+            <div className="mb-4">
+              <label className="block text-sm text-gray-600 mb-1">Password</label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-3 text-gray-400" />
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={handlePasswordChange}
+                  onKeyPress={handleKeyPress}
+                  disabled={isLoading}
+                  className="pl-10 pr-12 py-2 w-full border rounded-lg"
+                  placeholder="••••••••"
+                  required
+                />
                 <button
-                  onClick={() => setError("")}
-                  className="text-red-400 hover:text-red-600 transition-colors"
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  disabled={isLoading}
+                  className="absolute right-3 top-2.5 text-gray-500 hover:text-gray-700"
                 >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
+                  {showPassword ? <EyeOff /> : <Eye />}
                 </button>
+              </div>
+            </div>
+
+            {/* Login Button */}
+            <button
+              onClick={handleSubmit}
+              disabled={isLoading}
+              className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition"
+            >
+              {isLoading ? (
+                <span className="flex items-center justify-center">
+                  <Loader2 className="animate-spin mr-2 h-4 w-4" /> Logging in...
+                </span>
+              ) : (
+                `Sign in as ${userType.charAt(0).toUpperCase() + userType.slice(1)}`
+              )}
+            </button>
+
+            {/* Error Message */}
+            {error && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded flex items-start space-x-2">
+                <AlertCircle className="h-5 w-5 mt-0.5" />
+                <span>{error}</span>
               </div>
             )}
 
-            {/* User Type Selection */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-3">
-                Login as:
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleUserTypeChange("teacher")}
-                  disabled={isLoading}
-                  className={`py-2 px-3 text-sm font-medium rounded-lg border transition-all relative ${
-                    userType === "teacher"
-                      ? "bg-indigo-50 border-indigo-200 text-indigo-700"
-                      : "bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100"
-                  } ${isLoading ? "opacity-50 cursor-not-allowed" : ""}`}
-                >
-                  👨‍🏫 Teacher
-                  {userType === "teacher" && (
-                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleUserTypeChange("admin")}
-                  disabled={isLoading}
-                  className={`py-2 px-3 text-sm font-medium rounded-lg border transition-all relative ${
-                    userType === "admin"
-                      ? "bg-indigo-50 border-indigo-200 text-indigo-700"
-                      : "bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100"
-                  } ${isLoading ? "opacity-50 cursor-not-allowed" : ""}`}
-                >
-                  👨‍💼 Admin
-                  {userType === "admin" && (
-                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleUserTypeChange("student")}
-                  disabled={isLoading}
-                  className={`py-2 px-3 text-sm font-medium rounded-lg border transition-all relative ${
-                    userType === "student"
-                      ? "bg-indigo-50 border-indigo-200 text-indigo-700"
-                      : "bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100"
-                  } ${isLoading ? "opacity-50 cursor-not-allowed" : ""}`}
-                >
-                  👨‍🎓 Student
-                  {userType === "student" && (
-                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></span>
-                  )}
-                </button>
-              </div>
-              <p className="text-xs text-gray-500 mt-2 text-center">
-                {isDemoMode ? (
-                  "🧪 Demo mode: Can use teacher credentials with any role"
-                ) : (
-                  "🔒 Your credentials must match the selected role"
-                )}
-              </p>
-            </div>
-
-            <div className="space-y-6">
-              {/* Email Field */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Email Address
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Mail className="h-5 w-5 text-gray-400" />
-                  </div>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={handleEmailChange}
-                    onKeyPress={handleKeyPress}
-                    disabled={isLoading}
-                    className={`block w-full pl-10 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                      error ? 'border-red-300 bg-red-50' : 'border-gray-300'
-                    }`}
-                    placeholder={`${userType}@school.edu`}
-                    required
-                  />
-                </div>
-              </div>
-
-              {/* Password Field */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Password
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Lock className="h-5 w-5 text-gray-400" />
-                  </div>
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={handlePasswordChange}
-                    onKeyPress={handleKeyPress}
-                    disabled={isLoading}
-                    className={`block w-full pl-10 pr-12 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                      error ? 'border-red-300 bg-red-50' : 'border-gray-300'
-                    }`}
-                    placeholder="••••••••"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    disabled={isLoading}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                  </button>
-                </div>
-              </div>
-
-              {/* Remember Me & Forgot Password */}
-              <div className="flex items-center justify-between">
-                <label className="flex items-center">
-                  <input
-                    type="checkbox"
-                    disabled={isLoading}
-                    className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                  />
-                  <span className="ml-2 text-sm text-gray-600">Keep me signed in</span>
-                </label>
-                <a href="#" className="text-sm text-indigo-600 hover:text-indigo-500 font-medium">
-                  Forgot password?
-                </a>
-              </div>
-
-              {/* Sign In Button */}
-              <button
-                onClick={handleSubmit}
-                disabled={isLoading || !email || !password}
-                className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 transform hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center"
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                    Signing In...
-                  </>
-                ) : (
-                  <>
-                    {isDemoMode ? (
-                      `🧪 Demo Sign In as ${userType.charAt(0).toUpperCase() + userType.slice(1)}`
-                    ) : (
-                      `Sign In as ${userType.charAt(0).toUpperCase() + userType.slice(1)}`
-                    )}
-                  </>
-                )}
-              </button>
-
-              {/* Connection Status */}
-              <div className="text-center">
-                <p className="text-xs text-gray-500">
-                  🔒 Secure connection to Oracle Cloud
-                </p>
-              </div>
-            </div>
-
-            {/* Additional Options */}
-            <div className="mt-8 pt-6 border-t border-gray-200">
-              <div className="text-center">
-                <p className="text-sm text-gray-600 mb-4">
-                  Need access to your school?
-                </p>
-                <button className="text-indigo-600 hover:text-indigo-500 font-medium text-sm">
-                  Request Account Access
-                </button>
-              </div>
-            </div>
-
-            {/* Help Text */}
+            {/* Sign Up Button */}
             <div className="mt-6 text-center">
-              <p className="text-xs text-gray-500">
-                Having trouble signing in?{" "}
-                <a href="#" className="text-indigo-600 hover:text-indigo-500">
-                  Contact IT Support
-                </a>
+              <p className="text-sm text-gray-600">
+                Don't have an account?
               </p>
+              <button
+                onClick={() => navigate('/signup')}
+                className="mt-2 inline-block text-indigo-600 hover:text-indigo-500 font-semibold text-sm"
+              >
+                Sign Up for Free Trial
+              </button>
             </div>
           </div>
         </div>

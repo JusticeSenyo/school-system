@@ -2,9 +2,10 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Eye, EyeOff, Mail, Lock, GraduationCap, Users, BookOpen,
-  Shield, Loader2, AlertCircle
+  Shield, Loader2, AlertCircle, Sun, Moon
 } from "lucide-react";
 import { useAuth } from './AuthContext';
+import { useTheme } from './contexts/ThemeContext';
 
 export default function SchoolLogin() {
   const [showPassword, setShowPassword] = useState(false);
@@ -15,6 +16,7 @@ export default function SchoolLogin() {
   const [error, setError] = useState("");
 
   const { login, isLoading } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
 
   const handleSubmit = async () => {
@@ -62,7 +64,17 @@ export default function SchoolLogin() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex relative text-gray-900 dark:text-gray-100">
+
+      {/* Theme Toggle Button */}
+      <button
+        onClick={toggleTheme}
+        className="absolute top-4 right-4 z-50 p-2 rounded-full shadow bg-white dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100"
+        title="Toggle Theme"
+      >
+        {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+      </button>
+
       {/* Left Panel - Branding */}
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-blue-600 to-indigo-700 p-12 flex-col justify-between text-white">
         <div>
@@ -79,33 +91,24 @@ export default function SchoolLogin() {
         </div>
 
         <div className="grid grid-cols-1 gap-6">
-          <div className="flex items-center space-x-4">
-            <div className="flex-shrink-0 w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
-              <Users className="h-6 w-6" />
+          {/* Feature items */}
+          {[{
+            Icon: Users, title: "Student Management", desc: "Comprehensive student profiles and tracking"
+          }, {
+            Icon: BookOpen, title: "Academic Planning", desc: "Curriculum management and lesson planning"
+          }, {
+            Icon: Shield, title: "Secure & Reliable", desc: "Enterprise-grade security for student data"
+          }].map(({ Icon, title, desc }, idx) => (
+            <div className="flex items-center space-x-4" key={idx}>
+              <div className="flex-shrink-0 w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
+                <Icon className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="font-semibold">{title}</h3>
+                <p className="text-blue-100 text-sm">{desc}</p>
+              </div>
             </div>
-            <div>
-              <h3 className="font-semibold">Student Management</h3>
-              <p className="text-blue-100 text-sm">Comprehensive student profiles and tracking</p>
-            </div>
-          </div>
-          <div className="flex items-center space-x-4">
-            <div className="flex-shrink-0 w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
-              <BookOpen className="h-6 w-6" />
-            </div>
-            <div>
-              <h3 className="font-semibold">Academic Planning</h3>
-              <p className="text-blue-100 text-sm">Curriculum management and lesson planning</p>
-            </div>
-          </div>
-          <div className="flex items-center space-x-4">
-            <div className="flex-shrink-0 w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
-              <Shield className="h-6 w-6" />
-            </div>
-            <div>
-              <h3 className="font-semibold">Secure & Reliable</h3>
-              <p className="text-blue-100 text-sm">Enterprise-grade security for student data</p>
-            </div>
-          </div>
+          ))}
         </div>
 
         <div className="text-sm text-blue-200">
@@ -123,17 +126,17 @@ export default function SchoolLogin() {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8 border border-gray-100 dark:border-gray-700">
             <div className="text-center mb-8">
-              <h2 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h2>
-              <p className="text-gray-600">Sign in to access your dashboard</p>
+              <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Welcome Back</h2>
+              <p className="text-gray-600 dark:text-gray-400">Sign in to access your dashboard</p>
             </div>
 
             {/* User Type Selector */}
             <div className="mb-6 text-center">
-              <p className="text-sm text-gray-700 mb-2 font-medium">Login as:</p>
+              <p className="text-sm text-gray-700 dark:text-gray-300 mb-2 font-medium">Login as:</p>
               <div className="flex justify-center gap-3">
-                {['admin', 'teacher', 'student'].map((type) => (
+                {['admin', 'teacher', 'accountant'].map((type) => (
                   <button
                     key={type}
                     type="button"
@@ -141,7 +144,7 @@ export default function SchoolLogin() {
                     className={`px-4 py-1 rounded-full border text-sm font-medium transition ${
                       userType === type
                         ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
+                        : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-100 border-gray-300 dark:border-gray-500 hover:bg-gray-100 dark:hover:bg-gray-600'
                     }`}
                   >
                     {type.charAt(0).toUpperCase() + type.slice(1)}
@@ -150,9 +153,9 @@ export default function SchoolLogin() {
               </div>
             </div>
 
-            {/* Email */}
+            {/* Email Input */}
             <div className="mb-4">
-              <label className="block text-sm text-gray-600 mb-1">Email</label>
+              <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Email</label>
               <div className="relative">
                 <Mail className="absolute left-3 top-3 text-gray-400" />
                 <input
@@ -161,16 +164,16 @@ export default function SchoolLogin() {
                   onChange={handleEmailChange}
                   onKeyPress={handleKeyPress}
                   disabled={isLoading}
-                  className="pl-10 pr-4 py-2 w-full border rounded-lg"
+                  className="pl-10 pr-4 py-2 w-full border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   placeholder="you@example.com"
                   required
                 />
               </div>
             </div>
 
-            {/* Password */}
+            {/* Password Input */}
             <div className="mb-4">
-              <label className="block text-sm text-gray-600 mb-1">Password</label>
+              <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Password</label>
               <div className="relative">
                 <Lock className="absolute left-3 top-3 text-gray-400" />
                 <input
@@ -179,7 +182,7 @@ export default function SchoolLogin() {
                   onChange={handlePasswordChange}
                   onKeyPress={handleKeyPress}
                   disabled={isLoading}
-                  className="pl-10 pr-12 py-2 w-full border rounded-lg"
+                  className="pl-10 pr-12 py-2 w-full border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   placeholder="••••••••"
                   required
                 />
@@ -187,14 +190,14 @@ export default function SchoolLogin() {
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   disabled={isLoading}
-                  className="absolute right-3 top-2.5 text-gray-500 hover:text-gray-700"
+                  className="absolute right-3 top-2.5 text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-white"
                 >
                   {showPassword ? <EyeOff /> : <Eye />}
                 </button>
               </div>
             </div>
 
-            {/* Login Button */}
+            {/* Submit */}
             <button
               onClick={handleSubmit}
               disabled={isLoading}
@@ -209,22 +212,22 @@ export default function SchoolLogin() {
               )}
             </button>
 
-            {/* Error Message */}
+            {/* Error */}
             {error && (
-              <div className="mt-4 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded flex items-start space-x-2">
+              <div className="mt-4 p-3 bg-red-50 dark:bg-red-800/30 border border-red-200 dark:border-red-700 text-red-700 dark:text-red-300 text-sm rounded flex items-start space-x-2">
                 <AlertCircle className="h-5 w-5 mt-0.5" />
                 <span>{error}</span>
               </div>
             )}
 
-            {/* Sign Up Button */}
+            {/* Sign Up */}
             <div className="mt-6 text-center">
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
                 Don't have an account?
               </p>
               <button
                 onClick={() => navigate('/signup')}
-                className="mt-2 inline-block text-indigo-600 hover:text-indigo-500 font-semibold text-sm"
+                className="mt-2 inline-block text-indigo-600 dark:text-indigo-400 hover:underline font-semibold text-sm"
               >
                 Sign Up for Free Trial
               </button>

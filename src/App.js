@@ -12,8 +12,9 @@ import AddFeesPage from './pages/AddFeesPage';
 import AddStudentsPage from './pages/AddStudentsPage';
 import SetupCompletePage from './pages/SetupCompletePage';
 import SchoolDetailsPage from './pages/SchoolDetailsPage';
+import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 
-// Optional Data Context (fallback)
+// Optional Data Context fallback
 let DataProvider;
 try {
   const DataContextModule = require('./contexts/DataContext');
@@ -26,7 +27,7 @@ try {
 // Lazy-loaded dashboards
 const TeacherDashboard = lazy(() => import('./dashboards/TeacherDashboard'));
 const AdminDashboard = lazy(() => import('./dashboards/AdminDashboard'));
-const StudentDashboard = lazy(() => import('./dashboards/StudentDashboard'));
+const AccountantDashboard = lazy(() => import('./dashboards/AccountantDashboard'));
 
 // Lazy-loaded pages
 const Profile = lazy(() =>
@@ -45,12 +46,12 @@ const NotFound = lazy(() =>
   }))
 );
 
-// Loading spinner component
+// Loading spinner fallback
 const DashboardLoading = () => (
-  <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+  <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
     <div className="text-center">
       <LoadingSpinner size="large" showLogo={true} />
-      <p className="mt-4 text-gray-600 font-medium">Loading your dashboard...</p>
+      <p className="mt-4 text-gray-600 dark:text-gray-300 font-medium">Loading your dashboard...</p>
     </div>
   </div>
 );
@@ -64,7 +65,7 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
-// Dynamic dashboard routing
+// Dynamic dashboard routing (student removed)
 const DashboardRouter = () => {
   const { user, isLoading, isInitializing } = useAuth();
   if (isInitializing || isLoading) return <DashboardLoading />;
@@ -83,10 +84,10 @@ const DashboardRouter = () => {
           <AdminDashboard />
         </Suspense>
       );
-    case 'student':
+    case 'accountant':
       return (
         <Suspense fallback={<DashboardLoading />}>
-          <StudentDashboard />
+          <AccountantDashboard />
         </Suspense>
       );
     default:
@@ -94,7 +95,7 @@ const DashboardRouter = () => {
   }
 };
 
-// Login route
+// Login route logic
 const LoginRoute = () => {
   const { isAuthenticated, isLoading, isInitializing } = useAuth();
   if (isAuthenticated && !isLoading && !isInitializing) {
@@ -103,7 +104,7 @@ const LoginRoute = () => {
   return <SchoolLogin />;
 };
 
-// App routes
+// Define app routes
 const AppRoutes = () => {
   const { isAuthenticated, isLoading, isInitializing } = useAuth();
 
@@ -113,7 +114,7 @@ const AppRoutes = () => {
       <Route path="/login" element={<LoginRoute />} />
       <Route path="/signup" element={<SignUpPage />} />
 
-      {/* Onboarding (temporary open access for UI) */}
+      {/* Onboarding Routes */}
       <Route path="/setup" element={<OnboardingDashboard />} />
       <Route path="/setup/school-details" element={<SchoolDetailsPage />} />
       <Route path="/setup/add-users" element={<AddUsersPage />} />
@@ -121,9 +122,8 @@ const AppRoutes = () => {
       <Route path="/setup/fees" element={<AddFeesPage />} />
       <Route path="/setup/students" element={<AddStudentsPage />} />
       <Route path="/setup/complete" element={<SetupCompletePage />} />
-      {/* Later: /setup/complete */}
 
-      {/* Dashboards (protected) */}
+      {/* Protected Dashboard */}
       <Route
         path="/dashboard"
         element={
@@ -133,7 +133,7 @@ const AppRoutes = () => {
         }
       />
 
-      {/* Profile/Settings (protected) */}
+      {/* Profile */}
       <Route
         path="/profile"
         element={
@@ -144,6 +144,8 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       />
+
+      {/* Settings */}
       <Route
         path="/settings"
         element={
@@ -155,7 +157,7 @@ const AppRoutes = () => {
         }
       />
 
-      {/* Redirects */}
+      {/* Default Redirect */}
       <Route
         path="/"
         element={
@@ -169,7 +171,7 @@ const AppRoutes = () => {
         }
       />
 
-      {/* 404 */}
+      {/* Catch-all */}
       <Route
         path="*"
         element={
@@ -182,19 +184,33 @@ const AppRoutes = () => {
   );
 };
 
-// App wrapper
+// Dark/light theme wrapper
+const ThemeWrapper = ({ children }) => {
+  const { theme } = useTheme();
+  return (
+    <div className={`${theme === 'dark' ? 'dark' : ''}`}>
+      <div className="App min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+        {children}
+      </div>
+    </div>
+  );
+};
+
+// Root app component
 function App() {
   return (
     <ErrorBoundary>
-      <AuthProvider>
-        <DataProvider>
-          <Router>
-            <div className="App min-h-screen bg-gray-50">
-              <AppRoutes />
-            </div>
-          </Router>
-        </DataProvider>
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <DataProvider>
+            <Router>
+              <ThemeWrapper>
+                <AppRoutes />
+              </ThemeWrapper>
+            </Router>
+          </DataProvider>
+        </AuthProvider>
+      </ThemeProvider>
     </ErrorBoundary>
   );
 }

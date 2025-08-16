@@ -1,18 +1,19 @@
 import React from "react";
 
-const HeadTeacherDashboard = () => {
+const SchoolOwnerDashboard = () => {
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold text-indigo-600 mb-4">
-        Welcome to the Head Teacher Dashboard 🧑‍💼
+        Welcome to the School Owner Dashboard 🏫
       </h1>
       <p className="text-gray-600 mb-6">
-        Monitor teacher performance and academic coordination.
+        Oversee the school’s general performance and strategic decisions.
       </p>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <DashboardCard title="Teachers Supervised" value="15" />
-        <DashboardCard title="Student Feedback Rate" value="89%" />
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+        <DashboardCard title="Total Students" value="850" />
+        <DashboardCard title="Total Staff" value="60" />
+        <DashboardCard title="Term Revenue" value="GHS 120,000" />
       </div>
     </div>
   );
@@ -25,4 +26,4 @@ const DashboardCard = ({ title, value }) => (
   </div>
 );
 
-export default HeadTeacherDashboard;
+export default SchoolOwnerDashboard;

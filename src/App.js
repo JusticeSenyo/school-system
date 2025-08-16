@@ -65,7 +65,7 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
-// Dynamic dashboard routing (student removed)
+// Dynamic dashboard routing
 const DashboardRouter = () => {
   const { user, isLoading, isInitializing } = useAuth();
   if (isInitializing || isLoading) return <DashboardLoading />;
@@ -196,7 +196,7 @@ const ThemeWrapper = ({ children }) => {
   );
 };
 
-// Root app component
+// Root App
 function App() {
   return (
     <ErrorBoundary>

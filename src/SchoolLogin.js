@@ -91,7 +91,6 @@ export default function SchoolLogin() {
         </div>
 
         <div className="grid grid-cols-1 gap-6">
-          {/* Feature items */}
           {[{
             Icon: Users, title: "Student Management", desc: "Comprehensive student profiles and tracking"
           }, {
@@ -135,7 +134,7 @@ export default function SchoolLogin() {
             {/* User Type Selector */}
             <div className="mb-6 text-center">
               <p className="text-sm text-gray-700 dark:text-gray-300 mb-2 font-medium">Login as:</p>
-              <div className="flex justify-center gap-3">
+              <div className="flex justify-center gap-3 flex-wrap">
                 {['admin', 'teacher', 'accountant'].map((type) => (
                   <button
                     key={type}
@@ -197,7 +196,7 @@ export default function SchoolLogin() {
               </div>
             </div>
 
-            {/* Submit */}
+            {/* Submit Button */}
             <button
               onClick={handleSubmit}
               disabled={isLoading}
@@ -212,7 +211,7 @@ export default function SchoolLogin() {
               )}
             </button>
 
-            {/* Error */}
+            {/* Error Message */}
             {error && (
               <div className="mt-4 p-3 bg-red-50 dark:bg-red-800/30 border border-red-200 dark:border-red-700 text-red-700 dark:text-red-300 text-sm rounded flex items-start space-x-2">
                 <AlertCircle className="h-5 w-5 mt-0.5" />
@@ -220,7 +219,7 @@ export default function SchoolLogin() {
               </div>
             )}
 
-            {/* Sign Up */}
+            {/* Signup Link */}
             <div className="mt-6 text-center">
               <p className="text-sm text-gray-600 dark:text-gray-400">
                 Don't have an account?

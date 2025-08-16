@@ -79,11 +79,11 @@ const AdminDashboard = () => {
       {/* Welcome Message */}
       <div className="bg-gradient-to-r from-purple-600 via-blue-600 to-indigo-700 rounded-2xl p-6 text-white mb-8">
         <h2 className="text-2xl font-bold mb-2">Welcome to the Admin Dashboard 🎓</h2>
-        <p className="text-purple-100">Get insights into your school’s performance, staff, students, and operations.</p>
+        <p className="text-purple-100 text-sm sm:text-base">Get insights into your school’s performance, staff, students, and operations.</p>
       </div>
 
       {/* Overview Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
         {stats.map((item, index) => (
           <div key={index} className="bg-white dark:bg-gray-800 rounded-xl shadow p-5 border border-gray-100 dark:border-gray-700">
             <div className="flex items-center justify-between mb-3">
@@ -99,11 +99,11 @@ const AdminDashboard = () => {
       {/* Quick Actions */}
       <div className="mb-8">
         <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-4">Quick Actions</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
           {actions.map((action, index) => (
             <button
               key={index}
-              className="flex items-center justify-center space-x-2 px-4 py-3 bg-indigo-50 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-100 rounded-xl border border-indigo-100 dark:border-indigo-700 hover:bg-indigo-100 dark:hover:bg-indigo-800 transition"
+              className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-indigo-50 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-100 rounded-xl border border-indigo-100 dark:border-indigo-700 hover:bg-indigo-100 dark:hover:bg-indigo-800 transition"
             >
               {action.icon}
               <span className="font-medium text-sm">{action.label}</span>

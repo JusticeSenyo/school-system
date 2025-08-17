@@ -14,7 +14,7 @@ import SetupCompletePage from './pages/SetupCompletePage';
 import SchoolDetailsPage from './pages/SchoolDetailsPage';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 
-// Optional Data Context fallback
+// Optional DataContext fallback
 let DataProvider;
 try {
   const DataContextModule = require('./contexts/DataContext');
@@ -30,23 +30,16 @@ const AdminDashboard = lazy(() => import('./dashboards/AdminDashboard'));
 const AccountantDashboard = lazy(() => import('./dashboards/AccountantDashboard'));
 
 // Lazy-loaded pages
-const Profile = lazy(() =>
-  import('./pages/Profile').catch(() => ({
-    default: () => <div className="p-8 text-center">Profile page not available</div>
-  }))
-);
-const Settings = lazy(() =>
-  import('./pages/Settings').catch(() => ({
-    default: () => <div className="p-8 text-center">Settings page not available</div>
-  }))
-);
-const NotFound = lazy(() =>
-  import('./pages/NotFound').catch(() => ({
-    default: () => <div className="p-8 text-center">Page not found</div>
-  }))
-);
+const Profile = lazy(() => import('./pages/Profile'));
+const Settings = lazy(() => import('./pages/Settings'));
+const NotFound = lazy(() => import('./pages/NotFound'));
+const CommunicationPage = lazy(() => import('./pages/CommunicationPage'));
+const ManageStaffPage = lazy(() => import('./pages/ManageStaffPage'));
+const ManageStudentsPage = lazy(() => import('./pages/ManageStudentsPage'));
+const AttendancePage = lazy(() => import('./pages/AttendancePage'));
+const ManageAttendancePage = lazy(() => import('./pages/ManageAttendancePage'));
 
-// Loading spinner fallback
+// Loading fallback UI
 const DashboardLoading = () => (
   <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
     <div className="text-center">
@@ -65,7 +58,7 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
-// Dynamic dashboard routing
+// Role-based dashboard
 const DashboardRouter = () => {
   const { user, isLoading, isInitializing } = useAuth();
   if (isInitializing || isLoading) return <DashboardLoading />;
@@ -95,7 +88,7 @@ const DashboardRouter = () => {
   }
 };
 
-// Login route logic
+// Public login route
 const LoginRoute = () => {
   const { isAuthenticated, isLoading, isInitializing } = useAuth();
   if (isAuthenticated && !isLoading && !isInitializing) {
@@ -104,7 +97,7 @@ const LoginRoute = () => {
   return <SchoolLogin />;
 };
 
-// Define app routes
+// All routes
 const AppRoutes = () => {
   const { isAuthenticated, isLoading, isInitializing } = useAuth();
 
@@ -124,38 +117,18 @@ const AppRoutes = () => {
       <Route path="/setup/complete" element={<SetupCompletePage />} />
 
       {/* Protected Dashboard */}
-      <Route
-        path="/dashboard"
-        element={
-          <ProtectedRoute>
-            <DashboardRouter />
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/dashboard" element={<ProtectedRoute><DashboardRouter /></ProtectedRoute>} />
 
-      {/* Profile */}
-      <Route
-        path="/profile"
-        element={
-          <ProtectedRoute>
-            <Suspense fallback={<DashboardLoading />}>
-              <Profile />
-            </Suspense>
-          </ProtectedRoute>
-        }
-      />
+      {/* Feature Pages */}
+      <Route path="/dashboard/communication" element={<ProtectedRoute><Suspense fallback={<DashboardLoading />}><CommunicationPage /></Suspense></ProtectedRoute>} />
+      <Route path="/dashboard/manage-staff" element={<ProtectedRoute><Suspense fallback={<DashboardLoading />}><ManageStaffPage /></Suspense></ProtectedRoute>} />
+      <Route path="/dashboard/manage-students" element={<ProtectedRoute><Suspense fallback={<DashboardLoading />}><ManageStudentsPage /></Suspense></ProtectedRoute>} />
+      <Route path="/dashboard/attendance" element={<ProtectedRoute><Suspense fallback={<DashboardLoading />}><AttendancePage /></Suspense></ProtectedRoute>} />
+      <Route path="/dashboard/manage-attendance" element={<ProtectedRoute><Suspense fallback={<DashboardLoading />}><ManageAttendancePage /></Suspense></ProtectedRoute>} />
 
-      {/* Settings */}
-      <Route
-        path="/settings"
-        element={
-          <ProtectedRoute>
-            <Suspense fallback={<DashboardLoading />}>
-              <Settings />
-            </Suspense>
-          </ProtectedRoute>
-        }
-      />
+      {/* Profile & Settings */}
+      <Route path="/profile" element={<ProtectedRoute><Suspense fallback={<DashboardLoading />}><Profile /></Suspense></ProtectedRoute>} />
+      <Route path="/settings" element={<ProtectedRoute><Suspense fallback={<DashboardLoading />}><Settings /></Suspense></ProtectedRoute>} />
 
       {/* Default Redirect */}
       <Route
@@ -171,20 +144,13 @@ const AppRoutes = () => {
         }
       />
 
-      {/* Catch-all */}
-      <Route
-        path="*"
-        element={
-          <Suspense fallback={<DashboardLoading />}>
-            <NotFound />
-          </Suspense>
-        }
-      />
+      {/* 404 Page */}
+      <Route path="*" element={<Suspense fallback={<DashboardLoading />}><NotFound /></Suspense>} />
     </Routes>
   );
 };
 
-// Dark/light theme wrapper
+// Theme Wrapper
 const ThemeWrapper = ({ children }) => {
   const { theme } = useTheme();
   return (
@@ -196,7 +162,7 @@ const ThemeWrapper = ({ children }) => {
   );
 };
 
-// Root App
+// App Root
 function App() {
   return (
     <ErrorBoundary>

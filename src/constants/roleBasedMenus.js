@@ -2,8 +2,8 @@ export const roleBasedMenus = {
   admin: [
     { label: "Dashboard", path: "/dashboard" },
     { label: "Communication", path: "/dashboard/communication" },
-    { label: "Manage Staff", path: "/dashboard/staff" },
-    { label: "Manage Students", path: "/dashboard/students" },
+    { label: "Manage Staff", path: "/dashboard/manage-staff" },
+    { label: "Manage Students", path: "/dashboard/manage-students" },
     { label: "Attendance", path: "/dashboard/attendance" },
     {
       label: "Fees",
@@ -75,6 +75,7 @@ export const roleBasedMenus = {
 
   teacher: [
     { label: "Dashboard", path: "/dashboard" },
+    { label: "Communication", path: "/dashboard/communication" },
     { label: "Manage Students", path: "/dashboard/students" },
     {
       label: "Attendance",

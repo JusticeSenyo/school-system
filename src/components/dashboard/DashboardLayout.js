@@ -9,15 +9,15 @@ import { useTheme } from '../../contexts/ThemeContext';
 const DashboardLayout = ({ title = 'Dashboard', subtitle = '', children }) => {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isCollapsed, setIsCollapsed] = useState(false); // Sidebar collapse state
   const navigate = useNavigate();
 
   return (
     <div className="flex min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
       {/* Sidebar */}
-      <Sidebar isOpen={sidebarOpen} />
+      <Sidebar isCollapsed={isCollapsed} />
 
-      {/* Main content section with header and page */}
+      {/* Main content section */}
       <div className="flex-1 flex flex-col">
         {/* Header */}
         <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
@@ -26,7 +26,7 @@ const DashboardLayout = ({ title = 'Dashboard', subtitle = '', children }) => {
               {/* Title & Toggle */}
               <div className="flex items-center space-x-4">
                 <button
-                  onClick={() => setSidebarOpen(!sidebarOpen)}
+                  onClick={() => setIsCollapsed(!isCollapsed)}
                   className="p-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
                   title="Toggle Sidebar"
                 >

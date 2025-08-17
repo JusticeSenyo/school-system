@@ -77,20 +77,20 @@ const AdminDashboard = () => {
     <DashboardLayout title="School Dashboard" subtitle="Overview of your school's performance and activities">
       
       {/* Welcome Message */}
-      <div className="bg-gradient-to-r from-purple-600 via-blue-600 to-indigo-700 rounded-2xl p-6 text-white mb-8">
-        <h2 className="text-2xl font-bold mb-2">Welcome to the Admin Dashboard 🎓</h2>
-        <p className="text-purple-100 text-sm sm:text-base">Get insights into your school’s performance, staff, students, and operations.</p>
+      <div className="bg-gradient-to-r from-purple-600 via-blue-600 to-indigo-700 rounded-2xl p-4 sm:p-6 text-white mb-6 sm:mb-8">
+        <h2 className="text-xl sm:text-2xl font-bold mb-1">Welcome to the Admin Dashboard 🎓</h2>
+        <p className="text-sm sm:text-base text-purple-100">Get insights into your school’s performance, staff, students, and operations.</p>
       </div>
 
-      {/* Overview Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6">
         {stats.map((item, index) => (
-          <div key={index} className="bg-white dark:bg-gray-800 rounded-xl shadow p-5 border border-gray-100 dark:border-gray-700">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-medium text-gray-600 dark:text-gray-300">{item.label}</span>
+          <div key={index} className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 border border-gray-100 dark:border-gray-700">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm text-gray-600 dark:text-gray-300">{item.label}</span>
               {item.icon}
             </div>
-            <div className="text-2xl font-bold text-gray-900 dark:text-white">{item.value}</div>
+            <div className="text-xl font-bold text-gray-900 dark:text-white">{item.value}</div>
             <div className="text-sm text-gray-500 dark:text-gray-400">{item.change}</div>
           </div>
         ))}
@@ -99,14 +99,14 @@ const AdminDashboard = () => {
       {/* Quick Actions */}
       <div className="mb-8">
         <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-4">Quick Actions</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3">
           {actions.map((action, index) => (
             <button
               key={index}
-              className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-indigo-50 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-100 rounded-xl border border-indigo-100 dark:border-indigo-700 hover:bg-indigo-100 dark:hover:bg-indigo-800 transition"
+              className="w-full flex items-center justify-center space-x-2 px-4 py-3 text-sm bg-indigo-50 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-100 rounded-xl border border-indigo-100 dark:border-indigo-700 hover:bg-indigo-100 dark:hover:bg-indigo-800 transition"
             >
               {action.icon}
-              <span className="font-medium text-sm">{action.label}</span>
+              <span>{action.label}</span>
             </button>
           ))}
         </div>
@@ -121,7 +121,7 @@ const AdminDashboard = () => {
         <ul className="space-y-4">
           {activity.map((item, index) => (
             <li key={index} className="flex items-start space-x-3 bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-              <div>{item.icon}</div>
+              <div className="flex-shrink-0">{item.icon}</div>
               <div className="flex-1">
                 <p className="text-sm text-gray-800 dark:text-gray-100">{item.text}</p>
                 <span className="text-xs text-gray-500 dark:text-gray-400">{item.date}</span>

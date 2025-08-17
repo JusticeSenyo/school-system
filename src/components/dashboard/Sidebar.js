@@ -4,7 +4,6 @@ import {
   ChevronDown,
   ChevronRight,
   LogOut,
-  Menu,
   Home,
   Users,
   BookOpen,
@@ -18,6 +17,7 @@ import {
 import { useAuth } from "../../AuthContext";
 import { roleBasedMenus } from "../../constants/roleBasedMenus";
 
+// Icon mapping
 const iconMap = {
   Dashboard: <Home size={18} />,
   Communication: <MessageSquare size={18} />,
@@ -39,21 +39,16 @@ const iconMap = {
   Settings: <Settings size={18} />,
 };
 
-const Sidebar = () => {
+const Sidebar = ({ isCollapsed }) => {
   const location = useLocation();
   const { user, logout } = useAuth();
   const [collapsedItems, setCollapsedItems] = useState({});
-  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const toggleCollapse = (label) => {
     setCollapsedItems((prev) => ({
       ...prev,
       [label]: !prev[label],
     }));
-  };
-
-  const toggleSidebar = () => {
-    setIsCollapsed(!isCollapsed);
   };
 
   const role = user?.userType || "guest";
@@ -65,38 +60,33 @@ const Sidebar = () => {
         isCollapsed ? "w-20" : "w-64"
       } min-h-screen flex flex-col`}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        {!isCollapsed && (
-          <h1 className="text-lg font-bold text-indigo-600 dark:text-white">
+      {/* Logo / Title */}
+      {!isCollapsed && (
+        <div className="flex items-center justify-center mb-6">
+          <h1 className="text-xl font-bold text-indigo-600 dark:text-white">
             SchoolMaster Hub
           </h1>
-        )}
-        <button
-          onClick={toggleSidebar}
-          className="p-1 text-gray-500 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
-          title={isCollapsed ? "Expand" : "Collapse"}
-        >
-          <Menu size={20} />
-        </button>
-      </div>
+        </div>
+      )}
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-1 overflow-y-auto">
+      <nav className="flex-1 space-y-2 overflow-y-auto">
         {menus.map((item) =>
           item.children ? (
             <div key={item.label}>
               <button
                 onClick={() => toggleCollapse(item.label)}
                 title={isCollapsed ? item.label : ""}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-md font-medium text-left transition ${
-                  item.children.some((child) => location.pathname.startsWith(child.path))
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-left transition font-medium ${
+                  item.children.some((child) =>
+                    location.pathname.startsWith(child.path)
+                  )
                     ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-white"
                     : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
                 }`}
               >
                 <div className="flex items-center space-x-2">
-                  {iconMap[item.label]}
+                  {iconMap[item.label] || <Users size={18} />}
                   {!isCollapsed && <span>{item.label}</span>}
                 </div>
                 {!isCollapsed &&
@@ -118,7 +108,7 @@ const Sidebar = () => {
                         : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
                     }`}
                   >
-                    {iconMap[child.label]}
+                    {iconMap[child.label] || <Users size={16} />}
                     {!isCollapsed && <span>{child.label}</span>}
                   </Link>
                 ))}
@@ -134,21 +124,21 @@ const Sidebar = () => {
                   : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
               }`}
             >
-              {iconMap[item.label]}
+              {iconMap[item.label] || <Users size={18} />}
               {!isCollapsed && <span>{item.label}</span>}
             </Link>
           )
         )}
       </nav>
 
-      {/* Logout */}
-      <div className="mt-auto">
+      {/* Logout button */}
+      <div className="mt-auto pt-4 border-t border-gray-200 dark:border-gray-700">
         <button
           onClick={logout}
           title="Logout"
-          className="flex items-center space-x-2 text-red-500 hover:text-red-600 dark:hover:text-red-400"
+          className="w-full flex items-center space-x-2 px-3 py-2 rounded-md text-red-500 hover:bg-red-100 dark:hover:bg-red-900 dark:hover:text-red-400 transition"
         >
-          <LogOut className="w-5 h-5" />
+          <LogOut size={18} />
           {!isCollapsed && <span>Logout</span>}
         </button>
       </div>

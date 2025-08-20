@@ -8,6 +8,7 @@ export const roleBasedMenus = {
     {
       label: "Fees",
       children: [
+        { label: "Manage Fees", path: "/dashboard/manage-fees" }, // ✅ Added
         { label: "Fees Report", path: "/dashboard/fees-report" },
         { label: "Print Bill", path: "/dashboard/print-bill" },
       ],
@@ -32,8 +33,8 @@ export const roleBasedMenus = {
   headteacher: [
     { label: "Dashboard", path: "/dashboard" },
     { label: "Communication", path: "/dashboard/communication" },
-    { label: "Manage Staff", path: "/dashboard/staff" },
-    { label: "Manage Students", path: "/dashboard/students" },
+    { label: "Manage Staff", path: "/dashboard/manage-staff" },
+    { label: "Manage Students", path: "/dashboard/manage-students" },
     {
       label: "Attendance",
       children: [
@@ -61,7 +62,7 @@ export const roleBasedMenus = {
   accountant: [
     { label: "Dashboard", path: "/dashboard" },
     { label: "Communication", path: "/dashboard/communication" },
-    { label: "Manage Students", path: "/dashboard/students" },
+    { label: "Manage Students", path: "/dashboard/manage-students" },
     {
       label: "Fees",
       children: [
@@ -76,7 +77,7 @@ export const roleBasedMenus = {
   teacher: [
     { label: "Dashboard", path: "/dashboard" },
     { label: "Communication", path: "/dashboard/communication" },
-    { label: "Manage Students", path: "/dashboard/students" },
+    { label: "Manage Students", path: "/dashboard/manage-students" },
     {
       label: "Attendance",
       children: [
@@ -96,8 +97,8 @@ export const roleBasedMenus = {
   owner: [
     { label: "Dashboard", path: "/dashboard" },
     { label: "Communication", path: "/dashboard/communication" },
-    { label: "Manage Staff", path: "/dashboard/staff" },
-    { label: "Manage Students", path: "/dashboard/students" },
+    { label: "Manage Staff", path: "/dashboard/manage-staff" },
+    { label: "Manage Students", path: "/dashboard/manage-students" },
     {
       label: "Attendance",
       children: [
@@ -107,6 +108,7 @@ export const roleBasedMenus = {
     {
       label: "Fees",
       children: [
+        { label: "Manage Fees", path: "/dashboard/manage-fees" }, // ✅ Added
         { label: "Fees Report", path: "/dashboard/fees-report" },
         { label: "Print Bill", path: "/dashboard/print-bill" },
       ],

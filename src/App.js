@@ -28,6 +28,7 @@ try {
 const TeacherDashboard = lazy(() => import('./dashboards/TeacherDashboard'));
 const AdminDashboard = lazy(() => import('./dashboards/AdminDashboard'));
 const AccountantDashboard = lazy(() => import('./dashboards/AccountantDashboard'));
+const HeadTeacherDashboard = lazy(() => import('./dashboards/HeadTeacherDashboard')); // NEW
 
 // Lazy-loaded pages
 const Profile = lazy(() => import('./pages/Profile'));
@@ -39,6 +40,16 @@ const ManageStudentsPage = lazy(() => import('./pages/ManageStudentsPage'));
 const AttendancePage = lazy(() => import('./pages/AttendancePage'));
 const ManageAttendancePage = lazy(() => import('./pages/ManageAttendancePage'));
 
+// NEW: Fees pages
+const ManageFeesPage = lazy(() => import('./pages/ManageFeesPage'));
+const FeesReportPage = lazy(() => import('./pages/FeesReportPage'));
+const PrintBillPage = lazy(() => import('./pages/PrintBillPage')); // NEW
+
+// NEW: Academics (Admin-only)
+const ManageClassTeacherPage = lazy(() => import('./pages/ManageClassTeacherPage'));
+const ManageSubjectsPage = lazy(() => import('./pages/ManageSubjectsPage'));
+const ManageClassesPage = lazy(() => import('./pages/ManageClassesPage'));
+
 // Loading fallback UI
 const DashboardLoading = () => (
   <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
@@ -49,12 +60,32 @@ const DashboardLoading = () => (
   </div>
 );
 
+// Normalize roles so either "headteacher" or "HT" works
+const normalizeRole = (role) => {
+  if (!role) return '';
+  const r = String(role).toLowerCase();
+  if (r === 'ht' || r === 'headteacher') return 'headteacher';
+  if (r === 'ad' || r === 'admin') return 'admin';
+  if (r === 'tr' || r === 'teacher') return 'teacher';
+  if (r === 'ac' || r === 'accountant') return 'accountant';
+  return r;
+};
+
 // Protect private routes
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, isLoading, isInitializing } = useAuth();
-  if (isInitializing) return <DashboardLoading />;
-  if (isLoading) return children;
+  if (isInitializing || isLoading) return <DashboardLoading />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+  return children;
+};
+
+// OPTIONAL: Role guard for sensitive routes
+const RoleRoute = ({ allowed = [], children }) => {
+  const { user } = useAuth();
+  const role = normalizeRole(user?.userType);
+  if (!allowed.includes(role)) {
+    return <Navigate to="/dashboard" replace />;
+  }
   return children;
 };
 
@@ -64,7 +95,7 @@ const DashboardRouter = () => {
   if (isInitializing || isLoading) return <DashboardLoading />;
   if (!user) return <Navigate to="/login" replace />;
 
-  switch (user.userType) {
+  switch (normalizeRole(user.userType)) {
     case 'teacher':
       return (
         <Suspense fallback={<DashboardLoading />}>
@@ -81,6 +112,12 @@ const DashboardRouter = () => {
       return (
         <Suspense fallback={<DashboardLoading />}>
           <AccountantDashboard />
+        </Suspense>
+      );
+    case 'headteacher': // NEW
+      return (
+        <Suspense fallback={<DashboardLoading />}>
+          <HeadTeacherDashboard />
         </Suspense>
       );
     default:
@@ -117,18 +154,164 @@ const AppRoutes = () => {
       <Route path="/setup/complete" element={<SetupCompletePage />} />
 
       {/* Protected Dashboard */}
-      <Route path="/dashboard" element={<ProtectedRoute><DashboardRouter /></ProtectedRoute>} />
+      <Route
+        path="/dashboard"
+        element={
+          <ProtectedRoute>
+            <DashboardRouter />
+          </ProtectedRoute>
+        }
+      />
 
       {/* Feature Pages */}
-      <Route path="/dashboard/communication" element={<ProtectedRoute><Suspense fallback={<DashboardLoading />}><CommunicationPage /></Suspense></ProtectedRoute>} />
-      <Route path="/dashboard/manage-staff" element={<ProtectedRoute><Suspense fallback={<DashboardLoading />}><ManageStaffPage /></Suspense></ProtectedRoute>} />
-      <Route path="/dashboard/manage-students" element={<ProtectedRoute><Suspense fallback={<DashboardLoading />}><ManageStudentsPage /></Suspense></ProtectedRoute>} />
-      <Route path="/dashboard/attendance" element={<ProtectedRoute><Suspense fallback={<DashboardLoading />}><AttendancePage /></Suspense></ProtectedRoute>} />
-      <Route path="/dashboard/manage-attendance" element={<ProtectedRoute><Suspense fallback={<DashboardLoading />}><ManageAttendancePage /></Suspense></ProtectedRoute>} />
+      <Route
+        path="/dashboard/communication"
+        element={
+          <ProtectedRoute>
+            <Suspense fallback={<DashboardLoading />}>
+              <CommunicationPage />
+            </Suspense>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/manage-staff"
+        element={
+          <ProtectedRoute>
+            <Suspense fallback={<DashboardLoading />}>
+              <ManageStaffPage />
+            </Suspense>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/manage-students"
+        element={
+          <ProtectedRoute>
+            <Suspense fallback={<DashboardLoading />}>
+              <ManageStudentsPage />
+            </Suspense>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/attendance"
+        element={
+          <ProtectedRoute>
+            <Suspense fallback={<DashboardLoading />}>
+              <AttendancePage />
+            </Suspense>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/manage-attendance"
+        element={
+          <ProtectedRoute>
+            <Suspense fallback={<DashboardLoading />}>
+              <ManageAttendancePage />
+            </Suspense>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Fees pages (Admin & Accountant only) */}
+      <Route
+        path="/dashboard/manage-fees"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowed={['admin', 'accountant']}>
+              <Suspense fallback={<DashboardLoading />}>
+                <ManageFeesPage />
+              </Suspense>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/fees-report"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowed={['admin', 'accountant']}>
+              <Suspense fallback={<DashboardLoading />}>
+                <FeesReportPage />
+              </Suspense>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/print-bill"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowed={['admin', 'accountant']}>
+              <Suspense fallback={<DashboardLoading />}>
+                <PrintBillPage />
+              </Suspense>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Academics pages (Admin only) */}
+      <Route
+        path="/dashboard/class-teacher"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowed={['admin']}>
+              <Suspense fallback={<DashboardLoading />}>
+                <ManageClassTeacherPage />
+              </Suspense>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/manage-subjects"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowed={['admin']}>
+              <Suspense fallback={<DashboardLoading />}>
+                <ManageSubjectsPage />
+              </Suspense>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/classes"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowed={['admin']}>
+              <Suspense fallback={<DashboardLoading />}>
+                <ManageClassesPage />
+              </Suspense>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
 
       {/* Profile & Settings */}
-      <Route path="/profile" element={<ProtectedRoute><Suspense fallback={<DashboardLoading />}><Profile /></Suspense></ProtectedRoute>} />
-      <Route path="/settings" element={<ProtectedRoute><Suspense fallback={<DashboardLoading />}><Settings /></Suspense></ProtectedRoute>} />
+      <Route
+        path="/profile"
+        element={
+          <ProtectedRoute>
+            <Suspense fallback={<DashboardLoading />}>
+              <Profile />
+            </Suspense>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <ProtectedRoute>
+            <Suspense fallback={<DashboardLoading />}>
+              <Settings />
+            </Suspense>
+          </ProtectedRoute>
+        }
+      />
 
       {/* Default Redirect */}
       <Route
@@ -145,7 +328,14 @@ const AppRoutes = () => {
       />
 
       {/* 404 Page */}
-      <Route path="*" element={<Suspense fallback={<DashboardLoading />}><NotFound /></Suspense>} />
+      <Route
+        path="*"
+        element={
+          <Suspense fallback={<DashboardLoading />}>
+            <NotFound />
+          </Suspense>
+        }
+      />
     </Routes>
   );
 };

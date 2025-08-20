@@ -11,7 +11,7 @@ export default function SchoolLogin() {
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [userType, setUserType] = useState("teacher");
+  const [userType, setUserType] = useState("teacher"); // 'admin' | 'teacher' | 'headteacher' | 'accountant'
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [error, setError] = useState("");
 
@@ -135,7 +135,7 @@ export default function SchoolLogin() {
             <div className="mb-6 text-center">
               <p className="text-sm text-gray-700 dark:text-gray-300 mb-2 font-medium">Login as:</p>
               <div className="flex justify-center gap-3 flex-wrap">
-                {['admin', 'teacher', 'accountant'].map((type) => (
+                {['admin', 'teacher', 'headteacher', 'accountant'].map((type) => (
                   <button
                     key={type}
                     type="button"
@@ -146,7 +146,7 @@ export default function SchoolLogin() {
                         : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-100 border-gray-300 dark:border-gray-500 hover:bg-gray-100 dark:hover:bg-gray-600'
                     }`}
                   >
-                    {type.charAt(0).toUpperCase() + type.slice(1)}
+                    {type === 'headteacher' ? 'HeadTeacher' : type.charAt(0).toUpperCase() + type.slice(1)}
                   </button>
                 ))}
               </div>
@@ -196,6 +196,20 @@ export default function SchoolLogin() {
               </div>
             </div>
 
+            {/* Demo Mode (optional toggle, kept as your original state) */}
+            {/* If you want this visible, uncomment the block below
+            <div className="mb-4 flex items-center justify-between">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={isDemoMode}
+                  onChange={(e) => setIsDemoMode(e.target.checked)}
+                />
+                Demo mode
+              </label>
+            </div>
+            */}
+
             {/* Submit Button */}
             <button
               onClick={handleSubmit}
@@ -207,7 +221,7 @@ export default function SchoolLogin() {
                   <Loader2 className="animate-spin mr-2 h-4 w-4" /> Logging in...
                 </span>
               ) : (
-                `Sign in as ${userType.charAt(0).toUpperCase() + userType.slice(1)}`
+                `Sign in as ${userType === 'headteacher' ? 'HeadTeacher' : userType.charAt(0).toUpperCase() + userType.slice(1)}`
               )}
             </button>
 

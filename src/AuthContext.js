@@ -103,7 +103,7 @@ export const AuthProvider = ({ children }) => {
     setIsLoading(true);
 
     try {
-      const url = `${API_BASE}/auth/login/?email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`;
+      const url = `${API_BASE}/auth/login/staff/?email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`;
       const response = await fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
 
       const data = await response.json();

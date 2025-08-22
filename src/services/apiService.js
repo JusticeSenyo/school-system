@@ -1,7 +1,8 @@
 // API Service Layer for School SaaS
 // Connects to Oracle Cloud Database APIs
 
-const API_BASE = 'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/school/api/v1';
+export const API_BASE =
+  'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/school/api/v1';
 
 class ApiService {
   constructor() {
@@ -9,50 +10,120 @@ class ApiService {
     this.token = localStorage.getItem('token');
   }
 
-  // Generic request method
-  async request(endpoint, options = {}) {
-    const url = `${this.baseURL}${endpoint}`;
-    const config = {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': this.token ? `Bearer ${this.token}` : '',
-        ...options.headers,
-      },
-      ...options,
-    };
-
-    try {
-      const response = await fetch(url, config);
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.message || `HTTP error! status: ${response.status}`);
-      }
-      
-      return data;
-    } catch (error) {
-      console.error('API Request failed:', error);
-      throw error;
-    }
+  setToken(token) {
+    this.token = token;
+    if (token) localStorage.setItem('token', token);
+    else localStorage.removeItem('token');
   }
 
-  // Authentication Methods
+  clearToken() {
+    this.setToken(null);
+  }
+
+  // Ensure we always pick up the freshest token (e.g., updated by AuthContext)
+  getAuthHeader() {
+    const latest = localStorage.getItem('token') || this.token;
+    if (latest && latest !== this.token) this.token = latest;
+    return this.token ? { Authorization: `Bearer ${this.token}` } : {};
+  }
+
+  async request(endpoint, options = {}) {
+    const url = `${this.baseURL}${endpoint}`;
+
+    const isFormData = options.body instanceof FormData;
+    const baseHeaders = isFormData
+      ? { ...this.getAuthHeader(), ...(options.headers || {}) }
+      : {
+          'Content-Type': 'application/json',
+          ...this.getAuthHeader(),
+          ...(options.headers || {}),
+        };
+
+    const config = {
+      method: options.method || 'GET',
+      ...options,
+      headers: baseHeaders,
+    };
+
+    // Fetch
+    const res = await fetch(url, config);
+
+    // Try to parse JSON even on non-2xx
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      data = null;
+    }
+
+    if (!res.ok) {
+      const message =
+        (data && (data.message || data.error)) ||
+        `HTTP error! status: ${res.status}`;
+      const err = new Error(message);
+      err.status = res.status;
+      err.body = data;
+      throw err;
+    }
+
+    return data;
+  }
+
+  // ------------- Auth -------------
+
+  // UPDATED: use staff login endpoint
   async login(email, password) {
-    return this.request(`/auth/login/?email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`, {
-      method: 'GET',
-    });
+    // ORDS GET with query params (as you’ve been using)
+    return this.request(
+      `/auth/login/staff/?email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`,
+      { method: 'GET' }
+    );
   }
 
   async logout() {
-    return this.request('/auth/logout', {
+    return this.request('/auth/logout', { method: 'POST' });
+  }
+
+  // ---------- Staff (NEW) ----------
+
+  // GET /staff?role=AD&status=ACTIVE&search=kwame
+  async getStaff(filters = {}) {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && String(v).length) params.append(k, v);
+    });
+    const qs = params.toString();
+    return this.request(`/staff${qs ? `?${qs}` : ''}`);
+  }
+
+  // GET /staff/:id
+  async getStaffById(userId) {
+    return this.request(`/staff/${encodeURIComponent(userId)}`);
+  }
+
+  // POST /add/staff/
+  // payload: { creator_user_id, full_name, email, password, role, status }
+  async addStaff(payload) {
+    return this.request('/add/staff/', {
       method: 'POST',
+      body: JSON.stringify(payload),
     });
   }
 
-  // Student Management
+  // PUT /staff/:id
+  // data can include { full_name, email, role, status }
+  async updateStaff(userId, data) {
+    return this.request(`/staff/${encodeURIComponent(userId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // -------- Students --------
+
   async getStudents(filters = {}) {
-    const queryParams = new URLSearchParams(filters).toString();
-    return this.request(`/students?${queryParams}`);
+    const qs = new URLSearchParams(filters).toString();
+    return this.request(`/students${qs ? `?${qs}` : ''}`);
   }
 
   async getStudent(studentId) {
@@ -74,15 +145,14 @@ class ApiService {
   }
 
   async deleteStudent(studentId) {
-    return this.request(`/students/${studentId}`, {
-      method: 'DELETE',
-    });
+    return this.request(`/students/${studentId}`, { method: 'DELETE' });
   }
 
-  // Teacher Management
+  // -------- Teachers --------
+
   async getTeachers(filters = {}) {
-    const queryParams = new URLSearchParams(filters).toString();
-    return this.request(`/teachers?${queryParams}`);
+    const qs = new URLSearchParams(filters).toString();
+    return this.request(`/teachers${qs ? `?${qs}` : ''}`);
   }
 
   async getTeacher(teacherId) {
@@ -103,10 +173,11 @@ class ApiService {
     });
   }
 
-  // Course Management
+  // -------- Courses --------
+
   async getCourses(filters = {}) {
-    const queryParams = new URLSearchParams(filters).toString();
-    return this.request(`/courses?${queryParams}`);
+    const qs = new URLSearchParams(filters).toString();
+    return this.request(`/courses${qs ? `?${qs}` : ''}`);
   }
 
   async getCourse(courseId) {
@@ -138,10 +209,11 @@ class ApiService {
     });
   }
 
-  // Assignment Management
+  // -------- Assignments --------
+
   async getAssignments(filters = {}) {
-    const queryParams = new URLSearchParams(filters).toString();
-    return this.request(`/assignments?${queryParams}`);
+    const qs = new URLSearchParams(filters).toString();
+    return this.request(`/assignments${qs ? `?${qs}` : ''}`);
   }
 
   async getAssignment(assignmentId) {
@@ -173,10 +245,11 @@ class ApiService {
     });
   }
 
-  // Grading System
+  // -------- Grades --------
+
   async getGrades(studentId, filters = {}) {
-    const queryParams = new URLSearchParams(filters).toString();
-    return this.request(`/students/${studentId}/grades?${queryParams}`);
+    const qs = new URLSearchParams(filters).toString();
+    return this.request(`/students/${studentId}/grades${qs ? `?${qs}` : ''}`);
   }
 
   async createGrade(gradeData) {
@@ -197,10 +270,11 @@ class ApiService {
     return this.request(`/courses/${courseId}/gradebook`);
   }
 
-  // Attendance Management
+  // ------ Attendance ------
+
   async getAttendance(filters = {}) {
-    const queryParams = new URLSearchParams(filters).toString();
-    return this.request(`/attendance?${queryParams}`);
+    const qs = new URLSearchParams(filters).toString();
+    return this.request(`/attendance${qs ? `?${qs}` : ''}`);
   }
 
   async recordAttendance(attendanceData) {
@@ -218,14 +292,15 @@ class ApiService {
   }
 
   async getStudentAttendance(studentId, filters = {}) {
-    const queryParams = new URLSearchParams(filters).toString();
-    return this.request(`/students/${studentId}/attendance?${queryParams}`);
+    const qs = new URLSearchParams(filters).toString();
+    return this.request(`/students/${studentId}/attendance${qs ? `?${qs}` : ''}`);
   }
 
-  // Schedule Management
+  // -------- Schedule --------
+
   async getSchedule(filters = {}) {
-    const queryParams = new URLSearchParams(filters).toString();
-    return this.request(`/schedule?${queryParams}`);
+    const qs = new URLSearchParams(filters).toString();
+    return this.request(`/schedule${qs ? `?${qs}` : ''}`);
   }
 
   async createSchedule(scheduleData) {
@@ -242,10 +317,11 @@ class ApiService {
     });
   }
 
-  // Financial Management
+  // -------- Finance --------
+
   async getFinancialRecords(filters = {}) {
-    const queryParams = new URLSearchParams(filters).toString();
-    return this.request(`/finance?${queryParams}`);
+    const qs = new URLSearchParams(filters).toString();
+    return this.request(`/finance${qs ? `?${qs}` : ''}`);
   }
 
   async createPayment(paymentData) {
@@ -266,7 +342,8 @@ class ApiService {
     });
   }
 
-  // Notifications
+  // ------ Notifications ------
+
   async getNotifications(userId) {
     return this.request(`/users/${userId}/notifications`);
   }
@@ -279,12 +356,11 @@ class ApiService {
   }
 
   async markNotificationRead(notificationId) {
-    return this.request(`/notifications/${notificationId}/read`, {
-      method: 'PUT',
-    });
+    return this.request(`/notifications/${notificationId}/read`, { method: 'PUT' });
   }
 
-  // File Management
+  // -------- Files --------
+
   async uploadFile(file, type = 'general') {
     const formData = new FormData();
     formData.append('file', file);
@@ -292,10 +368,8 @@ class ApiService {
 
     return this.request('/files/upload', {
       method: 'POST',
-      headers: {
-        // Don't set Content-Type for FormData, let browser set it
-        'Authorization': this.token ? `Bearer ${this.token}` : '',
-      },
+      // Do not set Content-Type here; browser sets boundary
+      headers: { ...this.getAuthHeader() },
       body: formData,
     });
   }
@@ -305,15 +379,14 @@ class ApiService {
   }
 
   async deleteFile(fileId) {
-    return this.request(`/files/${fileId}`, {
-      method: 'DELETE',
-    });
+    return this.request(`/files/${fileId}`, { method: 'DELETE' });
   }
 
-  // Reports and Analytics
+  // ------ Reports / Analytics ------
+
   async getAnalytics(type, filters = {}) {
-    const queryParams = new URLSearchParams(filters).toString();
-    return this.request(`/analytics/${type}?${queryParams}`);
+    const qs = new URLSearchParams(filters).toString();
+    return this.request(`/analytics/${type}${qs ? `?${qs}` : ''}`);
   }
 
   async generateReport(reportType, filters = {}) {
@@ -324,14 +397,15 @@ class ApiService {
   }
 
   async getReports(filters = {}) {
-    const queryParams = new URLSearchParams(filters).toString();
-    return this.request(`/reports?${queryParams}`);
+    const qs = new URLSearchParams(filters).toString();
+    return this.request(`/reports${qs ? `?${qs}` : ''}`);
   }
 
-  // Communication
+  // ------ Comms ------
+
   async getMessages(userId, filters = {}) {
-    const queryParams = new URLSearchParams(filters).toString();
-    return this.request(`/users/${userId}/messages?${queryParams}`);
+    const qs = new URLSearchParams(filters).toString();
+    return this.request(`/users/${userId}/messages${qs ? `?${qs}` : ''}`);
   }
 
   async sendMessage(messageData) {
@@ -342,8 +416,8 @@ class ApiService {
   }
 
   async getAnnouncements(filters = {}) {
-    const queryParams = new URLSearchParams(filters).toString();
-    return this.request(`/announcements?${queryParams}`);
+    const qs = new URLSearchParams(filters).toString();
+    return this.request(`/announcements${qs ? `?${qs}` : ''}`);
   }
 
   async createAnnouncement(announcementData) {
@@ -353,10 +427,11 @@ class ApiService {
     });
   }
 
-  // Library Management
+  // ------ Library ------
+
   async getBooks(filters = {}) {
-    const queryParams = new URLSearchParams(filters).toString();
-    return this.request(`/library/books?${queryParams}`);
+    const qs = new URLSearchParams(filters).toString();
+    return this.request(`/library/books${qs ? `?${qs}` : ''}`);
   }
 
   async borrowBook(bookId, studentId) {
@@ -367,15 +442,14 @@ class ApiService {
   }
 
   async returnBook(borrowId) {
-    return this.request(`/library/return/${borrowId}`, {
-      method: 'PUT',
-    });
+    return this.request(`/library/return/${borrowId}`, { method: 'PUT' });
   }
 
-  // Exam Management
+  // ------ Exams ------
+
   async getExams(filters = {}) {
-    const queryParams = new URLSearchParams(filters).toString();
-    return this.request(`/exams?${queryParams}`);
+    const qs = new URLSearchParams(filters).toString();
+    return this.request(`/exams${qs ? `?${qs}` : ''}`);
   }
 
   async createExam(examData) {
@@ -392,7 +466,8 @@ class ApiService {
     });
   }
 
-  // Parent Portal
+  // ------ Parent Portal ------
+
   async getParentStudents(parentId) {
     return this.request(`/parents/${parentId}/students`);
   }
@@ -401,25 +476,13 @@ class ApiService {
     return this.request(`/parents/${parentId}/notifications`);
   }
 
-  // Dashboard Data
+  // ------ Dashboard ------
+
   async getDashboardData(userType, userId) {
     return this.request(`/dashboard/${userType}/${userId}`);
   }
-
-  // Update token after login
-  setToken(token) {
-    this.token = token;
-    localStorage.setItem('token', token);
-  }
-
-  // Clear token on logout
-  clearToken() {
-    this.token = null;
-    localStorage.removeItem('token');
-  }
 }
 
-// Create a singleton instance
+// Singleton
 const apiService = new ApiService();
-
 export default apiService;

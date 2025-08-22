@@ -2,16 +2,16 @@
 import React, { useMemo, useRef, useState } from "react";
 import DashboardLayout from "../components/dashboard/DashboardLayout";
 import {
-  Printer, Download, Search, BookOpen, Users, MessageSquare, Send, Phone, Copy
+  Printer, Download, Search, BookOpen, MessageSquare, Send, Phone, Copy, Users
 } from "lucide-react";
 
 /**
- * PrintExamReportPage
- * - Filters: Term, Year, Class, Subject
- * - Student picker with search
- * - Template: Summary / Detailed
- * - Grading scale with live grade compute
- * - Print & Export CSV
+ * PrintExamReportPage (Admin + HeadTeacher)
+ * - Choose Year/Term/Class/Subject/Template
+ * - Pick student (or print all)
+ * - Summary or Detailed template
+ * - CSV export for class
+ * - Share (WhatsApp/SMS/Email) stubs
  *
  * Replace MOCK data with your API later.
  */
@@ -22,14 +22,15 @@ const CLASSES = ["P4", "P5", "JHS 2", "JHS 3"];
 const SUBJECTS = ["Mathematics", "English", "Integrated Science", "ICT"];
 const TEMPLATES = ["Summary", "Detailed"];
 
-// Mock students (replace with backend)
+// Mock students
 const MOCK_STUDENTS = [
   { id: "STU001", name: "Ama Boateng", className: "P4", parentPhone: "+233200000001" },
   { id: "STU002", name: "Kojo Mensah", className: "P4", parentPhone: "+233200000002" },
-  { id: "STU003", name: "Akua Owusu", className: "JHS 2", parentPhone: "+233200000003" },
+  { id: "STU003", name: "Akua Owusu", className: "P5", parentPhone: "+233200000003" },
+  { id: "STU004", name: "Yaw Adjei", className: "JHS 2", parentPhone: "+233200000004" },
 ];
 
-// Mock subject weighting (could also come from Manage Subjects)
+// Subject config (weights & pass mark)
 const SUBJECT_WEIGHTS = {
   Mathematics: { examWeight: 70, classWorkWeight: 30, passMark: 50 },
   English: { examWeight: 70, classWorkWeight: 30, passMark: 50 },
@@ -37,10 +38,10 @@ const SUBJECT_WEIGHTS = {
   ICT: { examWeight: 60, classWorkWeight: 40, passMark: 50 },
 };
 
-// Mock scores (replace with backend results)
+// Mock scores: per student, per subject (0–100 raw)
 const MOCK_SCORES = {
   STU001: {
-    Mathematics: { exam: 78, classwork: 24 }, // out of weight proportions (100-scale each)
+    Mathematics: { exam: 78, classwork: 24 },
     English: { exam: 69, classwork: 26 },
     "Integrated Science": { exam: 65, classwork: 32 },
   },
@@ -54,9 +55,14 @@ const MOCK_SCORES = {
     English: { exam: 76, classwork: 25 },
     ICT: { exam: 80, classwork: 34 },
   },
+  STU004: {
+    Mathematics: { exam: 63, classwork: 29 },
+    English: { exam: 84, classwork: 24 },
+    ICT: { exam: 77, classwork: 31 },
+  },
 };
 
-// Default grading scale
+// Default grading scale (WASSCE-ish)
 const DEFAULT_SCALE = [
   { grade: "A1", min: 80, remark: "Excellent" },
   { grade: "B2", min: 70, remark: "Very Good" },
@@ -77,14 +83,7 @@ export default function PrintExamReportPage() {
   const [template, setTemplate] = useState(TEMPLATES[0]);
   const [q, setQ] = useState("");
 
-  const [selectedStudentId, setSelectedStudentId] = useState(
-    MOCK_STUDENTS.find(s => s.className === klass)?.id || MOCK_STUDENTS[0].id
-  );
-
-  // Optional: Allow custom pass mark / scale override per subject
-  const weights = SUBJECT_WEIGHTS[subject] || { examWeight: 70, classWorkWeight: 30, passMark: 50 };
-  const [scale, setScale] = useState(DEFAULT_SCALE);
-
+  const [scale] = useState(DEFAULT_SCALE); // could make editable
   const previewRef = useRef(null);
 
   const studentsInClass = useMemo(
@@ -100,88 +99,93 @@ export default function PrintExamReportPage() {
     [q, studentsInClass]
   );
 
-  const student =
-    useMemo(() => studentsFiltered.find(s => s.id === selectedStudentId) || studentsFiltered[0], [selectedStudentId, studentsFiltered]);
+  const [selectedStudentId, setSelectedStudentId] = useState(
+    () => studentsInClass[0]?.id || ""
+  );
 
-  const allSubjectsForStudent = useMemo(() => {
-    const scores = MOCK_SCORES[student?.id] || {};
-    return Object.keys(scores);
-  }, [student]);
-
-  const currentScores = useMemo(() => {
-    const scores = MOCK_SCORES[student?.id] || {};
-    // if chosen subject has no score, fallback to first subject for preview
-    if (!scores[subject] && allSubjectsForStudent.length) {
-      return scores[allSubjectsForStudent[0]];
+  // Ensure selected student remains valid when class/search changes
+  React.useEffect(() => {
+    if (!studentsFiltered.find(s => s.id === selectedStudentId)) {
+      setSelectedStudentId(studentsFiltered[0]?.id || "");
     }
-    return scores[subject] || { exam: 0, classwork: 0 };
-  }, [student, subject, allSubjectsForStudent]);
+  }, [studentsFiltered, selectedStudentId]);
 
-  const computed = useMemo(() => {
-    const exam = clamp(currentScores.exam, 0, 100);
-    const cw = clamp(currentScores.classwork, 0, 100);
+  const selectedStudent = useMemo(
+    () => studentsFiltered.find(s => s.id === selectedStudentId) || null,
+    [studentsFiltered, selectedStudentId]
+  );
+
+  const weights = SUBJECT_WEIGHTS[subject] || { examWeight: 70, classWorkWeight: 30, passMark: 50 };
+
+  const computedFor = (stuId) => {
+    const sc = (MOCK_SCORES[stuId] && MOCK_SCORES[stuId][subject]) || { exam: 0, classwork: 0 };
+    const exam = clamp(sc.exam, 0, 100);
+    const cw = clamp(sc.classwork, 0, 100);
     const total = (exam * (weights.examWeight / 100)) + (cw * (weights.classWorkWeight / 100));
-    const gradeObj = gradeFromScale(total, scale);
-    return {
-      exam, cw,
-      total: round2(total),
-      grade: gradeObj.grade,
-      remark: gradeObj.remark,
-      pass: total >= (weights.passMark ?? 50),
-    };
-  }, [currentScores, weights, scale]);
+    const g = gradeFromScale(total, scale);
+    return { exam, cw, total: round2(total), grade: g.grade, remark: g.remark, pass: total >= (weights.passMark ?? 50) };
+  };
 
-  function handlePrint() {
+  const computedSelected = selectedStudent ? computedFor(selectedStudent.id) : null;
+
+  // Actions
+  function handlePrintOne() {
     window.print();
   }
-
-  function exportCsv() {
-    // Export for whole class for the chosen subject
-    const header = "StudentID,StudentName,Class,Term,Year,Subject,Exam,Classwork,Total,Grade,Remark\n";
-    const rows = studentsFiltered.map(s => {
-      const sc = MOCK_SCORES[s.id]?.[subject] || { exam: 0, classwork: 0 };
-      const total = (clamp(sc.exam, 0, 100) * (weights.examWeight / 100)) + (clamp(sc.classwork, 0, 100) * (weights.classWorkWeight / 100));
-      const g = gradeFromScale(total, scale);
-      return `${s.id},${s.name},${klass},${term},${year},${subject},${sc.exam},${sc.classwork},${round2(total)},${g.grade},${g.remark}`;
-    }).join("\n");
-    downloadText(`${klass}_${subject}_${term}_${year}_exam_report.csv`, header + rows, "text/csv");
+  function handlePrintAll() {
+    // We render all student docs below in hidden print area (see PrintAllContainer)
+    window.print();
   }
-
+  function exportCsv() {
+    const header = "StudentID,StudentName,Class,Term,Year,Subject,Exam,Classwork,Total,Grade,Remark\n";
+    const lines = studentsFiltered.map(s => {
+      const c = computedFor(s.id);
+      return `${s.id},${s.name},${klass},${term},${year},${subject},${c.exam},${c.cw},${c.total},${c.grade},${c.remark}`;
+    }).join("\n");
+    downloadText(`${klass}_${subject}_${term}_${year}_exam_report.csv`, header + lines, "text/csv");
+  }
   function copyShareLink() {
-    const link = `https://portal.schoolmasterhub.com/${year}/${term}/${klass}/exam-report/${subject}`;
+    const link = `https://portal.schoolmasterhub.com/${year}/${term}/${klass}/exam-report/${encodeURIComponent(subject)}`;
     navigator.clipboard?.writeText(link);
     alert("Report link copied.");
   }
-
   function sendWhatsApp() {
+    if (!selectedStudent || !computedSelected) return;
     const message = encodeURIComponent(
-      `Exam Report • ${subject} • ${term} ${year}\nStudent: ${student?.name} (${student?.id})\nTotal: ${computed.total} (${computed.grade}) — ${computed.remark}`
+      `Exam Report • ${subject} • ${term} ${year}\nStudent: ${selectedStudent.name} (${selectedStudent.id})\nTotal: ${computedSelected.total} (${computedSelected.grade}) — ${computedSelected.remark}`
     );
-    window.open(`https://wa.me/${(student?.parentPhone || "").replace(/[^\d]/g, "")}?text=${message}`, "_blank", "noopener,noreferrer");
+    window.open(`https://wa.me/${(selectedStudent.parentPhone || "").replace(/[^\d]/g, "")}?text=${message}`, "_blank", "noopener,noreferrer");
   }
-
   function sendSMS() {
     alert("SMS sent (stub). Integrate with your SMS provider here.");
   }
-
   function sendEmail() {
+    if (!selectedStudent || !computedSelected) return;
     const subjectLine = encodeURIComponent(`Exam Report - ${subject} - ${term} ${year}`);
     const body = encodeURIComponent(
-      `Dear Parent,\n\nExam report for ${student?.name} (${student?.id}) in ${student?.className}:\nSubject: ${subject}\nExam: ${computed.exam}\nClasswork: ${computed.cw}\nTotal: ${computed.total}\nGrade: ${computed.grade} (${computed.remark})\n\nThank you.`
+      `Dear Parent,\n\nExam report for ${selectedStudent.name} (${selectedStudent.id}) in ${selectedStudent.className}:\nSubject: ${subject}\nExam: ${computedSelected.exam}\nClasswork: ${computedSelected.cw}\nTotal: ${computedSelected.total}\nGrade: ${computedSelected.grade} (${computedSelected.remark})\n\nThank you.`
     );
     window.location.href = `mailto:?subject=${subjectLine}&body=${body}`;
   }
 
   return (
-    <DashboardLayout title="Print Exam Report" subtitle="Generate and print exam reports for students">
+    <DashboardLayout title="Print Exam Report" subtitle="Generate, share, and print exam results">
       {/* Controls */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 border border-gray-100 dark:border-gray-700 mb-6">
         <div className="grid lg:grid-cols-12 gap-3">
-          <Select className="lg:col-span-2" label="Term" value={term} onChange={setTerm} options={TERMS} />
           <Select className="lg:col-span-2" label="Year" value={year} onChange={setYear} options={YEARS} />
-          <Select className="lg:col-span-2" label="Class" value={klass} onChange={v => { setKlass(v); setSelectedStudentId(MOCK_STUDENTS.find(s => s.className === v)?.id || ""); }} options={CLASSES} />
+          <Select className="lg:col-span-2" label="Term" value={term} onChange={setTerm} options={TERMS} />
+          <Select
+            className="lg:col-span-2"
+            label="Class"
+            value={klass}
+            onChange={(v) => { setKlass(v); }}
+            options={CLASSES}
+          />
           <Select className="lg:col-span-3" label="Subject" value={subject} onChange={setSubject} options={SUBJECTS} />
           <Select className="lg:col-span-3" label="Template" value={template} onChange={setTemplate} options={TEMPLATES} />
+
+          {/* Student search & pick */}
           <div className="lg:col-span-6">
             <label className="text-sm grid gap-1">
               <span className="text-gray-700 dark:text-gray-300">Find Student</span>
@@ -204,8 +208,10 @@ export default function PrintExamReportPage() {
                 value={selectedStudentId}
                 onChange={(e) => setSelectedStudentId(e.target.value)}
               >
-                {studentsFiltered.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name} ({s.id}) — {s.className}</option>
+                {studentsFiltered.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.id}) — {s.className}
+                  </option>
                 ))}
               </select>
             </label>
@@ -214,8 +220,11 @@ export default function PrintExamReportPage() {
 
         {/* Actions */}
         <div className="mt-4 flex flex-wrap gap-2">
-          <button onClick={handlePrint} className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg">
-            <Printer className="h-4 w-4" /> Print Report
+          <button onClick={handlePrintOne} className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg">
+            <Printer className="h-4 w-4" /> Print Selected
+          </button>
+          <button onClick={handlePrintAll} className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-50 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-100 rounded-lg border border-indigo-200 dark:border-indigo-700">
+            <Users className="h-4 w-4" /> Print All (Class)
           </button>
           <button onClick={exportCsv} className="inline-flex items-center gap-2 px-3 py-2 border rounded-lg">
             <Download className="h-4 w-4" /> Export CSV (Class)
@@ -235,34 +244,75 @@ export default function PrintExamReportPage() {
         </div>
       </div>
 
-      {/* Preview / Print area */}
+      {/* Preview: Selected */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-100 dark:border-gray-700">
         <div className="p-4 print:p-0" ref={previewRef}>
-          <ExamReportDocument
-            template={template}
-            term={term}
-            year={year}
-            klass={klass}
-            subject={subject}
-            student={student}
-            weights={weights}
-            computed={computed}
-            scale={scale}
-          />
+          {selectedStudent ? (
+            <ExamReportDocument
+              template={template}
+              term={term}
+              year={year}
+              klass={klass}
+              subject={subject}
+              student={selectedStudent}
+              weights={SUBJECT_WEIGHTS[subject]}
+              computed={computedSelected}
+              scale={scale}
+            />
+          ) : (
+            <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+              No student selected or no results.
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Print-only CSS */}
-      <style>
-        {`
-          @media print {
-            body * { visibility: hidden; }
-            .print-area, .print-area * { visibility: visible; }
-            .print-area { position: absolute; left: 0; top: 0; width: 100%; }
-          }
-        `}
-      </style>
+      {/* Hidden: Print All pages */}
+      <PrintAllContainer>
+        {studentsFiltered.map((s, idx) => {
+          const c = computedFor(s.id);
+          return (
+            <div key={s.id} className="page-break">
+              <ExamReportDocument
+                template={template}
+                term={term}
+                year={year}
+                klass={klass}
+                subject={subject}
+                student={s}
+                weights={SUBJECT_WEIGHTS[subject]}
+                computed={c}
+                scale={scale}
+              />
+              {/* Page break between students when printing */}
+              {idx < studentsFiltered.length - 1 && <div className="print-break" />}
+            </div>
+          );
+        })}
+      </PrintAllContainer>
+
+      {/* Print styles */}
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          .print-area, .print-area * { visibility: visible; }
+          .print-all { display: block; position: absolute; top: 0; left: 0; width: 100%; }
+          .page-break { break-inside: avoid; page-break-inside: avoid; }
+          .print-break { page-break-after: always; break-after: page; }
+        }
+      `}</style>
     </DashboardLayout>
+  );
+}
+
+function PrintAllContainer({ children }) {
+  // Hidden on screen, visible on print-all
+  return (
+    <div className="print-all hidden">
+      <div className="print-area">
+        <div className="max-w-3xl mx-auto">{children}</div>
+      </div>
+    </div>
   );
 }
 
@@ -272,7 +322,7 @@ function ExamReportDocument({ template, term, year, klass, subject, student, wei
     address: "Accra, Ghana",
     phone: "+233 20 000 0000",
     email: "admin@brightfuture.edu",
-    logoUrl: "",
+    logoUrl: "", // set a real logo
   };
 
   return (
@@ -304,47 +354,51 @@ function ExamReportDocument({ template, term, year, klass, subject, student, wei
       </div>
 
       {/* Scores */}
-      <div className="px-6">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-gray-600 dark:text-gray-300 border-b dark:border-gray-700">
-              <th className="py-2">Component</th>
-              <th className="py-2">Weight</th>
-              {template === "Detailed" && <th className="py-2">Raw Score (0-100)</th>}
-              <th className="py-2 text-right">Weighted</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="border-b dark:border-gray-700">
-              <td className="py-2">Examination</td>
-              <td className="py-2">{weights.examWeight}%</td>
-              {template === "Detailed" && <td className="py-2">{computed.exam}</td>}
-              <td className="py-2 text-right">{round2(computed.exam * (weights.examWeight / 100))}</td>
-            </tr>
-            <tr>
-              <td className="py-2">Classwork / Continuous Assessment</td>
-              <td className="py-2">{weights.classWorkWeight}%</td>
-              {template === "Detailed" && <td className="py-2">{computed.cw}</td>}
-              <td className="py-2 text-right">{round2(computed.cw * (weights.classWorkWeight / 100))}</td>
-            </tr>
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colSpan={template === "Detailed" ? 3 : 2} className="pt-3 text-right font-medium">
-                Total
-              </td>
-              <td className="pt-3 text-right font-bold">{computed.total}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+      {computed && (
+        <>
+          <div className="px-6">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-600 dark:text-gray-300 border-b dark:border-gray-700">
+                  <th className="py-2">Component</th>
+                  <th className="py-2">Weight</th>
+                  {template === "Detailed" && <th className="py-2">Raw Score (0-100)</th>}
+                  <th className="py-2 text-right">Weighted</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b dark:border-gray-700">
+                  <td className="py-2">Examination</td>
+                  <td className="py-2">{weights?.examWeight ?? 70}%</td>
+                  {template === "Detailed" && <td className="py-2">{computed.exam}</td>}
+                  <td className="py-2 text-right">{round2((computed.exam) * ((weights?.examWeight ?? 70) / 100))}</td>
+                </tr>
+                <tr>
+                  <td className="py-2">Classwork / Continuous Assessment</td>
+                  <td className="py-2">{weights?.classWorkWeight ?? 30}%</td>
+                  {template === "Detailed" && <td className="py-2">{computed.cw}</td>}
+                  <td className="py-2 text-right">{round2((computed.cw) * ((weights?.classWorkWeight ?? 30) / 100))}</td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={template === "Detailed" ? 3 : 2} className="pt-3 text-right font-medium">
+                    Total
+                  </td>
+                  <td className="pt-3 text-right font-bold">{computed.total}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
 
-      {/* Grade & Remark */}
-      <div className="px-6 py-4 grid sm:grid-cols-3 gap-3">
-        <InfoRow label="Grade" value={computed.grade} />
-        <InfoRow label="Remark" value={computed.remark} />
-        <InfoRow label="Pass Mark" value={`${weights.passMark}%`} />
-      </div>
+          {/* Grade & Remark */}
+          <div className="px-6 py-4 grid sm:grid-cols-3 gap-3">
+            <InfoRow label="Grade" value={computed.grade} />
+            <InfoRow label="Remark" value={computed.remark} />
+            <InfoRow label="Pass Mark" value={`${weights?.passMark ?? 50}%`} />
+          </div>
+        </>
+      )}
 
       {/* Grading Scale */}
       {template === "Detailed" && (
@@ -362,7 +416,7 @@ function ExamReportDocument({ template, term, year, klass, subject, student, wei
                 </tr>
               </thead>
               <tbody>
-                {scale.map(row => (
+                {DEFAULT_SCALE.map(row => (
                   <tr key={row.grade} className="border-t">
                     <td className="p-2">{row.grade}</td>
                     <td className="p-2">{row.min}</td>

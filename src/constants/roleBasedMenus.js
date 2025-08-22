@@ -42,14 +42,6 @@ export const roleBasedMenus = {
       ],
     },
     {
-      label: "Academics",
-      children: [
-        { label: "Manage Class Teacher", path: "/dashboard/class-teacher" },
-        { label: "Manage Subjects", path: "/dashboard/manage-subjects" },
-        { label: "Manage Classes", path: "/dashboard/classes" },
-      ],
-    },
-    {
       label: "Examination",
       children: [
         { label: "Manage Exam Report", path: "/dashboard/manage-exam" },
@@ -88,7 +80,6 @@ export const roleBasedMenus = {
       label: "Examination",
       children: [
         { label: "Manage Exam Report", path: "/dashboard/manage-exam" },
-        { label: "Print Exam Report", path: "/dashboard/print-exam-report" },
       ],
     },
     { label: "Settings", path: "/settings" },

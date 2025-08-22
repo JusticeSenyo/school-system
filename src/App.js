@@ -40,15 +40,22 @@ const ManageStudentsPage = lazy(() => import('./pages/ManageStudentsPage'));
 const AttendancePage = lazy(() => import('./pages/AttendancePage'));
 const ManageAttendancePage = lazy(() => import('./pages/ManageAttendancePage'));
 
-// NEW: Fees pages
+// Fees pages
 const ManageFeesPage = lazy(() => import('./pages/ManageFeesPage'));
 const FeesReportPage = lazy(() => import('./pages/FeesReportPage'));
-const PrintBillPage = lazy(() => import('./pages/PrintBillPage')); // NEW
+const PrintBillPage = lazy(() => import('./pages/PrintBillPage'));
 
-// NEW: Academics (Admin-only)
+// Academics (Admin-only)
 const ManageClassTeacherPage = lazy(() => import('./pages/ManageClassTeacherPage'));
 const ManageSubjectsPage = lazy(() => import('./pages/ManageSubjectsPage'));
 const ManageClassesPage = lazy(() => import('./pages/ManageClassesPage'));
+
+// Examination
+const PrintExamReportPage = lazy(() => import('./pages/PrintExamReportPage')); // Admin + HeadTeacher
+const ManageExamReportPage = lazy(() => import('./pages/ManageExamReportPage')); // HeadTeacher + Teacher ONLY
+
+// HeadTeacher Attendance Report (NEW)
+const AttendanceReportPage = lazy(() => import('./pages/AttendanceReportPage')); // HT only
 
 // Loading fallback UI
 const DashboardLoading = () => (
@@ -79,7 +86,7 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
-// OPTIONAL: Role guard for sensitive routes
+// Role guard for sensitive routes
 const RoleRoute = ({ allowed = [], children }) => {
   const { user } = useAuth();
   const role = normalizeRole(user?.userType);
@@ -114,7 +121,7 @@ const DashboardRouter = () => {
           <AccountantDashboard />
         </Suspense>
       );
-    case 'headteacher': // NEW
+    case 'headteacher':
       return (
         <Suspense fallback={<DashboardLoading />}>
           <HeadTeacherDashboard />
@@ -215,6 +222,20 @@ const AppRoutes = () => {
         }
       />
 
+      {/* HeadTeacher-only: Attendance Report */}
+      <Route
+        path="/dashboard/attendance-report"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowed={['headteacher']}>
+              <Suspense fallback={<DashboardLoading />}>
+                <AttendanceReportPage />
+              </Suspense>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
+
       {/* Fees pages (Admin & Accountant only) */}
       <Route
         path="/dashboard/manage-fees"
@@ -285,6 +306,34 @@ const AppRoutes = () => {
             <RoleRoute allowed={['admin']}>
               <Suspense fallback={<DashboardLoading />}>
                 <ManageClassesPage />
+              </Suspense>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Examination */}
+      {/* Print Exam Report (Admin & HeadTeacher) */}
+      <Route
+        path="/dashboard/print-exam-report"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowed={['admin', 'headteacher']}>
+              <Suspense fallback={<DashboardLoading />}>
+                <PrintExamReportPage />
+              </Suspense>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
+      {/* Manage Exam Report (HeadTeacher & Teacher only) */}
+      <Route
+        path="/dashboard/manage-exam"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowed={['headteacher', 'teacher']}>
+              <Suspense fallback={<DashboardLoading />}>
+                <ManageExamReportPage />
               </Suspense>
             </RoleRoute>
           </ProtectedRoute>

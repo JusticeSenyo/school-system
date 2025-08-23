@@ -2,13 +2,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 import {
-  Download, Upload, PlusCircle, X, Mail, UserCircle2,
+  PlusCircle, X, Mail, UserCircle2,
   Loader2, CheckCircle2, AlertCircle, RotateCcw, Pencil
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
 import { useAuth } from '../AuthContext';
+
+// No Postmark secrets in the frontend anymore.
+// EMAILS ARE SENT VIA: /api/send-postmark  (serverless function on Vercel)
 
 const ROLE_LABELS = { AD: 'Admin', HT: 'Head Teacher', TE: 'Teacher', AC: 'Accountant', SO: 'Owner' };
 const ROLE_OPTIONS = [
@@ -22,31 +22,23 @@ const ROLE_OPTIONS = [
 export default function ManageStaffPage() {
   const { token, user, API_BASE } = useAuth();
 
-  // Resolve IDs from common shapes
   const schoolId =
     user?.school_id ?? user?.schoolId ?? user?.school?.id ?? user?.schoolID ?? user?.SCHOOL_ID ?? null;
-
-  const userId =
-    user?.user_id ?? user?.id ?? user?.USER_ID ?? null;
+  const userId = user?.user_id ?? user?.id ?? user?.USER_ID ?? null;
 
   const [staffList, setStaffList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [filter, setFilter] = useState('');
 
-  // ============ FETCH STAFF (GET /get/staff/?p_school_id=&p_user_id=) ============
+  // ============ FETCH STAFF ============
   const fetchStaff = async () => {
     setLoading(true);
     setLoadError('');
 
-    if (schoolId == null) {
+    if (!schoolId || !userId) {
       setLoading(false);
-      setLoadError('Missing school ID on logged-in user.');
-      return;
-    }
-    if (userId == null) {
-      setLoading(false);
-      setLoadError('Missing user ID on logged-in user.');
+      setLoadError('Missing school ID or user ID on logged-in user.');
       return;
     }
 
@@ -62,19 +54,15 @@ export default function ManageStaffPage() {
         },
       });
 
-      const text = await res.text(); // ORDS may send non-JSON error bodies
+      const text = await res.text();
       let data = null;
-      try { data = JSON.parse(text); } catch {/* ignore non-JSON */}
+      try { data = JSON.parse(text); } catch {}
 
-      if (!res.ok) {
-        throw new Error((data && (data.message || data.error)) || `Failed: ${res.status}`);
-      }
+      if (!res.ok) throw new Error(data?.message || data?.error || `Failed: ${res.status}`);
 
-      // Your handler returns a JSON array [] (per your policy)
       const rows = Array.isArray(data)
         ? data
         : (Array.isArray(data?.items) ? data.items : (Array.isArray(data?.rows) ? data.rows : []));
-
       const mapped = (rows || []).map((r, i) => ({
         id: r.USER_ID ?? r.user_id ?? r.id ?? i,
         name: r.FULL_NAME ?? r.full_name ?? r.name ?? '',
@@ -92,86 +80,56 @@ export default function ManageStaffPage() {
     }
   };
 
-  useEffect(() => {
-    fetchStaff();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schoolId, userId]);
+  useEffect(() => { fetchStaff(); /* eslint-disable-next-line */ }, [schoolId, userId]);
 
   const filtered = useMemo(() => {
     if (!filter) return staffList;
-    return staffList.filter(
-      s => (ROLE_LABELS[s.role] || s.role).toLowerCase() === filter.toLowerCase()
-    );
+    return staffList.filter(s => (ROLE_LABELS[s.role] || s.role).toLowerCase() === filter.toLowerCase());
   }, [staffList, filter]);
 
-  // ============ EXPORTS ============
-  const exportExcel = () => {
-    const rows = filtered.map(s => ({
-      Name: s.name,
-      Role: ROLE_LABELS[s.role] || s.role,
-      Email: s.email,
-      Status: s.status,
-    }));
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Staff');
-    XLSX.writeFile(wb, 'staff_list.xlsx');
+  // ============ SEND EMAIL VIA SERVERLESS ============
+  // Calls /api/send-postmark (created in your repo under /api/send-postmark.js)
+  const sendWelcomeEmail = async ({ full_name, email, role, tempPassword }) => {
+    try {
+      const res = await fetch('/api/send-postmark', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          full_name,
+          email,
+          role: ROLE_LABELS[role] || role,
+          tempPassword
+          // If you didn't set LOGIN_URL/POSTMARK_FROM as env vars on Vercel,
+          // you can optionally pass:
+          // loginUrl: 'https://schoolmasterhub.vercel.app/login',
+          // from: 'kingsford.amoah@johrit.tech'
+        }),
+      });
+
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok || result?.error) {
+        return { ok: false, error: result?.error || `HTTP ${res.status}` };
+      }
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err?.message || 'Network error' };
+    }
   };
 
-  const exportPDF = () => {
-    const doc = new jsPDF();
-    doc.text('Staff List', 14, 12);
-    doc.autoTable({
-      startY: 18,
-      head: [['Name', 'Role', 'Email', 'Status']],
-      body: filtered.map(s => [s.name, ROLE_LABELS[s.role] || s.role, s.email, s.status]),
-    });
-    doc.save('staff_list.pdf');
-  };
-
-  // ============ EXCEL IMPORT (local-only merge) ============
-  const handleUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const data = new Uint8Array(evt.target.result);
-      const workbook = XLSX.read(data, { type: 'array' });
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const json = XLSX.utils.sheet_to_json(sheet);
-      const mapped = json.map((row, i) => ({
-        id: `tmp-${Date.now()}-${i}`,
-        name: row.name || row.full_name || '',
-        email: row.email || '',
-        role: row.role || 'TE',
-        status: row.status || 'ACTIVE',
-      }));
-      setStaffList(prev => [...prev, ...mapped]);
-    };
-    reader.readAsArrayBuffer(file);
-  };
-
-  // ============ ADD / EDIT DIALOG ============
+  // ============ ADD / EDIT ============
   const [isOpen, setIsOpen] = useState(false);
-  const [dialogMode, setDialogMode] = useState('add'); // 'add' | 'edit'
+  const [dialogMode, setDialogMode] = useState('add');
   const [editingId, setEditingId] = useState(null);
 
-  const [form, setForm] = useState({
-    full_name: '',
-    email: '',
-    role: 'TE',
-    status: 'ACTIVE',
-  });
+  const [form, setForm] = useState({ full_name: '', email: '', role: 'TE', status: 'ACTIVE' });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
 
   const resetForm = () => {
     setForm({ full_name: '', email: '', role: 'TE', status: 'ACTIVE' });
-    setFormError('');
-    setFormSuccess('');
-    setEditingId(null);
-    setDialogMode('add');
+    setFormError(''); setFormSuccess('');
+    setEditingId(null); setDialogMode('add');
   };
 
   const validateForm = () => {
@@ -181,14 +139,13 @@ export default function ManageStaffPage() {
     return '';
   };
 
-  // ---------- URLs for ADD / UPDATE ----------
   const buildAddStaffURL = () => {
     const params = new URLSearchParams({
       p_creator_user_id: String(userId ?? ''),
       p_full_name: form.full_name.trim(),
       p_email: form.email.trim().toLowerCase(),
       p_role: form.role,
-      status: form.status || 'ACTIVE', // backend generates password & sends SMS
+      status: form.status || 'ACTIVE',
     });
     return `${API_BASE}/add/staff/?${params.toString()}`;
   };
@@ -204,62 +161,61 @@ export default function ManageStaffPage() {
     return `${API_BASE}/update/staff/?${params.toString()}`;
   };
 
-  const openAdd = () => {
-    resetForm();
-    setDialogMode('add');
-    setIsOpen(true);
-  };
-
+  const openAdd = () => { resetForm(); setDialogMode('add'); setIsOpen(true); };
   const openEdit = (row) => {
     setDialogMode('edit');
     setEditingId(row.id);
-    setForm({
-      full_name: row.name,
-      email: row.email,
-      role: row.role,
-      status: row.status || 'ACTIVE',
-    });
-    setFormError('');
-    setFormSuccess('');
-    setIsOpen(true);
+    setForm({ full_name: row.name, email: row.email, role: row.role, status: row.status || 'ACTIVE' });
+    setFormError(''); setFormSuccess(''); setIsOpen(true);
   };
 
+  // ============ ADD STAFF ============
   const submitAddStaff = async () => {
-    setFormError('');
-    setFormSuccess('');
+    setFormError(''); setFormSuccess('');
     const err = validateForm();
     if (err) { setFormError(err); return; }
     if (!userId) { setFormError('Missing current user ID. Please re-login.'); return; }
 
     setSubmitting(true);
     try {
-      const url = buildAddStaffURL();
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      });
+      const res = await fetch(buildAddStaffURL(), { method: 'GET' });
       const text = await res.text();
       let data = null; try { data = JSON.parse(text); } catch {}
+
       if (!res.ok || data?.success === false) {
-        throw new Error(data?.error || data?.message || `Failed with status ${res.status}`);
+        throw new Error(data?.error || `Failed with status ${res.status}`);
       }
-      // optimistic add
-      setStaffList(prev => ([
-        ...prev,
-        {
-          id: data?.userId || `tmp-${Date.now()}`,
-          name: form.full_name.trim(),
-          role: form.role,
+
+      // optimistic update
+      setStaffList(prev => ([...prev, {
+        id: data?.userId || `tmp-${Date.now()}`,
+        name: form.full_name.trim(),
+        role: form.role,
+        email: form.email.trim().toLowerCase(),
+        status: form.status || 'ACTIVE',
+      }]));
+
+      // temp password can be tempPassword OR temp_password depending on ORDS block
+      const tempPassword = data?.tempPassword ?? data?.temp_password;
+
+      if (tempPassword) {
+        const emailResult = await sendWelcomeEmail({
+          full_name: form.full_name.trim(),
           email: form.email.trim().toLowerCase(),
-          status: form.status || 'ACTIVE',
+          role: form.role,
+          tempPassword
+        });
+
+        if (emailResult.ok) {
+          setFormSuccess('Staff added successfully. Email sent with login details.');
+        } else {
+          setFormSuccess(`Staff added successfully, but email failed: ${emailResult.error}`);
         }
-      ]));
-      setFormSuccess('Staff added successfully. Login SMS will be sent by backend.');
-      setTimeout(async () => {
-        await fetchStaff(); // canonical refresh
-        setIsOpen(false);
-        resetForm();
-      }, 600);
+      } else {
+        setFormSuccess('Staff added successfully.');
+      }
+
+      setTimeout(async () => { await fetchStaff(); setIsOpen(false); resetForm(); }, 800);
     } catch (e) {
       setFormError(e.message || 'Failed to add staff.');
     } finally {
@@ -267,31 +223,25 @@ export default function ManageStaffPage() {
     }
   };
 
+  // ============ UPDATE STAFF ============
   const submitUpdateStaff = async () => {
-    setFormError('');
-    setFormSuccess('');
+    setFormError(''); setFormSuccess('');
     const err = validateForm();
     if (err) { setFormError(err); return; }
     if (!editingId) { setFormError('Missing staff ID.'); return; }
 
     setSubmitting(true);
     try {
-      const url = buildUpdateStaffURL();
-      const res = await fetch(url, {
-        method: 'GET', // matching your GET-based APIs
-        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      });
+      const res = await fetch(buildUpdateStaffURL(), { method: 'GET' });
       const text = await res.text();
       let data = null; try { data = JSON.parse(text); } catch {}
+
       if (!res.ok || data?.success === false) {
-        throw new Error(data?.error || data?.message || `Failed with status ${res.status}`);
+        throw new Error(data?.error || `Failed with status ${res.status}`);
       }
+
       setFormSuccess('Staff updated successfully.');
-      setTimeout(async () => {
-        await fetchStaff();
-        setIsOpen(false);
-        resetForm();
-      }, 600);
+      setTimeout(async () => { await fetchStaff(); setIsOpen(false); resetForm(); }, 600);
     } catch (e) {
       setFormError(e.message || 'Failed to update staff.');
     } finally {
@@ -299,7 +249,7 @@ export default function ManageStaffPage() {
     }
   };
 
-  // keyboard helpers for dialog (Enter to submit, Esc to close)
+  // keyboard helpers
   useEffect(() => {
     if (!isOpen) return;
     const onKey = (e) => {
@@ -311,7 +261,6 @@ export default function ManageStaffPage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, submitting, form, dialogMode]);
 
   const addDisabled = submitting || !!validateForm();
@@ -319,6 +268,7 @@ export default function ManageStaffPage() {
 
   return (
     <DashboardLayout title="Manage Staff" subtitle="View, filter, edit, and manage staff records">
+      {/* Toolbar */}
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex flex-wrap gap-2">
           <select
@@ -327,34 +277,8 @@ export default function ManageStaffPage() {
             className="px-4 py-2 rounded-md text-sm border bg-white dark:bg-gray-900"
           >
             <option value="">All Roles</option>
-            {ROLE_OPTIONS.map((r) => (
-              <option key={r.value} value={r.label}>{r.label}</option>
-            ))}
+            {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.label}>{r.label}</option>)}
           </select>
-
-          <label className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm rounded-md cursor-pointer hover:bg-green-700">
-            <Upload size={16} /> Import Excel
-            <input
-              type="file"
-              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-              onChange={handleUpload}
-              className="hidden"
-            />
-          </label>
-
-          <button
-            onClick={exportExcel}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
-          >
-            <Download size={16} /> Excel
-          </button>
-
-          <button
-            onClick={exportPDF}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
-          >
-            <Download size={16} /> PDF
-          </button>
 
           <button
             onClick={fetchStaff}
@@ -373,10 +297,8 @@ export default function ManageStaffPage() {
         </button>
       </div>
 
-      {/* status */}
-      {loading && (
-        <div className="mb-4 text-sm text-gray-600">Loading staff…</div>
-      )}
+      {/* Status */}
+      {loading && <div className="mb-4 text-sm text-gray-600">Loading staff…</div>}
       {loadError && (
         <div className="mb-4 flex items-start gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
           <AlertCircle className="mt-0.5 h-4 w-4" />
@@ -384,6 +306,7 @@ export default function ManageStaffPage() {
         </div>
       )}
 
+      {/* Table */}
       <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm">
         <table className="min-w-full text-sm">
           <thead className="bg-indigo-100 dark:bg-gray-800">
@@ -435,20 +358,11 @@ export default function ManageStaffPage() {
       {/* Add / Edit Dialog */}
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/50"
-            onClick={() => (submitting ? null : setIsOpen(false))}
-          />
+          <div className="absolute inset-0 bg-black/50" onClick={() => (submitting ? null : setIsOpen(false))} />
           <div className="relative z-10 w-full max-w-lg bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">
-                {dialogMode === 'add' ? 'Add Staff' : 'Edit Staff'}
-              </h3>
-              <button
-                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
-                onClick={() => (submitting ? null : setIsOpen(false))}
-                aria-label="Close"
-              >
+              <h3 className="text-lg font-semibold">{dialogMode === 'add' ? 'Add Staff' : 'Edit Staff'}</h3>
+              <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" onClick={() => (submitting ? null : setIsOpen(false))}>
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -521,11 +435,7 @@ export default function ManageStaffPage() {
               )}
 
               <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  className="px-4 py-2 rounded-lg border"
-                  onClick={() => (submitting ? null : setIsOpen(false))}
-                  disabled={submitting}
-                >
+                <button className="px-4 py-2 rounded-lg border" onClick={() => (submitting ? null : setIsOpen(false))} disabled={submitting}>
                   Cancel
                 </button>
 
@@ -533,8 +443,7 @@ export default function ManageStaffPage() {
                   <button
                     className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60"
                     onClick={submitAddStaff}
-                    disabled={addDisabled}
-                    title={addDisabled ? validateForm() : 'Add staff'}
+                    disabled={submitting || !!validateForm()}
                   >
                     {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlusCircle className="h-4 w-4" />}
                     {submitting ? 'Adding…' : 'Add Staff'}
@@ -543,8 +452,7 @@ export default function ManageStaffPage() {
                   <button
                     className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60"
                     onClick={submitUpdateStaff}
-                    disabled={editDisabled}
-                    title={editDisabled ? validateForm() : 'Update staff'}
+                    disabled={submitting || !!validateForm()}
                   >
                     {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />}
                     {submitting ? 'Updating…' : 'Update Staff'}

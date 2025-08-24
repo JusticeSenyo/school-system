@@ -21,7 +21,7 @@ const ROLE_OPTIONS = [
 const isStrongPwd = (s) => /^(?=.{8,})(?=.*[A-Z])(?=.*[a-z])(?=.*\d).*$/.test(s || '');
 
 // Always send email via the deployment that has Postmark env set
-const EMAIL_API_BASE = 'https://schoolmasterhub-3soh.vercel.app';
+const EMAIL_API_BASE = 'https://schoolmasterhub.vercel.app';
 
 // ORDS endpoints
 const TEMP_PWD_URL =

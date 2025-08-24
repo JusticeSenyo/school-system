@@ -3,12 +3,11 @@ export default async function handler(req, res) {
   // ---- CORS ----
   const ORIGIN_WHITELIST = new Set([
     'http://localhost:3000',
-    'https://schoolmasterhub.vercel.app',
-    'https://schoolmasterhub-3soh.vercel.app',
+    'https://schoolmasterhub.vercel.app'
   ]);
 
   const reqOrigin = req.headers.origin || '';
-  const allowOrigin = ORIGIN_WHITELIST.has(reqOrigin) ? reqOrigin : 'https://schoolmasterhub-3soh.vercel.app';
+  const allowOrigin = ORIGIN_WHITELIST.has(reqOrigin) ? reqOrigin : 'https://schoolmasterhub.vercel.app';
 
   res.setHeader('Access-Control-Allow-Origin', allowOrigin);
   res.setHeader('Vary', 'Origin');

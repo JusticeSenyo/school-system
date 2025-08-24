@@ -1,14 +1,34 @@
 // api/send-postmark.js
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  // --- CORS ---
+  const origin = req.headers.origin || '*';
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Vary', 'Origin'); // caches per-origin
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Max-Age', '86400');
+
+  if (req.method === 'OPTIONS') {
+    // Preflight success
+    return res.status(200).end();
+  }
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
 
   try {
-    const { full_name, email, role, tempPassword, loginUrl, from } = req.body || {};
-    if (!email || !tempPassword) return res.status(400).json({ error: 'Missing email or tempPassword' });
+    const { full_name, email, role, tempPassword, loginUrl, from, replyTo, bcc } = req.body || {};
+    if (!email || !tempPassword) {
+      return res.status(400).json({ error: 'Missing email or tempPassword' });
+    }
 
-    const POSTMARK_TOKEN = process.env.POSTMARK_TOKEN;      // set in Vercel dashboard
+    const POSTMARK_TOKEN = process.env.POSTMARK_TOKEN;
     const POSTMARK_FROM  = from || process.env.POSTMARK_FROM;
     const LOGIN_URL      = loginUrl || process.env.LOGIN_URL || 'https://schoolmasterhub.vercel.app/login';
+
+    if (!POSTMARK_TOKEN) return res.status(500).json({ error: 'POSTMARK_TOKEN not set' });
+    if (!POSTMARK_FROM)  return res.status(500).json({ error: 'POSTMARK_FROM not set' });
 
     const pmRes = await fetch('https://api.postmarkapp.com/email', {
       method: 'POST',
@@ -20,6 +40,8 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         From: POSTMARK_FROM,
         To: email,
+        ...(replyTo ? { ReplyTo: replyTo } : {}),
+        ...(bcc ? { Bcc: bcc } : {}),
         Subject: 'Welcome to SchoolMasterHub',
         HtmlBody: `
           <div style="font-family:Segoe UI,Roboto,Arial,sans-serif;max-width:600px;margin:auto;">

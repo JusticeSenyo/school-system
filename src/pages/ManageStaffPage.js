@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 
+// Role labels
 const ROLE_LABELS = { AD: 'Admin', HT: 'Head Teacher', TE: 'Teacher', AC: 'Accountant', SO: 'Owner' };
 const ROLE_OPTIONS = [
   { value: 'AD', label: 'Admin' },
@@ -16,14 +17,19 @@ const ROLE_OPTIONS = [
   { value: 'SO', label: 'Owner' },
 ];
 
-// strong password check (client)
+// Client-side password strength check
 const isStrongPwd = (s) => /^(?=.{8,})(?=.*[A-Z])(?=.*[a-z])(?=.*\d).*$/.test(s || '');
 
-// base64url (safe for GET query strings)
-const toBase64Url = (s) =>
-  typeof window !== 'undefined'
-    ? btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/,'')
-    : s;
+// In local dev, call the deployed serverless function to avoid 404 on Vite/CRA dev server.
+// In production, same-origin works: '' + '/api/send-postmark'
+const EMAIL_API_BASE =
+  typeof window !== 'undefined' && window.location.hostname === 'localhost'
+    ? 'https://schoolmasterhub-3soh.vercel.app'
+    : '';
+
+// ORDS endpoints
+const TEMP_PWD_URL =
+  'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/school/api/v1/temp_password';
 
 export default function ManageStaffPage() {
   const { token, user, API_BASE } = useAuth();
@@ -57,13 +63,14 @@ export default function ManageStaffPage() {
     }
 
     try {
-      const url = new URL(`${API_BASE}/get/staff/`, window.location.origin);
+      const base = `${API_BASE}/get/staff/`;
+      const url = new URL(base, window.location.origin);
       url.searchParams.set('p_school_id', String(schoolId));
       url.searchParams.set('p_user_id', String(userId));
 
-      // GET only, keep headers simple to avoid preflight
+      // Use simple headers to avoid CORS preflight
       const res = await fetch(url.toString(), {
-        headers: { 'Accept': 'application/json' },
+        headers: { Accept: 'application/json' },
       });
 
       const text = await res.text();
@@ -75,6 +82,7 @@ export default function ManageStaffPage() {
       const rows = Array.isArray(data)
         ? data
         : (Array.isArray(data?.items) ? data.items : (Array.isArray(data?.rows) ? data.rows : []));
+
       const mapped = (rows || []).map((r, i) => ({
         id: r.USER_ID ?? r.user_id ?? r.id ?? i,
         name: r.FULL_NAME ?? r.full_name ?? r.name ?? '',
@@ -101,8 +109,7 @@ export default function ManageStaffPage() {
 
   // ============ TEMP PASSWORD (ORDS API) ============
   const generateTempPassword = async () => {
-    const url = 'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/school/api/v1/temp_password';
-    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    const res = await fetch(TEMP_PWD_URL, { headers: { Accept: 'application/json' } });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data?.success || !data?.tempPassword) {
       throw new Error(data?.error || `Failed to generate password (${res.status})`);
@@ -113,7 +120,8 @@ export default function ManageStaffPage() {
   // ============ SEND EMAIL VIA SERVERLESS ============
   const sendWelcomeEmail = async ({ full_name, email, roleLabel, tempPassword, schoolName, replyTo, bcc }) => {
     try {
-      const res = await fetch('/api/send-postmark', {
+      const endpoint = `${EMAIL_API_BASE}/api/send-postmark`;
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -123,7 +131,7 @@ export default function ManageStaffPage() {
           tempPassword,
           schoolName,
           replyTo,
-          bcc
+          bcc,
         }),
       });
 
@@ -161,28 +169,26 @@ export default function ManageStaffPage() {
     return '';
   };
 
-  // Build GET URL for add/staff with base64url password
-  // Build GET URL for add/staff with URL-encoded password under p_password
-const buildAddStaffURL = () => {
-  const params = new URLSearchParams({
-    p_creator_user_id: String(userId ?? ''),
-    p_full_name: form.full_name.trim(),
-    p_email: form.email.trim().toLowerCase(),
-    p_role: form.role,
-    p_status: form.status || 'ACTIVE',
-    // ⬇️ send EXACTLY p_password; URLSearchParams will encode safely
-    p_password: form.password.trim(),
-  });
+  // Build GET URLs (simple headers to avoid preflight)
+  const buildAddStaffURL = () => {
+    const params = new URLSearchParams({
+      p_creator_user_id: String(userId ?? ''),
+      p_full_name: form.full_name.trim(),
+      p_email: form.email.trim().toLowerCase(),
+      p_role: form.role,
+      p_status: form.status || 'ACTIVE',
+      p_password: form.password.trim(), // send the raw password; ORDS block expects :p_password
+    });
 
-  const base = `${API_BASE}/add/staff/`;
-  try {
-    const url = new URL(base, window.location.origin);
-    url.search = params.toString();
-    return url.toString();
-  } catch {
-    return `${base}?${params.toString()}`;
-  }
-};
+    const base = `${API_BASE}/add/staff/`;
+    try {
+      const url = new URL(base, window.location.origin);
+      url.search = params.toString();
+      return url.toString();
+    } catch {
+      return `${base}?${params.toString()}`;
+    }
+  };
 
   const buildUpdateStaffURL = () => {
     const params = new URLSearchParams({
@@ -233,15 +239,15 @@ const buildAddStaffURL = () => {
     setSubmitting(true);
     try {
       const url = buildAddStaffURL();
-      // GET with simple headers → avoids preflight/CORS headaches
+
       const res = await fetch(url, {
         method: 'GET',
-        headers: { 'Accept': 'application/json' },
+        headers: { Accept: 'application/json' }, // simple header
       });
 
       let data = null;
       let raw = '';
-      try { raw = await res.text(); data = JSON.parse(raw); } catch { /* ORDS might emit non-JSON on error */ }
+      try { raw = await res.text(); data = JSON.parse(raw); } catch {}
 
       if (!res.ok || data?.success === false) {
         const serverMsg = data?.error || raw?.slice(0, 300) || `HTTP ${res.status}`;
@@ -291,7 +297,7 @@ const buildAddStaffURL = () => {
     try {
       const res = await fetch(buildUpdateStaffURL(), {
         method: 'GET',
-        headers: { 'Accept': 'application/json' }, // simple headers only
+        headers: { Accept: 'application/json' }, // simple header
       });
       const text = await res.text();
       let data = null; try { data = JSON.parse(text); } catch {}

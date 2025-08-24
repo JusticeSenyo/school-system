@@ -20,12 +20,8 @@ const ROLE_OPTIONS = [
 // Client-side password strength check
 const isStrongPwd = (s) => /^(?=.{8,})(?=.*[A-Z])(?=.*[a-z])(?=.*\d).*$/.test(s || '');
 
-// In local dev, call the deployed serverless function to avoid 404 on Vite/CRA dev server.
-// In production, same-origin works: '' + '/api/send-postmark'
-const EMAIL_API_BASE =
-  typeof window !== 'undefined' && window.location.hostname === 'localhost'
-    ? 'https://schoolmasterhub-3soh.vercel.app'
-    : '';
+// Always send email via the deployment that has Postmark env set
+const EMAIL_API_BASE = 'https://schoolmasterhub-3soh.vercel.app';
 
 // ORDS endpoints
 const TEMP_PWD_URL =

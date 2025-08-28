@@ -32,6 +32,7 @@ const iconMap = {
   Academics: <BookOpen size={18} />,
   "Manage Class Teacher": <Users size={18} />,
   "Manage Subjects": <BookOpen size={18} />,
+  "Assign Subjects": <BookOpen size={18} />,
   "Manage Classes": <BookOpen size={18} />,
   Examination: <FileCheck size={18} />,
   "Manage Exam Report": <FileCheck size={18} />,

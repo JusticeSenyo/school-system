@@ -1,71 +1,177 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../components/dashboard/DashboardLayout";
-import { Search, Plus, Edit3, Trash2, X, Save, CheckCircle2, Users } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Search, Plus, Edit3, Trash2, X, Save, CheckCircle2, AlertTriangle, Download } from "lucide-react";
+import * as XLSX from "xlsx";
+import { useAuth } from "../AuthContext";
 
-const LEVELS = ["KG", "Primary", "JHS"];
-const STREAMS = ["A", "B", "C"]; // optional stream suffix
+// === ORDS base ===
+const BASE_ORDS = "https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools";
 
-const MOCK_CLASSES = [
-  { id: 1, name: "P4", level: "Primary", stream: "A", capacity: 35, classTeacher: "Mrs. Mensah" },
-  { id: 2, name: "P5", level: "Primary", stream: "B", capacity: 35, classTeacher: "Mr. Owusu" },
-  { id: 3, name: "JHS 2", level: "JHS", stream: "A", capacity: 40, classTeacher: "Ms. Adjei" },
-];
+// Build URLs
+const GET_CLASSES_URL   = (schoolId) => `${BASE_ORDS}/academic/get/classes/?p_school_id=${encodeURIComponent(schoolId)}`;
+const ADD_CLASS_URL     = (schoolId, name) => `${BASE_ORDS}/academic/add/class/?p_school_id=${encodeURIComponent(schoolId)}&p_class_name=${encodeURIComponent(name)}`;
+const UPDATE_CLASS_URL  = (id, schoolId, name) => `${BASE_ORDS}/academic/update/staff/?p_class_id=${encodeURIComponent(id)}&p_school_id=${encodeURIComponent(schoolId)}&p_class_name=${encodeURIComponent(name)}`;
+const DELETE_CLASS_URL  = (id) => `${BASE_ORDS}/academic/delete/class/?p_class_id=${encodeURIComponent(id)}`;
+
+// Small hook to resolve schoolId from auth (with localStorage fallback)
+function useSchoolId() {
+  const { user, token } = useAuth() || {};
+  const fromUser =
+    user?.school_id ??
+    user?.schoolId ??
+    user?.school?.id ??
+    null;
+  const fromStorage = Number(localStorage.getItem("school_id"));
+  const schoolId = Number.isFinite(fromUser) ? fromUser : (Number.isFinite(fromStorage) ? fromStorage : null);
+  return { schoolId, token };
+}
 
 export default function ManageClassesPage() {
-  const [q, setQ] = useState("");
-  const [level, setLevel] = useState("All");
-  const [rows, setRows] = useState(MOCK_CLASSES);
+  const { schoolId, token } = useSchoolId();
 
+  const [q, setQ] = useState("");
+  const [rows, setRows] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [err, setErr] = useState("");
+
+  // Create dialog
   const [openCreate, setOpenCreate] = useState(false);
-  const [createPayload, setCreatePayload] = useState({ name: "", level: LEVELS[1], stream: "A", capacity: 35 });
-  const [editing, setEditing] = useState(null);
+  const [createName, setCreateName] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // Edit dialog
+  const [editing, setEditing] = useState(null); // { id, name }
+  const [updating, setUpdating] = useState(false);
+
+  // Delete dialog
+  const [deletingId, setDeletingId] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const authHeaders = {
+    Accept: "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+
+  async function loadClasses() {
+    if (!schoolId) {
+      setErr("No school selected.");
+      setIsLoading(false);
+      return;
+    }
+    try {
+      setIsLoading(true);
+      setErr("");
+      const res = await fetch(GET_CLASSES_URL(schoolId), { headers: authHeaders });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const mapped = (Array.isArray(data) ? data : []).map(item => ({
+        id: item.class_id,
+        name: item.class_name,
+        createdAt: item.created_at
+      }));
+      setRows(mapped);
+    } catch (e) {
+      setErr(`Failed to load classes: ${e.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => { loadClasses(); /* eslint-disable-next-line */ }, [schoolId]);
 
   const filtered = useMemo(() => {
-    return rows.filter(r =>
-      (level === "All" || r.level === level) &&
-      (q ? r.name.toLowerCase().includes(q.toLowerCase()) : true)
-    );
-  }, [rows, q, level]);
+    return rows.filter(r => (q ? r.name.toLowerCase().includes(q.toLowerCase()) : true));
+  }, [rows, q]);
 
-  function handleCreate() {
-    if (!createPayload.name) return;
-    const next = { id: Math.max(0, ...rows.map(r => r.id)) + 1, ...createPayload, capacity: Number(createPayload.capacity) };
-    setRows(prev => [...prev, next]);
-    setOpenCreate(false);
-    // TODO: POST /academics/classes
+  // Create
+  async function handleCreate() {
+    const name = createName.trim();
+    if (!name || !schoolId) return;
+    try {
+      setSaving(true);
+      const res = await fetch(ADD_CLASS_URL(schoolId, name), { method: "GET", headers: authHeaders });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setOpenCreate(false);
+      setCreateName("");
+      await loadClasses();
+    } catch (e) {
+      alert(`Could not create class: ${e.message}`);
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function handleUpdate() {
-    if (!editing) return;
-    setRows(prev => prev.map(r => r.id === editing.id ? { ...editing, capacity: Number(editing.capacity) } : r));
-    setEditing(null);
-    // TODO: PUT /academics/classes/:id
+  // Update
+  async function handleUpdate() {
+    if (!editing || !editing.name?.trim() || !schoolId) return;
+    try {
+      setUpdating(true);
+      const res = await fetch(UPDATE_CLASS_URL(editing.id, schoolId, editing.name.trim()), { method: "GET", headers: authHeaders });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setEditing(null);
+      await loadClasses();
+    } catch (e) {
+      alert(`Could not update class: ${e.message}`);
+    } finally {
+      setUpdating(false);
+    }
   }
 
-  function handleDelete(id) {
-    setRows(prev => prev.filter(r => r.id !== id));
-    // TODO: DELETE /academics/classes/:id
+  // Delete
+  async function confirmDelete() {
+    if (!deletingId) return;
+    try {
+      setDeleting(true);
+      const res = await fetch(DELETE_CLASS_URL(deletingId), { method: "GET", headers: authHeaders });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setDeletingId(null);
+      await loadClasses();
+    } catch (e) {
+      alert(`Could not delete class: ${e.message}`);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  // Excel export
+  function exportToExcel() {
+    const rowsForExcel = rows.map(r => ({
+      "Class ID": r.id,
+      "Class Name": r.name,
+      "Created": r.createdAt ? new Date(r.createdAt).toLocaleString() : "",
+    }));
+    const ws = XLSX.utils.json_to_sheet(rowsForExcel);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Classes");
+    XLSX.writeFile(wb, "classes.xlsx");
   }
 
   return (
-    <DashboardLayout title="Manage Classes" subtitle="Create classes, set levels and capacities">
+    <DashboardLayout title="Manage Classes" subtitle="Create and manage your classes">
       {/* Controls */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 border border-gray-100 dark:border-gray-700 mb-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div className="flex items-center gap-2">
             <div className="relative">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-              <input value={q} onChange={(e) => setQ(e.target.value)} className="pl-9 pr-3 py-2 border rounded-lg bg-white dark:bg-gray-900 text-sm" placeholder="Search class" />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                className="pl-9 pr-3 py-2 border rounded-lg bg-white dark:bg-gray-900 text-sm"
+                placeholder="Search class"
+              />
             </div>
-            <select value={level} onChange={(e) => setLevel(e.target.value)} className="border rounded-lg px-3 py-2 text-sm">
-              {["All", ...LEVELS].map(l => <option key={l}>{l}</option>)}
-            </select>
           </div>
-          <button onClick={() => setOpenCreate(true)} className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg">
-            <Plus className="h-4 w-4" /> New Class
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => setOpenCreate(true)} className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg" disabled={!schoolId}>
+              <Plus className="h-4 w-4" /> New Class
+            </button>
+            <button onClick={exportToExcel} className="inline-flex items-center gap-2 px-3 py-2 border rounded-lg" disabled={!rows.length}>
+              <Download className="h-4 w-4" /> Download Excel
+            </button>
+          </div>
         </div>
+        {err && <p className="text-rose-600 mt-2 text-sm">{err}</p>}
       </div>
 
       {/* Table */}
@@ -75,44 +181,37 @@ export default function ManageClassesPage() {
             <thead>
               <tr className="text-left text-gray-600 dark:text-gray-300 border-b dark:border-gray-700">
                 <th className="p-3">Class</th>
-                <th className="p-3">Level</th>
-                <th className="p-3">Stream</th>
-                <th className="p-3">Capacity</th>
-                <th className="p-3">Class Teacher</th>
+                <th className="p-3">Created</th>
                 <th className="p-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map(r => (
-                <tr key={r.id} className="border-b last:border-0 dark:border-gray-700">
-                  <td className="p-3 font-medium">{r.name}</td>
-                  <td className="p-3">{r.level}</td>
-                  <td className="p-3">{r.stream}</td>
-                  <td className="p-3">{r.capacity}</td>
-                  <td className="p-3">
-                    {r.classTeacher ? (
-                      <span>{r.classTeacher}</span>
-                    ) : (
-                      <Link to="/dashboard/class-teacher" className="text-indigo-600 hover:underline inline-flex items-center gap-1">
-                        <Users className="h-4 w-4" /> Assign
-                      </Link>
-                    )}
-                  </td>
-                  <td className="p-3">
-                    <div className="flex justify-end gap-2">
-                      <button className="px-2 py-1 border rounded-lg inline-flex items-center gap-1" onClick={() => setEditing({ ...r })}>
-                        <Edit3 className="h-4 w-4" /> Edit
-                      </button>
-                      <button className="px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1" onClick={() => handleDelete(r.id)}>
-                        <Trash2 className="h-4 w-4" /> Delete
-                      </button>
-                    </div>
+              {isLoading ? (
+                <tr>
+                  <td className="p-6 text-center text-gray-500 dark:text-gray-400" colSpan={3}>
+                    Loading classes…
                   </td>
                 </tr>
-              ))}
-              {!filtered.length && (
+              ) : filtered.length ? (
+                filtered.map(r => (
+                  <tr key={r.id} className="border-b last:border-0 dark:border-gray-700">
+                    <td className="p-3 font-medium">{r.name}</td>
+                    <td className="p-3">{r.createdAt ? new Date(r.createdAt).toLocaleString() : "-"}</td>
+                    <td className="p-3">
+                      <div className="flex justify-end gap-2">
+                        <button className="px-2 py-1 border rounded-lg inline-flex items-center gap-1" onClick={() => setEditing({ id: r.id, name: r.name })}>
+                          <Edit3 className="h-4 w-4" /> Edit
+                        </button>
+                        <button className="px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1" onClick={() => setDeletingId(r.id)}>
+                          <Trash2 className="h-4 w-4" /> Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              ) : (
                 <tr>
-                  <td className="p-6 text-center text-gray-500 dark:text-gray-400" colSpan={6}>
+                  <td className="p-6 text-center text-gray-500 dark:text-gray-400" colSpan={3}>
                     No classes found.
                   </td>
                 </tr>
@@ -126,18 +225,17 @@ export default function ManageClassesPage() {
       {openCreate && (
         <Modal title="New Class" onClose={() => setOpenCreate(false)}>
           <div className="grid gap-3">
-            <Input label="Class Name (e.g., P4)" value={createPayload.name} onChange={v => setCreatePayload(s => ({ ...s, name: v }))} />
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Select label="Level" value={createPayload.level} onChange={v => setCreatePayload(s => ({ ...s, level: v }))} options={LEVELS} />
-              <Select label="Stream" value={createPayload.stream} onChange={v => setCreatePayload(s => ({ ...s, stream: v }))} options={STREAMS} />
-              <NumberInput label="Capacity" value={createPayload.capacity} onChange={v => setCreatePayload(s => ({ ...s, capacity: Number(v) }))} />
-            </div>
+            <Input label="Class Name (e.g., Grade 1)" value={createName} onChange={setCreateName} />
             <div className="flex justify-end gap-2 mt-2">
               <button className="px-3 py-2 border rounded-lg inline-flex items-center gap-2" onClick={() => setOpenCreate(false)}>
                 <X className="h-4 w-4" /> Cancel
               </button>
-              <button className="px-3 py-2 bg-indigo-600 text-white rounded-lg inline-flex items-center gap-2" onClick={handleCreate}>
-                <Save className="h-4 w-4" /> Save
+              <button
+                disabled={saving || !schoolId}
+                className="px-3 py-2 bg-indigo-600 text-white rounded-lg inline-flex items-center gap-2 disabled:opacity-60"
+                onClick={handleCreate}
+              >
+                <Save className="h-4 w-4" /> {saving ? "Saving…" : "Save"}
               </button>
             </div>
           </div>
@@ -148,20 +246,44 @@ export default function ManageClassesPage() {
       {editing && (
         <Modal title="Edit Class" onClose={() => setEditing(null)}>
           <div className="grid gap-3">
-            <Input label="Class Name" value={editing.name} onChange={v => setEditing(s => ({ ...s, name: v }))} />
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Select label="Level" value={editing.level} onChange={v => setEditing(s => ({ ...s, level: v }))} options={LEVELS} />
-              <Select label="Stream" value={editing.stream} onChange={v => setEditing(s => ({ ...s, stream: v }))} options={STREAMS} />
-              <NumberInput label="Capacity" value={editing.capacity} onChange={v => setEditing(s => ({ ...s, capacity: Number(v) }))} />
-            </div>
+            <Input label="Class Name" value={editing.name} onChange={(v) => setEditing(s => ({ ...s, name: v }))} />
             <div className="flex justify-end gap-2 mt-2">
               <button className="px-3 py-2 border rounded-lg inline-flex items-center gap-2" onClick={() => setEditing(null)}>
                 <X className="h-4 w-4" /> Cancel
               </button>
-              <button className="px-3 py-2 bg-indigo-600 text-white rounded-lg inline-flex items-center gap-2" onClick={handleUpdate}>
-                <CheckCircle2 className="h-4 w-4" /> Update
+              <button
+                disabled={updating || !schoolId}
+                className="px-3 py-2 bg-indigo-600 text-white rounded-lg inline-flex items-center gap-2 disabled:opacity-60"
+                onClick={handleUpdate}
+              >
+                <CheckCircle2 className="h-4 w-4" /> {updating ? "Updating…" : "Update"}
               </button>
             </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Delete confirm */}
+      {deletingId !== null && (
+        <Modal title="Delete Class" onClose={() => setDeletingId(null)}>
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-1 h-5 w-5 text-amber-500" />
+            <div className="text-sm">
+              <p>Are you sure you want to delete this class?</p>
+              <p className="text-gray-500 mt-1">This action cannot be undone.</p>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 mt-4">
+            <button className="px-3 py-2 border rounded-lg inline-flex items-center gap-2" onClick={() => setDeletingId(null)}>
+              <X className="h-4 w-4" /> Cancel
+            </button>
+            <button
+              disabled={deleting}
+              className="px-3 py-2 bg-rose-600 text-white rounded-lg inline-flex items-center gap-2 disabled:opacity-60"
+              onClick={confirmDelete}
+            >
+              <Trash2 className="h-4 w-4" /> {deleting ? "Deleting…" : "Delete"}
+            </button>
           </div>
         </Modal>
       )}
@@ -189,24 +311,6 @@ function Input({ label, value, onChange }) {
     <label className="text-sm grid gap-1">
       <span className="text-gray-700 dark:text-gray-300">{label}</span>
       <input value={value} onChange={(e) => onChange(e.target.value)} className="border rounded-lg px-3 py-2 bg-white dark:bg-gray-800" />
-    </label>
-  );
-}
-function NumberInput({ label, value, onChange }) {
-  return (
-    <label className="text-sm grid gap-1">
-      <span className="text-gray-700 dark:text-gray-300">{label}</span>
-      <input type="number" value={value} onChange={(e) => onChange(e.target.value)} className="border rounded-lg px-3 py-2 bg-white dark:bg-gray-800" />
-    </label>
-  );
-}
-function Select({ label, value, onChange, options }) {
-  return (
-    <label className="text-sm grid gap-1">
-      <span className="text-gray-700 dark:text-gray-300">{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="border rounded-lg px-3 py-2 bg-white dark:bg-gray-800">
-        {options.map(o => <option key={o}>{o}</option>)}
-      </select>
     </label>
   );
 }

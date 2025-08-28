@@ -18,6 +18,7 @@ export const roleBasedMenus = {
       children: [
         { label: "Manage Class Teacher", path: "/dashboard/class-teacher" },
         { label: "Manage Subjects", path: "/dashboard/manage-subjects" },
+        { label: "Assign Subjects", path: "/dashboard/assign-subjects" },
         { label: "Manage Classes", path: "/dashboard/classes" },
       ],
     },
@@ -109,6 +110,7 @@ export const roleBasedMenus = {
       children: [
         { label: "Manage Class Teacher", path: "/dashboard/class-teacher" },
         { label: "Manage Subjects", path: "/dashboard/manage-subjects" },
+        { label: "Assign Subjects", path: "/dashboard/assign-subjects" },
         { label: "Manage Classes", path: "/dashboard/classes" },
       ],
     },

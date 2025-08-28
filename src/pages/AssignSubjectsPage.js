@@ -1,28 +1,29 @@
 import React, { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../components/dashboard/DashboardLayout";
-import { Search, UserPlus, Edit3, Trash2, X, Save, CheckCircle2, Users, AlertTriangle, RefreshCcw } from "lucide-react";
+import { Search, UserPlus, Edit3, Trash2, X, Save, CheckCircle2, Users, AlertTriangle, RefreshCcw, Download } from "lucide-react";
 import { useAuth } from "../AuthContext";
 
 /** ==== ORDS base & URL builders ==== */
 const BASE_ORDS = "https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools";
 
-/** Report: lists ALL class–tutor by school_id */
-const GET_CLASS_TEACHERS_URL = (schoolId) =>
-  `${BASE_ORDS}/academic/get/class_teacher/?p_school_id=${encodeURIComponent(schoolId)}`;
+/** Report: by school_id (expects STAFF_NAME, SUBJECT_NAME, CLASS_NAME if available) */
+const GET_ASSIGNMENTS_URL = (schoolId) =>
+  `${BASE_ORDS}/academic/get/subject_teacher/?p_school_id=${encodeURIComponent(schoolId)}`;
 
 /** LOVs */
 const GET_CLASSES_LOV_URL  = (schoolId) => `${BASE_ORDS}/academic/get/classes/?p_school_id=${encodeURIComponent(schoolId)}`;
+const GET_SUBJECTS_LOV_URL = (schoolId) => `${BASE_ORDS}/academic/get/subject/?p_school_id=${encodeURIComponent(schoolId)}`;
 const GET_STAFF_LOV_URL    = (schoolId) => `${BASE_ORDS}/staff/get/staff/?p_school_id=${encodeURIComponent(schoolId)}`;
 
-/** CRUD (class teacher) */
-const ADD_CLASS_TEACHER_URL = (schoolId, teacherUserId, classId) =>
-  `${BASE_ORDS}/academic/add/class_teacher/?p_teacher_id=${encodeURIComponent(teacherUserId)}&p_class_id=${encodeURIComponent(classId)}&p_school_id=${encodeURIComponent(schoolId)}`;
+/** CRUD */
+const ADD_ASSIGN_URL = (schoolId, userId, subjectId, classId) =>
+  `${BASE_ORDS}/academic/add/subject_teacher/?p_user_id=${encodeURIComponent(userId)}&p_subject_id=${encodeURIComponent(subjectId)}&p_class_id=${encodeURIComponent(classId)}&p_school_id=${encodeURIComponent(schoolId)}`;
 
-const UPDATE_CLASS_TEACHER_URL = (classTeacherId, teacherUserId, classId) =>
-  `${BASE_ORDS}/academic/update/class_teacher/?p_class_teacher_id=${encodeURIComponent(classTeacherId)}&p_teacher_id=${encodeURIComponent(teacherUserId)}&p_class_id=${encodeURIComponent(classId)}`;
+const UPDATE_ASSIGN_URL = (id, schoolId, userId, subjectId, classId) =>
+  `${BASE_ORDS}/academic/update/subject_teacher/?p_subject_teacher_id=${encodeURIComponent(id)}&p_school_id=${encodeURIComponent(schoolId)}&p_user_id=${encodeURIComponent(userId)}&p_subject_id=${encodeURIComponent(subjectId)}&p_class_id=${encodeURIComponent(classId)}`;
 
-const DELETE_CLASS_TEACHER_URL = (classTeacherId) =>
-  `${BASE_ORDS}/academic/delete/class_teacher/?p_class_teacher_id=${encodeURIComponent(classTeacherId)}`;
+const DELETE_ASSIGN_URL = (id) =>
+  `${BASE_ORDS}/academic/delete/subject_teacher/?p_subject_teacher_id=${encodeURIComponent(id)}`;
 
 /** Resolve schoolId & token from auth (fallback to localStorage) */
 function useSchoolId() {
@@ -33,28 +34,29 @@ function useSchoolId() {
   return { schoolId, token };
 }
 
-export default function ManageClassTutorPage() {
+export default function ManageSubjectTutorAssignmentsPage() {
   const { schoolId, token } = useSchoolId();
 
   // Report rows
-  const [rows, setRows] = useState([]); // [{id, schoolId, classId, userId, staffName, className}]
+  const [rows, setRows] = useState([]); // [{id, classId, subjectId, userId, className, subjectName, tutorName}]
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
   // LOVs
   const [classesLov, setClassesLov] = useState([]);
-  const [tutorsLov, setTutorsLov] = useState([]); // filtered to role = TE
+  const [subjectsLov, setSubjectsLov] = useState([]);
+  const [tutorsLov, setTutorsLov] = useState([]); // role = TE only
 
   // Search
   const [q, setQ] = useState("");
 
   // Create
   const [openCreate, setOpenCreate] = useState(false);
-  const [createPayload, setCreatePayload] = useState({ classId: "", userId: "" });
+  const [createPayload, setCreatePayload] = useState({ classId: "", subjectId: "", userId: "" });
   const [saving, setSaving] = useState(false);
 
   // Edit
-  const [editing, setEditing] = useState(null); // { id, classId, userId }
+  const [editing, setEditing] = useState(null); // { id, classId, subjectId, userId }
   const [updating, setUpdating] = useState(false);
 
   // Delete
@@ -66,7 +68,7 @@ export default function ManageClassTutorPage() {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 
-  /** Load all class–tutor assignments */
+  /** Load all subject-tutor assignments */
   async function loadAssignments() {
     if (!schoolId) {
       setErr("No school selected.");
@@ -76,18 +78,17 @@ export default function ManageClassTutorPage() {
     try {
       setLoading(true);
       setErr("");
-      const res = await fetch(GET_CLASS_TEACHERS_URL(schoolId), { headers: authHeaders });
+      const res = await fetch(GET_ASSIGNMENTS_URL(schoolId), { headers: authHeaders });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const mapped = (Array.isArray(data) ? data : []).map(it => ({
-        id:
-          it.CLASS_TEACHER_ID ?? it.class_teacher_id ??
-          it.TEACHER_SUBJECT_ID ?? it.teacher_subject_id, // tolerate backend label
-        schoolId: it.SCHOOL_ID ?? it.school_id,
-        classId:  it.CLASS_ID  ?? it.class_id,
-        userId:   it.USER_ID   ?? it.user_id, // tutor's user_id
-        staffName: it.STAFF_NAME ?? it.staff_name ?? it.FULL_NAME ?? it.full_name,
+        id: it.TEACHER_SUBJECT_ID ?? it.teacher_subject_id,
+        classId: it.CLASS_ID ?? it.class_id,
+        subjectId: it.SUBJECT_ID ?? it.subject_id,
+        userId: it.USER_ID ?? it.user_id,
         className: it.CLASS_NAME ?? it.class_name,
+        subjectName: it.SUBJECT_NAME ?? it.subject_name ?? it.NAME,
+        tutorName: it.STAFF_NAME ?? it.staff_name ?? it.FULL_NAME ?? it.full_name,
       })).filter(r => r.id != null);
       setRows(mapped);
     } catch (e) {
@@ -97,12 +98,13 @@ export default function ManageClassTutorPage() {
     }
   }
 
-  /** Load LOVs (classes, tutors=role TE) */
+  /** Load LOVs: classes, subjects, tutors (role TE) */
   async function loadLovs() {
     if (!schoolId) return;
-    const [cRes, tRes] = await Promise.all([
+    const [cRes, sRes, tRes] = await Promise.all([
       fetch(GET_CLASSES_LOV_URL(schoolId), { headers: authHeaders }),
-      fetch(GET_STAFF_LOV_URL(schoolId),   { headers: authHeaders }),
+      fetch(GET_SUBJECTS_LOV_URL(schoolId), { headers: authHeaders }),
+      fetch(GET_STAFF_LOV_URL(schoolId), { headers: authHeaders }),
     ]);
 
     if (cRes.ok) {
@@ -110,6 +112,14 @@ export default function ManageClassTutorPage() {
       setClassesLov((Array.isArray(cj) ? cj : []).map(x => ({
         value: x.class_id ?? x.CLASS_ID,
         label: x.class_name ?? x.CLASS_NAME,
+      })).filter(x => x.value != null && x.label));
+    }
+
+    if (sRes.ok) {
+      const sj = await sRes.json();
+      setSubjectsLov((Array.isArray(sj) ? sj : []).map(x => ({
+        value: x.subject_id ?? x.SUBJECT_ID,
+        label: (x.name ?? x.NAME) ?? (x.subject_name ?? x.SUBJECT_NAME),
       })).filter(x => x.value != null && x.label));
     }
 
@@ -135,14 +145,14 @@ export default function ManageClassTutorPage() {
 
   /** Create */
   async function handleCreate() {
-    const { classId, userId } = createPayload;
-    if (!schoolId || !classId || !userId) return;
+    const { classId, subjectId, userId } = createPayload;
+    if (!schoolId || !classId || !subjectId || !userId) return;
     try {
       setSaving(true);
-      const res = await fetch(ADD_CLASS_TEACHER_URL(schoolId, userId, classId), { method: "GET", headers: authHeaders });
+      const res = await fetch(ADD_ASSIGN_URL(schoolId, userId, subjectId, classId), { method: "GET", headers: authHeaders });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setOpenCreate(false);
-      setCreatePayload({ classId: "", userId: "" });
+      setCreatePayload({ classId: "", subjectId: "", userId: "" });
       await loadAssignments();
     } catch (e) {
       alert(`Could not create assignment: ${e.message}`);
@@ -154,11 +164,11 @@ export default function ManageClassTutorPage() {
   /** Update */
   async function handleUpdate() {
     if (!editing) return;
-    const { id, classId, userId } = editing;
-    if (!id || !classId || !userId) return;
+    const { id, classId, subjectId, userId } = editing;
+    if (!id || !schoolId || !classId || !subjectId || !userId) return;
     try {
       setUpdating(true);
-      const res = await fetch(UPDATE_CLASS_TEACHER_URL(id, userId, classId), { method: "GET", headers: authHeaders });
+      const res = await fetch(UPDATE_ASSIGN_URL(id, schoolId, userId, subjectId, classId), { method: "GET", headers: authHeaders });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setEditing(null);
       await loadAssignments();
@@ -174,7 +184,7 @@ export default function ManageClassTutorPage() {
     if (!deletingId) return;
     try {
       setDeleting(true);
-      const res = await fetch(DELETE_CLASS_TEACHER_URL(deletingId), { method: "GET", headers: authHeaders });
+      const res = await fetch(DELETE_ASSIGN_URL(deletingId), { method: "GET", headers: authHeaders });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setDeletingId(null);
       await loadAssignments();
@@ -185,12 +195,44 @@ export default function ManageClassTutorPage() {
     }
   }
 
+  /** Download Excel */
+  async function downloadExcel() {
+    if (!rows.length) {
+      alert("No data to export.");
+      return;
+    }
+    const XLSX = await import("xlsx");
+    const exportRows = rows.map(r => ({
+      ID: r.id,
+      Class: r.className,
+      Subject: r.subjectName,
+      Tutor: r.tutorName,
+    }));
+    const headers = ["ID", "Class", "Subject", "Tutor"];
+    const ws = XLSX.utils.json_to_sheet(exportRows, { header: headers });
+
+    // Autofit widths
+    const colWidths = headers.map(h => {
+      const maxLen = Math.max(h.length, ...exportRows.map(row => (row[h] ? String(row[h]).length : 0)));
+      return { wch: Math.min(Math.max(maxLen + 2, 10), 40) };
+    });
+    ws["!cols"] = colWidths;
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Subject-Tutor Report");
+
+    const now = new Date();
+    const pad = n => String(n).padStart(2, "0");
+    const filename = `subject_tutor_report_${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.xlsx`;
+    XLSX.writeFile(wb, filename);
+  }
+
   /** Client-side search */
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
     if (!t) return rows;
     return rows.filter(r =>
-      [r.className, r.staffName]
+      [r.className, r.tutorName, r.subjectName]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
@@ -199,7 +241,7 @@ export default function ManageClassTutorPage() {
   }, [rows, q]);
 
   return (
-    <DashboardLayout title="Class–Tutor Assignments" subtitle="List, create, update and delete class tutor assignments">
+    <DashboardLayout title="Subject Tutor Assignments" subtitle="Assign tutors to subjects in specific classes">
       {/* Controls */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 border border-gray-100 dark:border-gray-700 mb-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -210,11 +252,14 @@ export default function ManageClassTutorPage() {
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 className="pl-9 pr-3 py-2 border rounded-lg bg-white dark:bg-gray-900 text-sm"
-                placeholder="Search by class / tutor"
+                placeholder="Search by class / subject / tutor"
               />
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button onClick={downloadExcel} disabled={!rows.length} className="px-3 py-2 border rounded-lg inline-flex items-center gap-2 disabled:opacity-60">
+              <Download className="h-4 w-4" /> Download Excel
+            </button>
             <button onClick={loadAssignments} className="px-3 py-2 border rounded-lg inline-flex items-center gap-2">
               <RefreshCcw className="h-4 w-4" /> Refresh
             </button>
@@ -223,7 +268,7 @@ export default function ManageClassTutorPage() {
               className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg"
               disabled={!schoolId}
             >
-              <UserPlus className="h-4 w-4" /> Assign Class Tutor
+              <UserPlus className="h-4 w-4" /> Assign Subject Tutor
             </button>
           </div>
         </div>
@@ -237,6 +282,7 @@ export default function ManageClassTutorPage() {
             <thead>
               <tr className="text-left text-gray-600 dark:text-gray-300 border-b dark:border-gray-700">
                 <th className="p-3">Class</th>
+                <th className="p-3">Subject</th>
                 <th className="p-3">Tutor</th>
                 <th className="p-3 text-right">Actions</th>
               </tr>
@@ -248,12 +294,13 @@ export default function ManageClassTutorPage() {
                 filtered.map(r => (
                   <tr key={r.id} className="border-b last:border-0 dark:border-gray-700">
                     <td className="p-3">{r.className}</td>
-                    <td className="p-3">{r.staffName}</td>
+                    <td className="p-3">{r.subjectName}</td>
+                    <td className="p-3">{r.tutorName}</td>
                     <td className="p-3">
                       <div className="flex justify-end gap-2">
                         <button
                           className="px-2 py-1 border rounded-lg inline-flex items-center gap-1"
-                          onClick={() => setEditing({ id: r.id, classId: r.classId, userId: r.userId })}
+                          onClick={() => setEditing({ id: r.id, classId: r.classId, subjectId: r.subjectId, userId: r.userId })}
                         >
                           <Edit3 className="h-4 w-4" /> Edit
                         </button>
@@ -277,16 +324,17 @@ export default function ManageClassTutorPage() {
 
       {/* Create */}
       {openCreate && (
-        <Modal title="Assign Class Tutor" icon={<Users className="h-5 w-5" />} onClose={() => setOpenCreate(false)}>
+        <Modal title="Assign Subject Tutor" icon={<Users className="h-5 w-5" />} onClose={() => setOpenCreate(false)}>
           <div className="grid gap-3">
-            <Select label="Class" options={classesLov} value={createPayload.classId} onChange={v => setCreatePayload(s => ({ ...s, classId: v }))} placeholder="Select class" />
-            <Select label="Tutor" options={tutorsLov} value={createPayload.userId} onChange={v => setCreatePayload(s => ({ ...s, userId: v }))} placeholder="Select tutor" />
+            <Select label="Class"   options={classesLov}  value={createPayload.classId}   onChange={v => setCreatePayload(s => ({ ...s, classId: v }))}   placeholder="Select class" />
+            <Select label="Subject" options={subjectsLov} value={createPayload.subjectId} onChange={v => setCreatePayload(s => ({ ...s, subjectId: v }))} placeholder="Select subject" />
+            <Select label="Tutor"   options={tutorsLov}   value={createPayload.userId}    onChange={v => setCreatePayload(s => ({ ...s, userId: v }))}    placeholder="Select tutor" />
             <div className="flex justify-end gap-2 mt-2">
               <button className="px-3 py-2 border rounded-lg inline-flex items-center gap-2" onClick={() => setOpenCreate(false)}>
                 <X className="h-4 w-4" /> Cancel
               </button>
               <button
-                disabled={saving || !createPayload.classId || !createPayload.userId}
+                disabled={saving || !createPayload.classId || !createPayload.subjectId || !createPayload.userId}
                 className="px-3 py-2 bg-indigo-600 text-white rounded-lg inline-flex items-center gap-2 disabled:opacity-60"
                 onClick={handleCreate}
               >
@@ -299,16 +347,17 @@ export default function ManageClassTutorPage() {
 
       {/* Edit */}
       {editing && (
-        <Modal title="Edit Assignment" icon={<Edit3 className="h-5 w-5" />} onClose={() => setEditing(null)}>
+        <Modal title="Edit Subject Tutor" icon={<Edit3 className="h-5 w-5" />} onClose={() => setEditing(null)}>
           <div className="grid gap-3">
-            <Select label="Class" options={classesLov} value={editing.classId ?? ""} onChange={v => setEditing(s => ({ ...s, classId: v }))} placeholder="Select class" />
-            <Select label="Tutor" options={tutorsLov} value={editing.userId ?? ""} onChange={v => setEditing(s => ({ ...s, userId: v }))} placeholder="Select tutor" />
+            <Select label="Class"   options={classesLov}  value={editing.classId ?? ""}   onChange={v => setEditing(s => ({ ...s, classId: v }))}   placeholder="Select class" />
+            <Select label="Subject" options={subjectsLov} value={editing.subjectId ?? ""} onChange={v => setEditing(s => ({ ...s, subjectId: v }))} placeholder="Select subject" />
+            <Select label="Tutor"   options={tutorsLov}   value={editing.userId ?? ""}    onChange={v => setEditing(s => ({ ...s, userId: v }))}    placeholder="Select tutor" />
             <div className="flex justify-end gap-2 mt-2">
               <button className="px-3 py-2 border rounded-lg inline-flex items-center gap-2" onClick={() => setEditing(null)}>
                 <X className="h-4 w-4" /> Cancel
               </button>
               <button
-                disabled={updating || !editing.classId || !editing.userId}
+                disabled={updating || !editing.classId || !editing.subjectId || !editing.userId}
                 className="px-3 py-2 bg-indigo-600 text-white rounded-lg inline-flex items-center gap-2 disabled:opacity-60"
                 onClick={handleUpdate}
               >
@@ -325,7 +374,7 @@ export default function ManageClassTutorPage() {
           <div className="flex items-start gap-3">
             <AlertTriangle className="mt-1 h-5 w-5 text-amber-500" />
             <div className="text-sm">
-              <p>Are you sure you want to delete this class tutor assignment?</p>
+              <p>Are you sure you want to delete this subject tutor assignment?</p>
               <p className="text-gray-500 mt-1">This action cannot be undone.</p>
             </div>
           </div>

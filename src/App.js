@@ -7,6 +7,7 @@ import SchoolLogin from './SchoolLogin';
 import SignUpPage from './pages/SignUpPage';
 import OnboardingDashboard from './pages/OnboardingDashboard';
 import AddUsersPage from './pages/AddUsersPage';
+import AssignSubjectsPage from './pages/AssignSubjectsPage';
 import AddClassesSubjectsPage from './pages/AddClassesSubjectsPage';
 import AddFeesPage from './pages/AddFeesPage';
 import AddStudentsPage from './pages/AddStudentsPage';
@@ -294,6 +295,18 @@ const AppRoutes = () => {
             <RoleRoute allowed={['admin']}>
               <Suspense fallback={<DashboardLoading />}>
                 <ManageSubjectsPage />
+              </Suspense>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/assign-subjects"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowed={['admin']}>
+              <Suspense fallback={<DashboardLoading />}>
+                <AssignSubjectsPage />
               </Suspense>
             </RoleRoute>
           </ProtectedRoute>

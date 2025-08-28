@@ -1,3 +1,4 @@
+// src/AuthContext.js
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext();
@@ -8,6 +9,46 @@ export const useAuth = () => {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
+};
+
+// ---- Safe API base & joiner (prevents double slashes) ----
+const API_BASE_RAW =
+  'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/';
+// Ensure exactly one trailing slash
+const API_BASE = API_BASE_RAW.replace(/\/+$/, '') + '/';
+
+const buildApiUrl = (path = '', params = {}) => {
+  // strip any leading slashes from path
+  const cleanPath = String(path).replace(/^\/+/, '');
+  const url = new URL(cleanPath, API_BASE);
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
+  });
+  return url.toString();
+};
+
+// ---- Error helpers (nicer Oracle/ORDS messages) ----
+const mapOracleError = (text = '') => {
+  const t = String(text);
+  if (/ORDS-25001/i.test(t)) return 'Server error in REST handler (ORDS-25001). Check required parameters / SQL/PLSQL.';
+  if (/ORA-00001/i.test(t)) return 'Unique constraint: the value already exists (e.g., email).';
+  if (/ORA-01400/i.test(t)) return 'A required value was missing (NULL into NOT NULL).';
+  if (/ORA-12899/i.test(t)) return 'Value too long for column (exceeds size).';
+  if (/ORA-06502|numeric or value error/i.test(t)) return 'Numeric or value error (type/length).';
+  if (/ORA-00904|invalid identifier/i.test(t)) return 'Invalid column/identifier (backend mismatch).';
+  if (/ORA-00907|ORA-00933|ORA-00936/i.test(t)) return 'SQL syntax error in backend.';
+  if (/ORA-01036|illegal variable name|number/i.test(t)) return 'Bind variable mismatch in backend.';
+  return null;
+};
+
+const parseMaybeJson = async (res) => {
+  const raw = await res.text();
+  try {
+    const json = JSON.parse(raw);
+    return { json, raw };
+  } catch {
+    return { json: null, raw };
+  }
 };
 
 export const AuthProvider = ({ children }) => {
@@ -21,16 +62,14 @@ export const AuthProvider = ({ children }) => {
     }
   });
 
-  const API_BASE = 'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/school/api/v1';
-
   // Only allow app-supported roles (excluding student)
   const mapRole = (apiRole) => {
     const roleMap = {
-      'TE': 'teacher',
-      'AD': 'admin',
-      'AC': 'accountant',
-      'HT': 'headteacher',
-      'SO': 'owner'
+      TE: 'teacher',
+      AD: 'admin',
+      AC: 'accountant',
+      HT: 'headteacher',
+      SO: 'owner',
     };
     return roleMap[apiRole] || null;
   };
@@ -76,48 +115,67 @@ export const AuthProvider = ({ children }) => {
   const handleApiError = (error, operation = 'API call') => {
     console.error(`${operation} error:`, error);
 
-    if (error.message.includes('NetworkError') || error.message.includes('fetch')) {
+    const msg = String(error?.message || '');
+    // Browser CORS/network hints
+    if (msg.includes('NetworkError') || msg.includes('fetch')) {
       return {
         success: false,
-        error: 'Connection blocked by browser security (CORS). Please contact your system administrator.',
-        type: 'cors'
+        error:
+          'Connection blocked or failed (possibly CORS). Contact your system administrator or check your network.',
+        type: 'cors_or_network',
       };
     }
 
-    if (error.name === 'TypeError' && error.message.includes('fetch')) {
-      return {
-        success: false,
-        error: 'Unable to connect to the server. Check your internet connection.',
-        type: 'network'
-      };
+    const mapped = mapOracleError(msg);
+    if (mapped) {
+      return { success: false, error: mapped, type: 'db' };
     }
 
     return {
       success: false,
-      error: error.message || 'An unexpected error occurred.',
-      type: 'unknown'
+      error: msg || 'An unexpected error occurred.',
+      type: 'unknown',
     };
   };
 
+  // ---- Login (GET; avoid Content-Type header to prevent preflight) ----
   const login = async (email, password, selectedUserType = null, isDemoMode = false) => {
     setIsLoading(true);
-
     try {
-      const url = `${API_BASE}/auth/login/staff/?email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`;
-      const response = await fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+      const url = buildApiUrl('staff/login/staff/', {
+        email: String(email || ''),
+        password: String(password || ''),
+      });
 
-      const data = await response.json();
+      const response = await fetch(url, {
+        method: 'GET',
+        // IMPORTANT: no 'Content-Type' on GET => avoid preflight
+        headers: { Accept: 'application/json' },
+      });
+
+      const { json, raw } = await parseMaybeJson(response);
+      const data = json ?? {};
+
+      if (!response.ok) {
+        const mapped = mapOracleError(JSON.stringify(data) || raw);
+        setIsLoading(false);
+        return {
+          success: false,
+          error: mapped || data?.message || `Login failed (HTTP ${response.status})`,
+          type: 'auth_failed',
+        };
+      }
 
       if (data.success && data.user) {
         const apiRole = mapRole(data.user.role);
 
-        // Block login if role is not supported in this app (e.g. ST)
+        // Block login if role not supported (e.g., ST)
         if (!apiRole) {
           setIsLoading(false);
           return {
             success: false,
-            error: `This login type is not supported in this system.`,
-            type: 'role_unsupported'
+            error: 'This login type is not supported in this system.',
+            type: 'role_unsupported',
           };
         }
 
@@ -125,8 +183,8 @@ export const AuthProvider = ({ children }) => {
           setIsLoading(false);
           return {
             success: false,
-            error: `Invalid login! Your account is registered as ${apiRole}, but you selected ${selectedUserType}. Please select the correct role or enable Demo Mode to test.`,
-            type: 'role_mismatch'
+            error: `Invalid login! Your account is registered as ${apiRole}, but you selected ${selectedUserType}.`,
+            type: 'role_mismatch',
           };
         }
 
@@ -138,13 +196,13 @@ export const AuthProvider = ({ children }) => {
           fullName: data.user.fullName,
           name: data.user.fullName,
           userType: finalRole,
-          apiRole: apiRole,
+          apiRole,
           originalRole: data.user.role,
           schoolId: data.user.schoolId,
           avatar: getAvatar(finalRole),
           isRoleMismatch: !!selectedUserType && selectedUserType !== apiRole,
-          isDemoMode: isDemoMode,
-          permissions: getUserPermissions(data.user.role)
+          isDemoMode,
+          permissions: getUserPermissions(data.user.role),
         };
 
         setUser(userData);
@@ -159,7 +217,7 @@ export const AuthProvider = ({ children }) => {
         return {
           success: false,
           error: data.message || 'Invalid credentials',
-          type: 'auth_failed'
+          type: 'auth_failed',
         };
       }
     } catch (error) {
@@ -175,27 +233,56 @@ export const AuthProvider = ({ children }) => {
     removeFromStorage('token');
   };
 
+  /**
+   * apiCall(endpoint, { method, headers, body, skipAuth })
+   * - Uses safe builder to avoid //
+   * - Avoids Content-Type on GET/HEAD (reduces CORS preflights)
+   * - If skipAuth=true, omits Authorization header (for public endpoints)
+   */
   const apiCall = async (endpoint, options = {}) => {
-    const url = `${API_BASE}${endpoint}`;
-    const config = {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': token ? `Bearer ${token}` : '',
-        ...options.headers,
-      },
-    };
+    const { skipAuth = false, params, ...rest } = options || {};
+    const url = buildApiUrl(endpoint, params);
+
+    // Build headers
+    const baseHeaders = { Accept: 'application/json' };
+    const finalHeaders = { ...baseHeaders, ...(rest.headers || {}) };
+
+    // Add Authorization only if not skipped and we have a token
+    if (!skipAuth && token) {
+      finalHeaders.Authorization = `Bearer ${token}`;
+    }
+
+    // Only set Content-Type if we actually send a JSON body
+    const hasBody = rest.body !== undefined && rest.body !== null;
+    const method = (rest.method || 'GET').toUpperCase();
+
+    if (hasBody && method !== 'GET' && method !== 'HEAD') {
+      finalHeaders['Content-Type'] = finalHeaders['Content-Type'] || 'application/json';
+    } else {
+      // Ensure we don't set JSON Content-Type on GET/HEAD
+      if (finalHeaders['Content-Type'] === 'application/json') {
+        delete finalHeaders['Content-Type'];
+      }
+    }
 
     try {
-      const response = await fetch(url, config);
+      const response = await fetch(url, { ...rest, method, headers: finalHeaders });
 
       if (response.status === 401) {
         logout();
         return { success: false, error: 'Session expired. Please login again.' };
       }
 
-      const data = await response.json();
-      return data;
+      const { json, raw } = await parseMaybeJson(response);
+      if (!response.ok) {
+        const mapped = mapOracleError(JSON.stringify(json) || raw);
+        return {
+          success: false,
+          error: mapped || json?.message || `Request failed (HTTP ${response.status})`,
+        };
+      }
+
+      return json ?? { success: true };
     } catch (error) {
       return handleApiError(error, 'API call');
     }
@@ -211,25 +298,22 @@ export const AuthProvider = ({ children }) => {
     isAuthenticated,
     isLoading,
     apiCall,
-    API_BASE
+    API_BASE,
+    buildApiUrl, // expose for other modules (so everyone joins paths the same way)
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
+// ---- Permissions / Avatars (unchanged) ----
 const getUserPermissions = (apiRole) => {
   const permissions = {
-    'AD': ['manage_users', 'view_reports', 'system_settings', 'manage_courses', 'view_all_data'],
-    'TE': ['manage_classes', 'grade_students', 'view_student_data', 'manage_assignments'],
-    'AC': ['manage_fees', 'view_fees', 'view_bills'],
-    'HT': ['manage_teachers', 'monitor_students', 'review_exams'],
-    'SO': ['manage_school', 'access_all', 'review_finances']
+    AD: ['manage_users', 'view_reports', 'system_settings', 'manage_courses', 'view_all_data'],
+    TE: ['manage_classes', 'grade_students', 'view_student_data', 'manage_assignments'],
+    AC: ['manage_fees', 'view_fees', 'view_bills'],
+    HT: ['manage_teachers', 'monitor_students', 'review_exams'],
+    SO: ['manage_school', 'access_all', 'review_finances'],
   };
-
   return permissions[apiRole] || [];
 };
 

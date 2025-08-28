@@ -2,7 +2,7 @@
 // Connects to Oracle Cloud Database APIs
 
 export const API_BASE =
-  'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/school/api/v1';
+  'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/';
 
 class ApiService {
   constructor() {

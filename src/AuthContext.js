@@ -139,12 +139,34 @@ export const AuthProvider = ({ children }) => {
   };
 
   // ---- Login (GET; avoid Content-Type header to prevent preflight) ----
-  const login = async (email, password, selectedUserType = null, isDemoMode = false) => {
+  /**
+   * login(email, password, selectedUserType, isDemoMode, schoolId)
+   * ORDS endpoint: staff/login/staff/ expects :email, :password, :p_school_id
+   */
+  const login = async (
+    email,
+    password,
+    selectedUserType = null,
+    isDemoMode = false,
+    schoolId // <-- required as p_school_id
+  ) => {
     setIsLoading(true);
+
     try {
+      // Guard against missing school id
+      if (schoolId === undefined || schoolId === null || schoolId === '') {
+        setIsLoading(false);
+        return {
+          success: false,
+          error: 'Please select your school before logging in.',
+          type: 'validation',
+        };
+      }
+
       const url = buildApiUrl('staff/login/staff/', {
         email: String(email || ''),
         password: String(password || ''),
+        p_school_id: String(schoolId),
       });
 
       const response = await fetch(url, {
@@ -190,6 +212,12 @@ export const AuthProvider = ({ children }) => {
 
         const finalRole = selectedUserType || apiRole;
 
+        // Prefer schoolId from API if present; otherwise use the one the user picked
+        const resolvedSchoolId =
+          data.user.schoolId ??
+          data.user.school_id ??
+          (Number.isNaN(Number(schoolId)) ? schoolId : Number(schoolId));
+
         const userData = {
           id: data.user.id,
           email: data.user.email,
@@ -198,7 +226,7 @@ export const AuthProvider = ({ children }) => {
           userType: finalRole,
           apiRole,
           originalRole: data.user.role,
-          schoolId: data.user.schoolId,
+          schoolId: resolvedSchoolId,
           avatar: getAvatar(finalRole),
           isRoleMismatch: !!selectedUserType && selectedUserType !== apiRole,
           isDemoMode,
@@ -216,7 +244,7 @@ export const AuthProvider = ({ children }) => {
         setIsLoading(false);
         return {
           success: false,
-          error: data.message || 'Invalid credentials',
+          error: data?.message || 'Invalid credentials',
           type: 'auth_failed',
         };
       }
@@ -234,7 +262,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   /**
-   * apiCall(endpoint, { method, headers, body, skipAuth })
+   * apiCall(endpoint, { method, headers, body, params, skipAuth })
    * - Uses safe builder to avoid //
    * - Avoids Content-Type on GET/HEAD (reduces CORS preflights)
    * - If skipAuth=true, omits Authorization header (for public endpoints)
@@ -305,7 +333,7 @@ export const AuthProvider = ({ children }) => {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-// ---- Permissions / Avatars (unchanged) ----
+// ---- Permissions / Avatars ----
 const getUserPermissions = (apiRole) => {
   const permissions = {
     AD: ['manage_users', 'view_reports', 'system_settings', 'manage_courses', 'view_all_data'],

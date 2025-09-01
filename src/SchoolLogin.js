@@ -1,27 +1,122 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect, useMemo } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
-  Eye, EyeOff, Mail, Lock, GraduationCap, Users, BookOpen,
-  Shield, Loader2, AlertCircle, Sun, Moon
+  Eye, EyeOff, Mail, Lock, GraduationCap,
+  Users, BookOpen, Shield, Loader2, AlertCircle, Sun, Moon, Search
 } from "lucide-react";
 import { useAuth } from './AuthContext';
 import { useTheme } from './contexts/ThemeContext';
+
+// Read-only LOV
+const LOV_READ_ONLY = true;
+
+// ORDS endpoint (returns [{ school_name, school_id, created_at }, ...])
+const SCHOOLS_LIST_ENDPOINT =
+  "https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/academic/get/school/";
 
 export default function SchoolLogin() {
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [userType, setUserType] = useState("teacher"); // 'admin' | 'teacher' | 'headteacher' | 'accountant'
+
+  // School LOV
+  const [schools, setSchools] = useState([]);
+  const [schoolId, setSchoolId] = useState(""); // p_school_id (string for UI)
+  const [isLoadingSchools, setIsLoadingSchools] = useState(false);
+
+  // interactive LOV state (only used if LOV_READ_ONLY = false)
+  const [lovQuery, setLovQuery] = useState("");
+
+  const [userType, setUserType] = useState("teacher");
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [error, setError] = useState("");
 
   const { login, isLoading } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // On mount, read p_school_id from URL and set it (takes precedence over saved/default)
+  useEffect(() => {
+    const sidFromUrl = searchParams.get("p_school_id");
+    if (sidFromUrl) {
+      setSchoolId(String(sidFromUrl));
+    }
+  }, [searchParams]);
+
+  // Load schools for LOV
+  useEffect(() => {
+    const loadSchools = async () => {
+      try {
+        setIsLoadingSchools(true);
+        const res = await fetch(SCHOOLS_LIST_ENDPOINT, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+        });
+        const data = await res.json();
+
+        const mapped = (Array.isArray(data) ? data : [])
+          .map((r) => ({ id: r.school_id, name: r.school_name }))
+          .filter((x) => x.id != null && x.name);
+
+        mapped.sort((a, b) => a.name.localeCompare(b.name));
+        setSchools(mapped);
+
+        // Decide which school to show:
+        const sidFromUrl = searchParams.get("p_school_id");
+
+        if (sidFromUrl) {
+          // If URL specifies an id, always prefer it
+          setSchoolId(String(sidFromUrl));
+        } else {
+          // Otherwise restore last used or pick the first
+          try {
+            const saved = localStorage.getItem("last_school_id");
+            if (saved && mapped.some((s) => String(s.id) === String(saved))) {
+              setSchoolId(saved);
+            } else if (mapped.length > 0) {
+              setSchoolId(String(mapped[0].id));
+            }
+          } catch {
+            if (mapped.length > 0) setSchoolId(String(mapped[0].id));
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load schools:", e);
+        setSchools([]);
+        // Keep any schoolId that came from URL so read-only LOV can still show it
+      } finally {
+        setIsLoadingSchools(false);
+      }
+    };
+
+    loadSchools();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // load once
+
+  // Resolve the display name for the read-only LOV
+  const resolvedSchoolName = useMemo(() => {
+    const found = schools.find((s) => String(s.id) === String(schoolId));
+    if (found) return found.name;
+    if (!schoolId) return "";
+    // Fallback if the URL id isn't in the fetched list
+    return `School ID: ${schoolId}`;
+  }, [schools, schoolId]);
+
+  // Filtered list for interactive LOV (only if enabled)
+  const filteredSchools = useMemo(() => {
+    if (!lovQuery) return schools;
+    const q = lovQuery.toLowerCase();
+    return schools.filter((s) => s.name.toLowerCase().includes(q));
+  }, [schools, lovQuery]);
 
   const handleSubmit = async () => {
     setError("");
 
+    if (!schoolId) {
+      setError("Please select your school.");
+      return;
+    }
     if (!email || !password) {
       setError("Please fill in all fields");
       return;
@@ -34,9 +129,14 @@ export default function SchoolLogin() {
     }
 
     try {
-      const result = await login(email, password, userType, isDemoMode);
-      if (!result.success) {
-        setError(result.error || "Login failed. Please check your credentials.");
+      // Persist last selected school, even when it came from URL
+      try {
+        localStorage.setItem("last_school_id", String(schoolId));
+      } catch {}
+
+      const result = await login(email, password, userType, isDemoMode, Number(schoolId));
+      if (!result?.success) {
+        setError(result?.error || "Login failed. Please check your credentials.");
       }
     } catch (error) {
       console.error('Login error:', error);
@@ -66,7 +166,7 @@ export default function SchoolLogin() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex relative text-gray-900 dark:text-gray-100">
 
-      {/* Theme Toggle Button */}
+      {/* Theme Toggle */}
       <button
         onClick={toggleTheme}
         className="absolute top-4 right-4 z-50 p-2 rounded-full shadow bg-white dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100"
@@ -75,7 +175,7 @@ export default function SchoolLogin() {
         {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
       </button>
 
-      {/* Left Panel - Branding */}
+      {/* Left Panel */}
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-blue-600 to-indigo-700 p-12 flex-col justify-between text-white">
         <div>
           <div className="flex items-center space-x-3 mb-8">
@@ -146,13 +246,79 @@ export default function SchoolLogin() {
                         : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-100 border-gray-300 dark:border-gray-500 hover:bg-gray-100 dark:hover:bg-gray-600'
                     }`}
                   >
-                    {type === 'headteacher' ? 'HeadTeacher' : type.charAt(0).toUpperCase() + type.slice(1)}
+                    {type === 'headteacher' ? 'Head Teacher' : type.charAt(0).toUpperCase() + type.slice(1)}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Email Input */}
+            {/* School LOV */}
+            <div className="mb-4">
+              <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">School</label>
+
+              {LOV_READ_ONLY ? (
+                // READ-ONLY: show resolved name; still submit p_school_id
+                <div className="relative">
+                  <GraduationCap className="absolute left-3 top-3 text-gray-400" />
+                  <input
+                    type="text"
+                    value={
+                      isLoadingSchools
+                        ? "Loading schools..."
+                        : (resolvedSchoolName || "No school selected")
+                    }
+                    readOnly
+                    aria-readonly="true"
+                    className="pl-10 pr-10 py-2 w-full border rounded-lg bg-gray-100 dark:bg-gray-700/60 text-gray-900 dark:text-white cursor-not-allowed"
+                    title="School selection is locked"
+                  />
+                  <Lock className="absolute right-3 top-2.5 text-gray-400" />
+                </div>
+              ) : (
+                // INTERACTIVE combobox (set LOV_READ_ONLY = false to enable)
+                <div className="relative">
+                  <GraduationCap className="absolute left-3 top-3 text-gray-400" />
+                  <input
+                    type="text"
+                    value={lovQuery}
+                    onChange={(e) => { setLovQuery(e.target.value); setError(""); }}
+                    onFocus={() => setLovQuery("")}
+                    placeholder={isLoadingSchools ? "Loading schools..." : "Type to search schools"}
+                    disabled={isLoading || isLoadingSchools}
+                    className="pl-10 pr-10 py-2 w-full border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    aria-autocomplete="list"
+                    aria-expanded={!!lovQuery}
+                    role="combobox"
+                  />
+                  <Search className="absolute right-3 top-2.5 text-gray-400" />
+                  {lovQuery !== "" && filteredSchools.length > 0 && (
+                    <ul
+                      role="listbox"
+                      className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow"
+                    >
+                      {filteredSchools.map((s) => (
+                        <li
+                          key={s.id}
+                          role="option"
+                          aria-selected={String(s.id) === String(schoolId)}
+                          onMouseDown={() => { setSchoolId(String(s.id)); setLovQuery(s.name); }}
+                          className={`px-3 py-2 text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 ${
+                            String(s.id) === String(schoolId) ? "bg-gray-50 dark:bg-gray-700" : ""
+                          }`}
+                        >
+                          {s.name}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Your selection is sent as <code>p_school_id</code>.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Email */}
             <div className="mb-4">
               <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Email</label>
               <div className="relative">
@@ -160,7 +326,7 @@ export default function SchoolLogin() {
                 <input
                   type="email"
                   value={email}
-                  onChange={handleEmailChange}
+                  onChange={(e) => { setEmail(e.target.value); if (error) setError(""); }}
                   onKeyPress={handleKeyPress}
                   disabled={isLoading}
                   className="pl-10 pr-4 py-2 w-full border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
@@ -170,7 +336,7 @@ export default function SchoolLogin() {
               </div>
             </div>
 
-            {/* Password Input */}
+            {/* Password */}
             <div className="mb-4">
               <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Password</label>
               <div className="relative">
@@ -178,7 +344,7 @@ export default function SchoolLogin() {
                 <input
                   type={showPassword ? "text" : "password"}
                   value={password}
-                  onChange={handlePasswordChange}
+                  onChange={(e) => { setPassword(e.target.value); if (error) setError(""); }}
                   onKeyPress={handleKeyPress}
                   disabled={isLoading}
                   className="pl-10 pr-12 py-2 w-full border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
@@ -196,21 +362,7 @@ export default function SchoolLogin() {
               </div>
             </div>
 
-            {/* Demo Mode (optional toggle, kept as your original state) */}
-            {/* If you want this visible, uncomment the block below
-            <div className="mb-4 flex items-center justify-between">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={isDemoMode}
-                  onChange={(e) => setIsDemoMode(e.target.checked)}
-                />
-                Demo mode
-              </label>
-            </div>
-            */}
-
-            {/* Submit Button */}
+            {/* Submit */}
             <button
               onClick={handleSubmit}
               disabled={isLoading}
@@ -221,11 +373,11 @@ export default function SchoolLogin() {
                   <Loader2 className="animate-spin mr-2 h-4 w-4" /> Logging in...
                 </span>
               ) : (
-                `Sign in as ${userType === 'headteacher' ? 'HeadTeacher' : userType.charAt(0).toUpperCase() + userType.slice(1)}`
+                `Sign in as ${userType === 'headteacher' ? 'Head Teacher' : userType.charAt(0).toUpperCase() + userType.slice(1)}`
               )}
             </button>
 
-            {/* Error Message */}
+            {/* Error */}
             {error && (
               <div className="mt-4 p-3 bg-red-50 dark:bg-red-800/30 border border-red-200 dark:border-red-700 text-red-700 dark:text-red-300 text-sm rounded flex items-start space-x-2">
                 <AlertCircle className="h-5 w-5 mt-0.5" />
@@ -233,11 +385,9 @@ export default function SchoolLogin() {
               </div>
             )}
 
-            {/* Signup Link */}
+            {/* Signup */}
             <div className="mt-6 text-center">
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Don't have an account?
-              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Don't have an account?</p>
               <button
                 onClick={() => navigate('/signup')}
                 className="mt-2 inline-block text-indigo-600 dark:text-indigo-400 hover:underline font-semibold text-sm"

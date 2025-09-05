@@ -197,7 +197,7 @@ export default function SchoolLogin() {
             <div className="mb-6 text-center">
               <p className="text-sm text-gray-700 dark:text-gray-300 mb-2 font-medium">Login as:</p>
               <div className="flex justify-center gap-3 flex-wrap">
-                {['Owner/Admin', 'Teacher', 'HeadTeacher', 'Accountant'].map((type) => (
+                {['admin', 'teacher', 'headteacher', 'accountant'].map((type) => (
                   <button
                     key={type}
                     type="button"

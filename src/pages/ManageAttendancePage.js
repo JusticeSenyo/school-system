@@ -123,7 +123,8 @@ const ManageAttendancePage = () => {
     const url =
       `${MARKED_TODAY_API}?p_school_id=${encodeURIComponent(schoolId)}` +
       `&p_class_id=${encodeURIComponent(classId)}` +
-      `&p_user_id=${encodeURIComponent(recordedBy)}`;
+      `&p_user_id=${encodeURIComponent(recordedBy)}` +
+      `&p_date=${encodeURIComponent(date)}`;
 
     const res = await fetch(url);
     if (!res.ok) throw new Error(`Marked fetch failed: ${res.status}`);

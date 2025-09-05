@@ -4,7 +4,6 @@ import { AuthProvider, useAuth } from './AuthContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import LoadingSpinner from './components/LoadingSpinner';
 import SchoolLogin from './SchoolLogin';
-import SignUpPage from './pages/SignUpPage';
 import OnboardingDashboard from './pages/OnboardingDashboard';
 import AddUsersPage from './pages/AddUsersPage';
 import AssignSubjectsPage from './pages/AssignSubjectsPage';
@@ -150,7 +149,6 @@ const AppRoutes = () => {
     <Routes>
       {/* Public Routes */}
       <Route path="/login" element={<LoginRoute />} />
-      <Route path="/signup" element={<SignUpPage />} />
 
       {/* Onboarding Routes */}
       <Route path="/setup" element={<OnboardingDashboard />} />

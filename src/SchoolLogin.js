@@ -197,7 +197,7 @@ export default function SchoolLogin() {
             <div className="mb-6 text-center">
               <p className="text-sm text-gray-700 dark:text-gray-300 mb-2 font-medium">Login as:</p>
               <div className="flex justify-center gap-3 flex-wrap">
-                {['admin', 'teacher', 'headteacher', 'accountant'].map((type) => (
+                {['Owner/Admin', 'Teacher', 'HeadTeacher', 'Accountant'].map((type) => (
                   <button
                     key={type}
                     type="button"
@@ -344,7 +344,7 @@ export default function SchoolLogin() {
             <div className="mt-6 text-center">
               <p className="text-sm text-gray-600 dark:text-gray-400">Don't have an account?</p>
               <button
-                onClick={() => navigate('/signup')}
+                onClick={() => window.location.href = 'https://www.schoolmasterhub.net'}
                 className="mt-2 inline-block text-indigo-600 dark:text-indigo-400 hover:underline font-semibold text-sm"
               >
                 Sign Up for Free Trial

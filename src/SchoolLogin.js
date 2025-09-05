@@ -7,8 +7,11 @@ import {
 import { useAuth } from './AuthContext';
 import { useTheme } from './contexts/ThemeContext';
 
-// Read-only LOV
+// Read-only LOV stays locked
 const LOV_READ_ONLY = true;
+
+// Optional: set to true if you want to restore last chosen school from localStorage
+const RESTORE_LAST_SCHOOL = false;
 
 // ORDS endpoint (returns [{ school_name, school_id, created_at }, ...])
 const SCHOOLS_LIST_ENDPOINT =
@@ -19,72 +22,62 @@ export default function SchoolLogin() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  // School LOV
+  // --- Default to null (empty string) ---
+  const [schoolId, setSchoolId] = useState(""); // p_school_id
   const [schools, setSchools] = useState([]);
-  const [schoolId, setSchoolId] = useState(""); // p_school_id (string for UI)
   const [isLoadingSchools, setIsLoadingSchools] = useState(false);
 
-  // interactive LOV state (only used if LOV_READ_ONLY = false)
+  // for interactive mode (if you ever set LOV_READ_ONLY=false)
   const [lovQuery, setLovQuery] = useState("");
 
   const [userType, setUserType] = useState("teacher");
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [error, setError] = useState("");
 
-  const { login, isLoading } = useAuth();
+  const { login, isLoading, apiCall } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  // On mount, read p_school_id from URL and set it (takes precedence over saved/default)
+  // Read p_school_id from URL first (takes precedence)
   useEffect(() => {
     const sidFromUrl = searchParams.get("p_school_id");
-    if (sidFromUrl) {
-      setSchoolId(String(sidFromUrl));
-    }
+    if (sidFromUrl) setSchoolId(String(sidFromUrl)); // else leave null
   }, [searchParams]);
 
-  // Load schools for LOV
+  // Load schools (no auto-select; keep null unless URL or manual)
   useEffect(() => {
     const loadSchools = async () => {
       try {
         setIsLoadingSchools(true);
-        const res = await fetch(SCHOOLS_LIST_ENDPOINT, {
-          method: "GET",
-          headers: { Accept: "application/json" },
-        });
-        const data = await res.json();
 
-        const mapped = (Array.isArray(data) ? data : [])
+        // If you route through your apiCall/proxy in dev:
+        // const data = await apiCall('academic/get/school/', { skipAuth: true });
+        // const arr = Array.isArray(data) ? data : [];
+
+        const res = await fetch(SCHOOLS_LIST_ENDPOINT, { method: "GET", headers: { Accept: "application/json" } });
+        const arr = await res.json();
+
+        const mapped = (Array.isArray(arr) ? arr : [])
           .map((r) => ({ id: r.school_id, name: r.school_name }))
-          .filter((x) => x.id != null && x.name);
+          .filter((x) => x.id != null && x.name)
+          .sort((a, b) => a.name.localeCompare(b.name));
 
-        mapped.sort((a, b) => a.name.localeCompare(b.name));
         setSchools(mapped);
 
-        // Decide which school to show:
-        const sidFromUrl = searchParams.get("p_school_id");
-
-        if (sidFromUrl) {
-          // If URL specifies an id, always prefer it
-          setSchoolId(String(sidFromUrl));
-        } else {
-          // Otherwise restore last used or pick the first
+        // Optionally restore last selection only if flag is ON and URL didn’t set it
+        if (!searchParams.get("p_school_id") && RESTORE_LAST_SCHOOL) {
           try {
             const saved = localStorage.getItem("last_school_id");
             if (saved && mapped.some((s) => String(s.id) === String(saved))) {
               setSchoolId(saved);
-            } else if (mapped.length > 0) {
-              setSchoolId(String(mapped[0].id));
             }
-          } catch {
-            if (mapped.length > 0) setSchoolId(String(mapped[0].id));
-          }
+          } catch {}
         }
+        // Otherwise do NOTHING → stays null by default
       } catch (e) {
         console.error("Failed to load schools:", e);
         setSchools([]);
-        // Keep any schoolId that came from URL so read-only LOV can still show it
       } finally {
         setIsLoadingSchools(false);
       }
@@ -92,18 +85,18 @@ export default function SchoolLogin() {
 
     loadSchools();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // load once
+  }, []);
 
-  // Resolve the display name for the read-only LOV
+  // Resolve display name for read-only view
   const resolvedSchoolName = useMemo(() => {
     const found = schools.find((s) => String(s.id) === String(schoolId));
     if (found) return found.name;
-    if (!schoolId) return "";
-    // Fallback if the URL id isn't in the fetched list
-    return `School ID: ${schoolId}`;
-  }, [schools, schoolId]);
+    if (isLoadingSchools) return "Loading schools...";
+    if (!schoolId) return "No school selected";
+    return `School ID: ${schoolId}`; // fallback if id not in list
+  }, [schools, schoolId, isLoadingSchools]);
 
-  // Filtered list for interactive LOV (only if enabled)
+  // Filtered list for interactive LOV (if you ever unlock it)
   const filteredSchools = useMemo(() => {
     if (!lovQuery) return schools;
     const q = lovQuery.toLowerCase();
@@ -121,7 +114,6 @@ export default function SchoolLogin() {
       setError("Please fill in all fields");
       return;
     }
-
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       setError("Please enter a valid email address");
@@ -129,10 +121,8 @@ export default function SchoolLogin() {
     }
 
     try {
-      // Persist last selected school, even when it came from URL
-      try {
-        localStorage.setItem("last_school_id", String(schoolId));
-      } catch {}
+      // Save last selection (even though we don’t auto-restore by default)
+      try { localStorage.setItem("last_school_id", String(schoolId)); } catch {}
 
       const result = await login(email, password, userType, isDemoMode, Number(schoolId));
       if (!result?.success) {
@@ -144,24 +134,7 @@ export default function SchoolLogin() {
     }
   };
 
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter') handleSubmit();
-  };
-
-  const handleEmailChange = (e) => {
-    setEmail(e.target.value);
-    if (error) setError("");
-  };
-
-  const handlePasswordChange = (e) => {
-    setPassword(e.target.value);
-    if (error) setError("");
-  };
-
-  const handleUserTypeChange = (newUserType) => {
-    setUserType(newUserType);
-    if (error) setError("");
-  };
+  const handleKeyPress = (e) => { if (e.key === 'Enter') handleSubmit(); };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex relative text-gray-900 dark:text-gray-100">
@@ -175,44 +148,33 @@ export default function SchoolLogin() {
         {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
       </button>
 
-      {/* Left Panel */}
+      {/* Left Panel (branding) */}
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-blue-600 to-indigo-700 p-12 flex-col justify-between text-white">
         <div>
           <div className="flex items-center space-x-3 mb-8">
             <GraduationCap className="h-10 w-10" />
             <h1 className="text-3xl font-bold">SchoolMaster Hub</h1>
           </div>
-          <h2 className="text-4xl font-bold mb-6 leading-tight">
-            Empowering Education Through Technology
-          </h2>
-          <p className="text-xl text-blue-100 mb-12">
-            Streamline your school management with our comprehensive platform designed for modern educational institutions.
-          </p>
+          <h2 className="text-4xl font-bold mb-6 leading-tight">Empowering Education Through Technology</h2>
+          <p className="text-xl text-blue-100 mb-12">Streamline your school management with our comprehensive platform designed for modern educational institutions.</p>
         </div>
-
         <div className="grid grid-cols-1 gap-6">
-          {[{
-            Icon: Users, title: "Student Management", desc: "Comprehensive student profiles and tracking"
-          }, {
-            Icon: BookOpen, title: "Academic Planning", desc: "Curriculum management and lesson planning"
-          }, {
-            Icon: Shield, title: "Secure & Reliable", desc: "Enterprise-grade security for student data"
-          }].map(({ Icon, title, desc }, idx) => (
-            <div className="flex items-center space-x-4" key={idx}>
-              <div className="flex-shrink-0 w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
-                <Icon className="h-6 w-6" />
+          {[{Icon: Users, title: "Student Management", desc: "Comprehensive student profiles and tracking"},
+            {Icon: BookOpen, title: "Academic Planning", desc: "Curriculum management and lesson planning"},
+            {Icon: Shield, title: "Secure & Reliable", desc: "Enterprise-grade security for student data"}]
+            .map(({ Icon, title, desc }, idx) => (
+              <div className="flex items-center space-x-4" key={idx}>
+                <div className="flex-shrink-0 w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
+                  <Icon className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="font-semibold">{title}</h3>
+                  <p className="text-blue-100 text-sm">{desc}</p>
+                </div>
               </div>
-              <div>
-                <h3 className="font-semibold">{title}</h3>
-                <p className="text-blue-100 text-sm">{desc}</p>
-              </div>
-            </div>
-          ))}
+            ))}
         </div>
-
-        <div className="text-sm text-blue-200">
-          © 2025 SchoolMaster Hub. All rights reserved.
-        </div>
+        <div className="text-sm text-blue-200">© 2025 SchoolMaster Hub. All rights reserved.</div>
       </div>
 
       {/* Right Panel - Login Form */}
@@ -239,34 +201,28 @@ export default function SchoolLogin() {
                   <button
                     key={type}
                     type="button"
-                    onClick={() => handleUserTypeChange(type)}
+                    onClick={() => { setUserType(type); if (error) setError(""); }}
                     className={`px-4 py-1 rounded-full border text-sm font-medium transition ${
                       userType === type
                         ? 'bg-indigo-600 text-white border-indigo-600'
                         : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-100 border-gray-300 dark:border-gray-500 hover:bg-gray-100 dark:hover:bg-gray-600'
                     }`}
                   >
-                    {type === 'headteacher' ? 'Head Teacher' : type.charAt(0).toUpperCase() + type.slice(1)}
+                    {type === 'headteacher' ? 'HeadTeacher' : type.charAt(0).toUpperCase() + type.slice(1)}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* School LOV */}
+            {/* School LOV (read-only; defaults to null) */}
             <div className="mb-4">
               <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">School</label>
-
               {LOV_READ_ONLY ? (
-                // READ-ONLY: show resolved name; still submit p_school_id
                 <div className="relative">
                   <GraduationCap className="absolute left-3 top-3 text-gray-400" />
                   <input
                     type="text"
-                    value={
-                      isLoadingSchools
-                        ? "Loading schools..."
-                        : (resolvedSchoolName || "No school selected")
-                    }
+                    value={resolvedSchoolName}
                     readOnly
                     aria-readonly="true"
                     className="pl-10 pr-10 py-2 w-full border rounded-lg bg-gray-100 dark:bg-gray-700/60 text-gray-900 dark:text-white cursor-not-allowed"
@@ -275,7 +231,6 @@ export default function SchoolLogin() {
                   <Lock className="absolute right-3 top-2.5 text-gray-400" />
                 </div>
               ) : (
-                // INTERACTIVE combobox (set LOV_READ_ONLY = false to enable)
                 <div className="relative">
                   <GraduationCap className="absolute left-3 top-3 text-gray-400" />
                   <input
@@ -373,7 +328,7 @@ export default function SchoolLogin() {
                   <Loader2 className="animate-spin mr-2 h-4 w-4" /> Logging in...
                 </span>
               ) : (
-                `Sign in as ${userType === 'headteacher' ? 'Head Teacher' : userType.charAt(0).toUpperCase() + userType.slice(1)}`
+                `Sign in as ${userType === 'headteacher' ? 'HeadTeacher' : userType.charAt(0).toUpperCase() + userType.slice(1)}`
               )}
             </button>
 

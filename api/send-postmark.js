@@ -1,29 +1,67 @@
-// /api/send-postmark.js
-export default async function handler(req, res) {
-  // ---- CORS ----
-  const ORIGIN_WHITELIST = new Set([
-    'http://localhost:3000',
-    'https://schoolmasterhub.vercel.app'
-  ]);
+// /api/send-postmark.js   <-- now SendGrid-powered (no client changes)
+import sgMail from '@sendgrid/mail';
 
+// ---- CORS ----
+const ORIGIN_WHITELIST = new Set([
+  'http://localhost:3000',
+  'https://schoolmasterhub.vercel.app',
+]);
+
+function isEmail(s = '') {
+  return /^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$/.test(s);
+}
+function escapeHtml(s = '') {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+function escapeAttr(s = '') {
+  return s.replace(/"/g, '&quot;');
+}
+function parseBcc(bcc) {
+  if (!bcc) return undefined;
+  if (Array.isArray(bcc)) return bcc.filter(Boolean);
+  if (typeof bcc === 'string') {
+    const arr = bcc.split(',').map(x => x.trim()).filter(Boolean);
+    return arr.length ? arr : undefined;
+  }
+  return undefined;
+}
+
+const SENDGRID_KEY = (process.env.SENDGRID_API_KEY ?? '').trim();
+const DEFAULT_FROM = process.env.EMAIL_FROM || 'School Master Hub <no-reply@schoolmasterhub.net>';
+const LOGIN_URL_DEFAULT = process.env.LOGIN_URL || 'https://schoolmasterhub.vercel.app/login';
+
+// Set once at module load
+if (SENDGRID_KEY) sgMail.setApiKey(SENDGRID_KEY);
+
+export default async function handler(req, res) {
   const reqOrigin = req.headers.origin || '';
-  const allowOrigin = ORIGIN_WHITELIST.has(reqOrigin) ? reqOrigin : 'https://schoolmasterhub.vercel.app';
+  const allowOrigin = ORIGIN_WHITELIST.has(reqOrigin)
+    ? reqOrigin
+    : 'https://schoolmasterhub.vercel.app';
 
   res.setHeader('Access-Control-Allow-Origin', allowOrigin);
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type'); // keep minimal (no Authorization needed)
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-smh-token');
   res.setHeader('Access-Control-Max-Age', '86400');
 
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    // Optional tiny abuse guard: require a shared token for public origins
-    const PUBLIC_TOKEN = process.env.PUBLIC_EMAIL_API_TOKEN; // set in Vercel
+    // Optional tiny abuse guard (same as before)
+    const PUBLIC_TOKEN = process.env.PUBLIC_EMAIL_API_TOKEN;
     if (PUBLIC_TOKEN) {
       const token = req.headers['x-smh-token'] || req.body?.token;
       if (token !== PUBLIC_TOKEN) return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    if (!SENDGRID_KEY) {
+      return res.status(500).json({ error: 'SENDGRID_API_KEY not set on server' });
     }
 
     const {
@@ -40,31 +78,24 @@ export default async function handler(req, res) {
     if (!email || !tempPassword) {
       return res.status(400).json({ error: 'Missing email or tempPassword' });
     }
-
-    // very light email sanity check
-    if (!/^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$/.test(email)) {
+    if (!isEmail(email)) {
       return res.status(400).json({ error: 'Invalid email format' });
     }
 
-    const POSTMARK_TOKEN = process.env.POSTMARK_TOKEN;
-    const POSTMARK_FROM  = from || process.env.POSTMARK_FROM;
-    const LOGIN_URL      = loginUrl || process.env.LOGIN_URL || 'https://schoolmasterhub.vercel.app/login';
-
-    if (!POSTMARK_TOKEN) return res.status(500).json({ error: 'POSTMARK_TOKEN not set' });
-    if (!POSTMARK_FROM)  return res.status(500).json({ error: 'POSTMARK_FROM not set' });
-
     const subject = 'Welcome to SchoolMasterHub';
+    const LOGIN_URL = loginUrl || LOGIN_URL_DEFAULT;
+
     const html = `
       <div style="font-family:Segoe UI,Roboto,Arial,sans-serif;max-width:600px;margin:auto;">
-        <h2 style="color:#111">Welcome, ${full_name || ''} 🎉</h2>
-        <p>You have been added as <b>${role || 'Staff'}</b> at SchoolMasterHub.</p>
+        <h2 style="color:#111">Welcome, ${escapeHtml(full_name || '')} 🎉</h2>
+        <p>You have been added as <b>${escapeHtml(role || 'Staff')}</b> at SchoolMasterHub.</p>
         <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px;margin:16px 0">
           <p><b>Login details</b></p>
-          <p>Email: ${email}<br/>
-          Temporary Password: <b>${tempPassword}</b></p>
+          <p>Email: ${escapeHtml(email)}<br/>
+          Temporary Password: <b>${escapeHtml(tempPassword)}</b></p>
         </div>
         <p>
-          <a href="${LOGIN_URL}"
+          <a href="${escapeAttr(LOGIN_URL)}"
              style="display:inline-block;padding:12px 18px;background:#4f46e5;color:#fff;
              text-decoration:none;border-radius:6px;font-weight:500">
              Log in to SchoolMasterHub
@@ -86,39 +117,36 @@ export default async function handler(req, res) {
       `Please change your password after logging in.`,
     ].join('\n');
 
-    const payload = {
-      From: POSTMARK_FROM,
-      To: email,
-      ...(replyTo ? { ReplyTo: replyTo } : {}),
-      ...(bcc ? { Bcc: bcc } : {}),
-      Subject: subject,
-      HtmlBody: html,
-      TextBody: text,             // nice to have for plain-text clients/spam scoring
-      MessageStream: 'outbound',
-      Tag: 'welcome',             // optional tag to help in Postmark analytics
+    const msg = {
+      to: email,
+      from: from || DEFAULT_FROM, // must be a verified sender/domain in SendGrid
+      subject,
+      text,
+      html,
+      // keep analytics similar to Postmark "Tag"
+      categories: ['welcome'],
+      trackingSettings: { clickTracking: { enable: false, enableText: false } },
+      mailSettings: {
+        sandboxMode: { enable: process.env.SENDGRID_SANDBOX === '1' }, // optional
+      },
     };
 
-    const pmRes = await fetch('https://api.postmarkapp.com/email', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'X-Postmark-Server-Token': POSTMARK_TOKEN,
-      },
-      body: JSON.stringify(payload),
-    });
+    const bccParsed = parseBcc(bcc);
+    if (bccParsed) msg.bcc = bccParsed;
+    if (replyTo) msg.replyTo = replyTo;
 
-    const data = await pmRes.json().catch(() => ({}));
-
-    if (!pmRes.ok || data?.ErrorCode) {
-      // Surface the Postmark message if present
-      const msg = data?.Message || `Postmark error ${pmRes.status}`;
-      return res.status(pmRes.status || 502).json({ error: msg, detail: data });
+    const [sgRes] = await sgMail.send(msg, false);
+    if (sgRes.statusCode >= 200 && sgRes.statusCode < 300) {
+      return res.status(200).json({ ok: true, status: sgRes.statusCode });
     }
-
-    // success
-    return res.status(200).json({ ok: true, data });
+    return res.status(sgRes.statusCode || 502).json({ error: `Unexpected status ${sgRes.statusCode}` });
   } catch (err) {
-    return res.status(500).json({ error: err?.message || 'Server error' });
+    const status = err?.response?.statusCode || err?.code || 502;
+    const body = err?.response?.body;
+    const detailMsg =
+      body?.errors?.map(e => e?.message).join('; ') ||
+      err?.message ||
+      'SendGrid error';
+    return res.status(status).json({ error: detailMsg, detail: body });
   }
 }

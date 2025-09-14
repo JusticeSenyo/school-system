@@ -1,4 +1,3 @@
-// src/AuthContext.js
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext();
@@ -218,6 +217,19 @@ export const AuthProvider = ({ children }) => {
           data.user.school_id ??
           (Number.isNaN(Number(schoolId)) ? schoolId : Number(schoolId));
 
+        // NEW: plan/currency/school from API
+        const schoolObj = data.school || {};
+        const planFromApi = Number(
+          schoolObj.package ??
+          data.user.package ??
+          data.user.plan ??
+          NaN
+        );
+        const currencyFromApi =
+          schoolObj.currency ||
+          data.user.currency ||
+          'GHS';
+
         const userData = {
           id: data.user.id,
           email: data.user.email,
@@ -227,6 +239,24 @@ export const AuthProvider = ({ children }) => {
           apiRole,
           originalRole: data.user.role,
           schoolId: resolvedSchoolId,
+
+          // NEW: expose plan/currency/school
+          plan: planFromApi,           // 1=Basic, 2=Standard, 3=Premium
+          package: planFromApi,        // alias for convenience
+          currency: currencyFromApi,   // e.g. "GHS"
+          school: Object.keys(schoolObj).length ? {
+            id: schoolObj.id,
+            name: schoolObj.name,
+            address: schoolObj.address,
+            phone: schoolObj.phone,
+            email: schoolObj.email,
+            status: schoolObj.status,
+            expiry: schoolObj.expiry,
+            createdAt: schoolObj.createdAt,
+            package: schoolObj.package,
+            currency: schoolObj.currency,
+          } : undefined,
+
           avatar: getAvatar(finalRole),
           isRoleMismatch: !!selectedUserType && selectedUserType !== apiRole,
           isDemoMode,

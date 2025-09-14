@@ -1,24 +1,13 @@
+// src/components/dashboard/Sidebar.js
 import React, { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
-  ChevronDown,
-  ChevronRight,
-  LogOut,
-  Home,
-  Users,
-  GraduationCap,
-  BookOpen,
-  Settings,
-  MessageSquare,
-  ClipboardList,
-  FileText,
-  FileCheck,
-  CalendarCheck,
+  ChevronDown, ChevronRight, LogOut, Home, Users, GraduationCap, BookOpen,
+  Settings, MessageSquare, ClipboardList, FileText, FileCheck, CalendarCheck,
 } from "lucide-react";
 import { useAuth } from "../../AuthContext";
 import { roleBasedMenus } from "../../constants/roleBasedMenus";
 
-// Icon mapping
 const iconMap = {
   Dashboard: <Home size={18} />,
   Communication: <MessageSquare size={18} />,
@@ -41,20 +30,48 @@ const iconMap = {
   Settings: <Settings size={18} />,
 };
 
-const Sidebar = ({ isCollapsed }) => {
+const Sidebar = ({ isCollapsed, onExpand }) => {
   const location = useLocation();
   const { user, logout } = useAuth();
   const [collapsedItems, setCollapsedItems] = useState({});
 
+  const role = (user?.userType || "guest").toLowerCase();
+  const menus = roleBasedMenus[role] || [];
+
+  const rawSchoolName =
+    user?.schoolName || user?.school?.name || user?.school_name || "Your School";
+  const displaySchoolName = String(rawSchoolName).toUpperCase();
+
   const toggleCollapse = (label) => {
-    setCollapsedItems((prev) => ({
-      ...prev,
-      [label]: !prev[label],
-    }));
+    setCollapsedItems((prev) => ({ ...prev, [label]: !prev[label] }));
   };
 
-  const role = user?.userType || "guest";
-  const menus = roleBasedMenus[role] || [];
+  const ensureExpanded = () => {
+    if (isCollapsed && typeof onExpand === "function") onExpand();
+  };
+
+  const onGroupClick = (label) => {
+    if (isCollapsed) {
+      ensureExpanded();
+      setCollapsedItems((prev) => ({ ...prev, [label]: true }));
+      return;
+    }
+    toggleCollapse(label);
+  };
+
+  // 👇 Redirect to /login/?p_school_id={school_id} after session kill
+  const handleLogout = async () => {
+    try {
+      await Promise.resolve(logout?.()); // kill session, clear storage, etc.
+    } finally {
+      const schoolId =
+        user?.schoolId ?? user?.school_id ?? user?.school?.id ?? "";
+      const url = `http://localhost:3000/login/?p_school_id=${encodeURIComponent(
+        schoolId ?? ""
+      )}`;
+      window.location.href = url; // full redirect as requested
+    }
+  };
 
   return (
     <aside
@@ -63,11 +80,23 @@ const Sidebar = ({ isCollapsed }) => {
       } min-h-screen flex flex-col`}
     >
       {/* Logo / Title */}
-      {!isCollapsed && (
+      {!isCollapsed ? (
         <div className="flex items-center justify-center mb-6">
-          <h1 className="text-xl font-bold text-indigo-600 dark:text-white">
-            SchoolMaster Hub
+          <h1
+            className="text-xl font-bold text-indigo-600 dark:text-white truncate max-w-full tracking-wide"
+            title={displaySchoolName}
+          >
+            {displaySchoolName}
           </h1>
+        </div>
+      ) : (
+        <div className="flex items-center justify-center mb-6">
+          <div
+            className="h-9 w-9 rounded-lg bg-indigo-600 text-white grid place-items-center font-semibold"
+            title={displaySchoolName}
+          >
+            {displaySchoolName.slice(0, 2)}
+          </div>
         </div>
       )}
 
@@ -77,7 +106,7 @@ const Sidebar = ({ isCollapsed }) => {
           item.children ? (
             <div key={item.label}>
               <button
-                onClick={() => toggleCollapse(item.label)}
+                onClick={() => onGroupClick(item.label)}
                 title={isCollapsed ? item.label : ""}
                 className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-left transition font-medium ${
                   item.children.some((child) =>
@@ -86,6 +115,7 @@ const Sidebar = ({ isCollapsed }) => {
                     ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-white"
                     : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
                 }`}
+                aria-expanded={!!collapsedItems[item.label]}
               >
                 <div className="flex items-center space-x-2">
                   {iconMap[item.label] || <Users size={18} />}
@@ -98,11 +128,13 @@ const Sidebar = ({ isCollapsed }) => {
                     <ChevronRight size={16} />
                   ))}
               </button>
+
               {collapsedItems[item.label] &&
                 item.children.map((child) => (
                   <Link
                     key={child.label}
                     to={child.path}
+                    onClick={ensureExpanded}
                     title={isCollapsed ? child.label : ""}
                     className={`flex items-center space-x-2 ml-8 px-3 py-1.5 text-sm rounded-md transition ${
                       location.pathname === child.path
@@ -119,6 +151,7 @@ const Sidebar = ({ isCollapsed }) => {
             <Link
               key={item.label}
               to={item.path}
+              onClick={ensureExpanded}
               title={isCollapsed ? item.label : ""}
               className={`flex items-center space-x-2 px-3 py-2 rounded-md font-medium transition ${
                 location.pathname === item.path
@@ -133,10 +166,10 @@ const Sidebar = ({ isCollapsed }) => {
         )}
       </nav>
 
-      {/* Logout button */}
+      {/* Logout */}
       <div className="mt-auto pt-4 border-t border-gray-200 dark:border-gray-700">
         <button
-          onClick={logout}
+          onClick={handleLogout}
           title="Logout"
           className="w-full flex items-center space-x-2 px-3 py-2 rounded-md text-red-500 hover:bg-red-100 dark:hover:bg-red-900 dark:hover:text-red-400 transition"
         >

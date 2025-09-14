@@ -1,129 +1,670 @@
-import React, { useState } from 'react';
+// src/pages/CommunicationPage.js
+import React, { useEffect, useMemo, useState } from 'react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
+import { Mail, MessageSquare, Send, Loader2, Users, Building2, Inbox, CheckCircle2, UserCheck2, Shield } from 'lucide-react';
+import { useAuth } from '../AuthContext';
 
-const CommunicationPage = () => {
-  const [form, setForm] = useState({
-    recipientGroup: 'parents',
-    subject: '',
-    message: '',
-    sendVia: {
-      sms: false,
-      email: false,
-      dashboard: true,
-    },
+/* -------- ORDS HOST & endpoints -------- */
+const HOST = "https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools";
+
+/* lookups */
+const ACADEMIC_CLASSES_API = `${HOST}/academic/get/classes/`;
+
+/* directories (GET) */
+const STAFF_API    = `${HOST}/staff/get/staff/`;      // ?p_school_id=&p_role=
+const STUDENTS_API = `${HOST}/student/get/students/`; // ?p_school_id=&p_class_id=
+
+/* comms (persisted dashboard messages) */
+const COMMS_CREATE_DASH_API = `${HOST}/comms/dashboard/message/`; // POST
+const COMMS_SENT_API        = `${HOST}/comms/dashboard/sent/`;    // GET ?p_school_id=&p_created_by=
+
+/* transactional sends (GET) */
+const SEND_SMS_API   = `${HOST}/comms/send/sms/`; // GET p_contact, p_msg (single recipient)
+
+/* staff role labels & options */
+const ROLE_LABELS = { HT: 'HeadTeacher', AD: 'Admin', TE: 'Teacher', AC: 'Accountant' };
+const FIXED_ROLE_CODES = ['HT','AD','TE','AC'];
+
+/* ------------ helpers ------------ */
+const jtxt = async (u, init) => {
+  const r = await fetch(u, { cache: 'no-store', headers: { Accept: 'application/json' }, ...init });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return (await r.text()).trim();
+};
+const jarr = async (u) => {
+  const t = await jtxt(u); if (!t) return [];
+  try { const d = JSON.parse(t); return Array.isArray(d) ? d : (Array.isArray(d.items) ? d.items : []); } catch { return []; }
+};
+const jobj = async (u, body) => {
+  const r = await fetch(u, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body || {})
   });
+  const t = await r.text();
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${t}`);
+  try { return JSON.parse(t || '{}'); } catch { return {}; }
+};
 
-  const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+const csv = (arr) => arr.filter(Boolean).join(',');
+const uniq = (arr) => [...new Set(arr.filter(Boolean))];
+const listToCsv = (list) => csv(uniq(list));
+
+// split a CSV / semi-colon / whitespace list
+const splitCsv = (s) => (s || '').split(/[;,\s]+/).map(x => x.trim()).filter(Boolean);
+
+// Convert to local Ghana format for SMS API (expects 0XXXXXXXXX)
+const toLocalGh = (p) => {
+  if (!p) return '';
+  const d = String(p).replace(/[^\d]/g, '');
+  if (d.startsWith('233') && d.length === 12) return '0' + d.slice(3);
+  if (d.startsWith('0')   && d.length === 10) return d;
+  return d;
+};
+
+// Send SMS one-by-one using ?p_contact=&p_msg=
+async function sendSmsBatch(numbersCsv, message) {
+  const arr = uniq(splitCsv(numbersCsv).map(toLocalGh)).filter(Boolean);
+  for (const num of arr) {
+    await fetch(`${SEND_SMS_API}?p_contact=${encodeURIComponent(num)}&p_msg=${encodeURIComponent(message)}`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store'
+    });
+  }
+}
+
+/* -------- SendGrid (front-end REST) -------- */
+const SG_KEY =
+  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SENDGRID_API_KEY) ||
+  (typeof process !== 'undefined' && process.env && process.env.REACT_APP_SENDGRID_API_KEY) ||
+  (typeof window !== 'undefined' && window.SENDGRID_API_KEY) ||
+  '';
+
+const DEFAULT_FROM_EMAIL =
+  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_EMAIL_FROM) ||
+  (typeof process !== 'undefined' && process.env && process.env.REACT_APP_EMAIL_FROM) ||
+  'no-reply@schoolmasterhub.net';
+
+function toHtml(text) {
+  return String(text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/\n/g,'<br>');
+}
+
+async function sendEmailSendGridBatch(toCsv, subject, message, fromEmail, fromName) {
+  const apiKey = (SG_KEY || '').trim();
+  if (!apiKey) throw new Error('Missing SendGrid API key');
+
+  const recipients = uniq(splitCsv(toCsv));
+  if (!recipients.length) return;
+
+  const chunkSize = 500; // SG supports large batches; keep it reasonable
+  for (let i = 0; i < recipients.length; i += chunkSize) {
+    const chunk = recipients.slice(i, i + chunkSize);
+    const payload = {
+      personalizations: [{ to: chunk.map(e => ({ email: e })) }],
+      from: { email: fromEmail, name: fromName },
+      subject: subject || '',
+      content: [
+        { type: 'text/plain', value: String(message || '') },
+        { type: 'text/html',  value: toHtml(message) }
+      ],
+      tracking_settings: { click_tracking: { enable: false, enable_text: false } }
+    };
+
+    const resp = await fetch('https://api.sendgrid.com/v3/mail/send', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!resp.ok) {
+      const t = await resp.text();
+      throw new Error(`SendGrid ${resp.status}: ${t || 'send failed'}`);
+    }
+  }
+}
+
+/* ------------ page ------------ */
+export default function CommunicationPage() {
+  const { user } = useAuth() || {};
+  const schoolId = user?.schoolId ?? user?.school_id ?? user?.school?.id ?? 1;
+  const staffId  = user?.staff_id ?? user?.id ?? 0;
+  const schoolName =
+    (user?.school?.name || user?.school_name || user?.schoolName || 'School Master Hub').toString().toUpperCase();
+
+  /* tabs */
+  const [activeTab, setActiveTab] = useState('staff'); // 'staff' | 'class' | 'parents'
+
+  /* classes (used by Class & Parents tabs) */
+  const [classes, setClasses] = useState([]);
+  const [classId, setClassId] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await jarr(`${ACADEMIC_CLASSES_API}?p_school_id=${schoolId}`);
+        const norm = rows.map(r => ({
+          class_id: r.class_id ?? r.CLASS_ID ?? r.id ?? r.ID,
+          class_name: r.class_name ?? r.CLASS_NAME ?? r.name ?? r.NAME,
+        })).filter(x=>x.class_id!=null);
+        setClasses(norm);
+        if (!classId) setClassId('ALL'); // include ALL STUDENTS in LOV
+      } catch {
+        setClasses([]);
+      }
+    })();
+    // eslint-disable-next-line
+  }, [schoolId]);
+
+  /* Recently Sent (dashboard persisted) */
+  const [sentList, setSentList] = useState([]);
+  const loadSent = async () => {
+    try {
+      const rows = await jarr(`${COMMS_SENT_API}?p_school_id=${schoolId}&p_created_by=${staffId}`);
+      setSentList(rows);
+    } catch {
+      setSentList([]);
+    }
   };
+  useEffect(() => { loadSent(); /* eslint-disable-next-line */ }, [schoolId, staffId]);
 
-  const toggleSendVia = (channel) => {
-    setForm((prev) => ({
-      ...prev,
-      sendVia: { ...prev.sendVia, [channel]: !prev.sendVia[channel] },
-    }));
-  };
+  /* status (shared) */
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState('');
+  const [ok, setOk] = useState('');
 
-  const handleSubmit = (e) => {
+  /* ---------- STAFF TAB (ALL_TEACHERS) ---------- */
+  const [staffSubject, setStaffSubject] = useState('');
+  const [staffMessage, setStaffMessage] = useState('');
+  const [staffVia, setStaffVia] = useState({ dashboard: true, email: false, sms: false });
+  const toggleStaffVia = (k) => setStaffVia(prev => ({ ...prev, [k]: !prev[k] }));
+
+  // staff role filter
+  const [staffRoles, setStaffRoles] = useState([]);
+  const [staffRole, setStaffRole] = useState('');   // '' = all
+
+  // recipients (autofilled)
+  const [staffEmails, setStaffEmails] = useState('');
+  const [staffPhones, setStaffPhones] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await jarr(`${STAFF_API}?p_school_id=${schoolId}`);
+        const apiCodes = uniq(rows.map(r => (r.role ?? r.ROLE ?? '')).filter(Boolean));
+        const merged = [...FIXED_ROLE_CODES, ...apiCodes.filter(c => !FIXED_ROLE_CODES.includes(c))];
+        setStaffRoles(merged);
+      } catch {
+        setStaffRoles(FIXED_ROLE_CODES);
+      }
+    })();
+  }, [schoolId]);
+
+  // Autofill STAFF recipients when role or school changes
+  useEffect(() => {
+    (async () => {
+      try {
+        const url = `${STAFF_API}?p_school_id=${schoolId}` + (staffRole ? `&p_role=${encodeURIComponent(staffRole)}` : '');
+        const staffRows = (await jarr(url)).map(r => ({
+          email: r.email || r.EMAIL || '',
+          phone: r.phone || r.PHONE || ''
+        }));
+        const emails = listToCsv(staffRows.map(r => r.email).filter(Boolean));
+        const phones = listToCsv(staffRows.map(r => toLocalGh(r.phone)).filter(Boolean));
+        setStaffEmails(emails);
+        setStaffPhones(phones);
+      } catch {
+        setStaffEmails('');
+        setStaffPhones('');
+      }
+    })();
+  }, [schoolId, staffRole]);
+
+  const submitStaff = async (e) => {
     e.preventDefault();
-    // TODO: Connect to backend API or service
-    alert('Message sent successfully!');
+    setErr(''); setOk('');
+    if (!staffSubject.trim() || !staffMessage.trim()) { setErr('Subject and Message are required.'); return; }
+    if (!staffVia.dashboard && !staffVia.email && !staffVia.sms) { setErr('Select at least one channel.'); return; }
+
+    setSending(true);
+    try {
+      if (staffVia.dashboard) {
+        await jobj(COMMS_CREATE_DASH_API, {
+          p_school_id: schoolId,
+          p_subject: staffSubject.trim(),
+          p_body: staffMessage.trim(),
+          p_target_type: 'ALL_TEACHERS',
+          p_class_id: null,
+          p_target_role: staffRole || null,
+          p_created_by: staffId,
+          p_expires_at: null,
+          p_has_email: staffVia.email ? 'Y' : 'N',
+          p_has_sms:   staffVia.sms   ? 'Y' : 'N'
+        });
+      }
+
+      if (staffVia.sms) {
+        const numsCsv = (staffPhones || '').trim();
+        if (numsCsv) await sendSmsBatch(numsCsv, staffMessage);
+      }
+
+      if (staffVia.email) {
+        const emailsCsv = (staffEmails || '').trim();
+        if (emailsCsv) {
+          await sendEmailSendGridBatch(
+            emailsCsv,
+            staffSubject,
+            staffMessage,
+            DEFAULT_FROM_EMAIL,
+            schoolName
+          );
+        }
+      }
+
+      setOk('Message dispatched to Staff.');
+      setStaffSubject(''); setStaffMessage('');
+      await loadSent();
+    } catch (ex) {
+      setErr(ex?.message || 'Failed to send.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  /* ---------- CLASS TAB (CLASS_STUDENTS, Dashboard only) ---------- */
+  const [classSubject, setClassSubject] = useState('');
+  const [classMessage, setClassMessage] = useState('');
+
+  const submitClass = async (e) => {
+    e.preventDefault();
+    setErr(''); setOk('');
+    if (!classId) { setErr('Choose a class.'); return; }
+    if (!classSubject.trim() || !classMessage.trim()) { setErr('Subject and Message are required.'); return; }
+
+    setSending(true);
+    try {
+      await jobj(COMMS_CREATE_DASH_API, {
+        p_school_id: schoolId,
+        p_subject: classSubject.trim(),
+        p_body: classMessage.trim(),
+        p_target_type: classId === 'ALL' ? 'ALL_STUDENTS' : 'CLASS_STUDENTS',
+        p_class_id: classId === 'ALL' ? null : Number(classId),
+        p_created_by: staffId,
+        p_expires_at: null,
+        p_has_email: 'N',
+        p_has_sms:   'N'
+      });
+      setOk('Message dispatched to Student Dashboards.');
+      setClassSubject(''); setClassMessage('');
+      await loadSent();
+    } catch (ex) {
+      setErr(ex?.message || 'Failed to send.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  /* ---------- PARENTS TAB (ALL_PARENTS / CLASS_PARENTS) ---------- */
+  const [parentsScope, setParentsScope] = useState('ALL'); // 'ALL' | 'CLASS'
+  const [parentsSubject, setParentsSubject] = useState('');
+  const [parentsMessage, setParentsMessage] = useState('');
+  const [parentsVia, setParentsVia] = useState({ dashboard: true, email: false, sms: false });
+  const toggleParentsVia = (k) => setParentsVia(prev => ({ ...prev, [k]: !prev[k] }));
+  const parentsNeedsClass = useMemo(() => parentsScope === 'CLASS', [parentsScope]);
+  const parentsTargetType = useMemo(
+    () => (parentsScope === 'CLASS' ? 'CLASS_PARENTS' : 'ALL_PARENTS'),
+    [parentsScope]
+  );
+
+  const [parentsEmails, setParentsEmails] = useState('');
+  const [parentsPhones, setParentsPhones] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const url = `${STUDENTS_API}?p_school_id=${schoolId}` + (parentsNeedsClass && classId ? `&p_class_id=${classId}` : '');
+        const studs = (await jarr(url)).map(s => ({
+          guardian_phone: s.guardian_phone || s.GUARDIAN_PHONE || '',
+          father_phone:   s.father_phone   || s.FATHER_PHONE   || '',
+          mother_phone:   s.mother_phone   || s.MOTHER_PHONE   || '',
+          guardian_email: s.guardian_email || s.GUARDIAN_EMAIL || '',
+          email:          s.email          || s.EMAIL          || ''
+        }));
+        const allPhones = [];
+        const allEmails = [];
+        studs.forEach(s => {
+          const p1 = toLocalGh(s.guardian_phone);
+          const p2 = toLocalGh(s.father_phone);
+          const p3 = toLocalGh(s.mother_phone);
+          [p1,p2,p3].forEach(p => { if (p) allPhones.push(p); });
+          allEmails.push(s.guardian_email || s.email || '');
+        });
+        setParentsPhones(listToCsv(allPhones));
+        setParentsEmails(listToCsv(allEmails));
+      } catch {
+        setParentsPhones('');
+        setParentsEmails('');
+      }
+    })();
+  }, [schoolId, parentsScope, classId, parentsNeedsClass]);
+
+  const submitParents = async (e) => {
+    e.preventDefault();
+    setErr(''); setOk('');
+    if (!parentsSubject.trim() || !parentsMessage.trim()) { setErr('Subject and Message are required.'); return; }
+    if (!parentsVia.dashboard && !parentsVia.email && !parentsVia.sms) { setErr('Select at least one channel.'); return; }
+    if (parentsNeedsClass && !classId) { setErr('Choose a class.'); return; }
+
+    setSending(true);
+    try {
+      if (parentsVia.dashboard) {
+        await jobj(COMMS_CREATE_DASH_API, {
+          p_school_id: schoolId,
+          p_subject: parentsSubject.trim(),
+          p_body: parentsMessage.trim(),
+          p_target_type: parentsTargetType,
+          p_class_id: parentsNeedsClass ? (classId === 'ALL' ? null : Number(classId)) : null,
+          p_created_by: staffId,
+          p_expires_at: null,
+          p_has_email: parentsVia.email ? 'Y' : 'N',
+          p_has_sms:   parentsVia.sms   ? 'Y' : 'N'
+        });
+      }
+
+      if (parentsVia.sms) {
+        const numsCsv = (parentsPhones || '').trim();
+        if (numsCsv) await sendSmsBatch(numsCsv, parentsMessage);
+      }
+      if (parentsVia.email) {
+        const emailsCsv = (parentsEmails || '').trim();
+        if (emailsCsv) {
+          await sendEmailSendGridBatch(
+            emailsCsv,
+            parentsSubject,
+            parentsMessage,
+            DEFAULT_FROM_EMAIL,
+            schoolName
+          );
+        }
+      }
+
+      setOk('Message dispatched to Parents.');
+      setParentsSubject(''); setParentsMessage('');
+      await loadSent();
+    } catch (ex) {
+      setErr(ex?.message || 'Failed to send.');
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
-    <DashboardLayout title="Communication" subtitle="Send messages to parents or teachers">
-      {/* Form Section */}
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md mb-8">
-        <h2 className="text-xl font-semibold mb-4 text-gray-800 dark:text-white">Send New Message</h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Recipient Group */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Recipient Group</label>
+    <DashboardLayout title="Communication" subtitle="Staff, Class, and Parents messaging">
+      {/* Tabs */}
+      <div className="mb-4 flex gap-2">
+        <TabButton active={activeTab==='staff'}   onClick={()=>setActiveTab('staff')}   icon={<Shield className="w-4 h-4" />} label="Staff" />
+        <TabButton active={activeTab==='class'}   onClick={()=>setActiveTab('class')}   icon={<Building2 className="w-4 h-4" />} label="Class" />
+        <TabButton active={activeTab==='parents'} onClick={()=>setActiveTab('parents')} icon={<UserCheck2 className="w-4 h-4" />} label="Parents" />
+      </div>
+
+      {/* STAFF */}
+      {activeTab==='staff' && (
+        <SectionCard title="Staff" subtitle="Send to Teachers/Staff via Dashboard, Email or SMS">
+          {/* Role filter */}
+          <div className="grid gap-2 mb-3">
+            <label className="text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
+              <Users className="w-4 h-4" /> Staff Role
+            </label>
             <select
-              name="recipientGroup"
-              value={form.recipientGroup}
-              onChange={handleChange}
+              value={staffRole}
+              onChange={(e)=>setStaffRole(e.target.value)}
               className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
             >
-              <option value="parents">Parents</option>
-              <option value="teachers">Teachers</option>
-              <option value="all">All (Parents & Teachers)</option>
+              <option value="">All Roles</option>
+              {FIXED_ROLE_CODES.map(code => (
+                <option key={code} value={code}>
+                  {ROLE_LABELS[code] || code}
+                </option>
+              ))}
+              {staffRoles
+                .filter(code => code && !FIXED_ROLE_CODES.includes(code))
+                .map(code => (
+                  <option key={code} value={code}>
+                    {ROLE_LABELS[code] || code}
+                  </option>
+                ))
+              }
+            </select>
+            <div className="text-xs text-gray-500">Role filter affects Email/SMS recipients. Dashboard post goes to all staff (optionally role-tagged if supported).</div>
+          </div>
+
+          <form onSubmit={submitStaff} className="space-y-4">
+            <TextInput label="Subject" value={staffSubject} onChange={setStaffSubject} />
+            <TextArea  label="Message" value={staffMessage} onChange={setStaffMessage} rows={5} />
+
+            <div className="flex flex-wrap gap-4 mt-2">
+              <ChannelCheck icon={<Inbox className="w-4 h-4" />} label="Dashboard" checked={staffVia.dashboard} onChange={()=>toggleStaffVia('dashboard')} />
+              <ChannelCheck icon={<Mail className="w-4 h-4" />} label="Email" checked={staffVia.email} onChange={()=>toggleStaffVia('email')} />
+              <ChannelCheck icon={<MessageSquare className="w-4 h-4" />} label="SMS" checked={staffVia.sms} onChange={()=>toggleStaffVia('sms')} />
+            </div>
+
+            {(staffVia.email || staffVia.sms) && (
+              <div className="grid md:grid-cols-2 gap-4">
+                {staffVia.email && (
+                  <TextArea label="Email Recipients (comma separated)" value={staffEmails} onChange={setStaffEmails} rows={3} />
+                )}
+                {staffVia.sms && (
+                  <TextArea label="Phone Recipients (comma separated)" value={staffPhones} onChange={setStaffPhones} rows={3} />
+                )}
+              </div>
+            )}
+
+            <ActionRow sending={sending} err={err} ok={ok} />
+          </form>
+        </SectionCard>
+      )}
+
+      {/* CLASS */}
+      {activeTab==='class' && (
+        <SectionCard title="Class" subtitle="Send to Students’ Dashboards (Dashboard only)">
+          <div className="grid gap-2 mb-2">
+            <label className="text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
+              <Building2 className="w-4 h-4" /> Class
+            </label>
+            <select
+              value={classId ?? ''}
+              onChange={(e)=>{ const v = e.target.value; setClassId(v==='ALL' ? 'ALL' : Number(v)); }}
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+            >
+              <option value="ALL">All Students</option>
+              {classes.map(c => <option key={c.class_id} value={c.class_id}>{c.class_name}</option>)}
             </select>
           </div>
 
-          {/* Subject */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Subject</label>
-            <input
-              type="text"
-              name="subject"
-              value={form.subject}
-              onChange={handleChange}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
-              required
-            />
-          </div>
-
-          {/* Message */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Message</label>
-            <textarea
-              name="message"
-              value={form.message}
-              onChange={handleChange}
-              rows={5}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
-              required
-            />
-          </div>
-
-          {/* Send Via */}
-          <div className="flex flex-wrap gap-4 mt-4">
-            {['sms', 'email', 'dashboard'].map((channel) => (
-              <label key={channel} className="inline-flex items-center space-x-2 text-sm text-gray-700 dark:text-gray-300">
-                <input
-                  type="checkbox"
-                  checked={form.sendVia[channel]}
-                  onChange={() => toggleSendVia(channel)}
-                  className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded"
-                />
-                <span>{channel.toUpperCase()}</span>
+          <form onSubmit={submitClass} className="space-y-4">
+            <TextInput label="Subject" value={classSubject} onChange={setClassSubject} />
+            <TextArea  label="Message" value={classMessage} onChange={setClassMessage} rows={5} />
+            <div className="flex flex-wrap gap-4 mt-2">
+              <label className="inline-flex items-center space-x-2 text-sm text-gray-700 dark:text-gray-300 opacity-80">
+                <input type="checkbox" checked readOnly className="h-4 w-4 text-indigo-600 border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded" />
+                <span className="inline-flex items-center gap-1"><Inbox className="w-4 h-4" /> Dashboard (Students)</span>
               </label>
-            ))}
-          </div>
+            </div>
+            <ActionRow sending={sending} err={err} ok={ok} />
+          </form>
+        </SectionCard>
+      )}
 
-          {/* Submit */}
-          <div className="mt-6">
-            <button
-              type="submit"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-md text-sm font-medium shadow"
+      {/* PARENTS */}
+      {activeTab==='parents' && (
+        <SectionCard title="Parents" subtitle="Send to Parents via Dashboard, Email or SMS">
+          <div className="grid gap-2 mb-2">
+            <label className="text-sm text-gray-700 dark:text-gray-300">Scope</label>
+            <select
+              value={parentsScope}
+              onChange={(e)=>setParentsScope(e.target.value)}
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
             >
-              Send Message
-            </button>
+              <option value="ALL">All Parents</option>
+              <option value="CLASS">By Class</option>
+            </select>
           </div>
-        </form>
-      </div>
 
-      {/* Recent Messages */}
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md">
-        <h2 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">Recent Messages</h2>
-        <ul className="space-y-3">
-          {[1, 2, 3].map((_, i) => (
-            <li key={i} className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700">
-              <div className="text-sm text-gray-800 dark:text-gray-100">
-                <strong>To:</strong> Parents &nbsp;|&nbsp;
-                <strong>Via:</strong> Email, Dashboard
+          {parentsNeedsClass && (
+            <div className="grid gap-2 mb-2">
+              <label className="text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                <Building2 className="w-4 h-4" /> Class
+              </label>
+              <select
+                value={classId ?? ''}
+                onChange={(e)=>{ const v = e.target.value; setClassId(v==='ALL' ? 'ALL' : Number(v)); }}
+                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+              >
+                <option value="ALL">All Students</option>
+                {classes.map(c => <option key={c.class_id} value={c.class_id}>{c.class_name}</option>)}
+              </select>
+            </div>
+          )}
+
+          <form onSubmit={submitParents} className="space-y-4">
+            <TextInput label="Subject" value={parentsSubject} onChange={setParentsSubject} />
+            <TextArea  label="Message" value={parentsMessage} onChange={setParentsMessage} rows={5} />
+
+            <div className="flex flex-wrap gap-4 mt-2">
+              <ChannelCheck icon={<Inbox className="w-4 h-4" />} label="Dashboard" checked={parentsVia.dashboard} onChange={()=>toggleParentsVia('dashboard')} />
+              <ChannelCheck icon={<Mail className="w-4 h-4" />} label="Email" checked={parentsVia.email} onChange={()=>toggleParentsVia('email')} />
+              <ChannelCheck icon={<MessageSquare className="w-4 h-4" />} label="SMS" checked={parentsVia.sms} onChange={()=>toggleParentsVia('sms')} />
+            </div>
+
+            {(parentsVia.email || parentsVia.sms) && (
+              <div className="grid md:grid-cols-2 gap-4">
+                {parentsVia.email && (
+                  <TextArea label="Parent Email Recipients (comma separated)" value={parentsEmails} onChange={setParentsEmails} rows={3} />
+                )}
+                {parentsVia.sms && (
+                  <TextArea label="Parent Phone Recipients (comma separated)" value={parentsPhones} onChange={setParentsPhones} rows={3} />
+                )}
               </div>
-              <div className="text-sm mt-1 text-gray-600 dark:text-gray-300">
-                Meeting Reminder for PTA - This Friday 3PM.
-              </div>
-              <div className="text-xs text-gray-400 mt-1">Sent on: 2024-01-20 10:00AM</div>
-            </li>
-          ))}
-        </ul>
+            )}
+
+            <ActionRow sending={sending} err={err} ok={ok} />
+          </form>
+        </SectionCard>
+      )}
+
+      {/* Recently Sent (Dashboard persisted) */}
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border border-gray-100 dark:border-gray-700">
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">Recently Sent (Dashboard)</h2>
+        {sentList.length === 0 ? (
+          <div className="text-sm text-gray-500">No messages yet.</div>
+        ) : (
+          <ul className="space-y-3">
+            {sentList.map((m) => (
+              <li key={m.message_id} className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700">
+                <div className="text-sm text-gray-800 dark:text-gray-100 font-medium">{m.subject}</div>
+                <div className="text-xs text-gray-500 mt-0.5">
+                  To: {readableAudience(m.target_type, m.class_id, classes)}
+                </div>
+                <div className="text-sm mt-1 text-gray-700 dark:text-gray-200 line-clamp-2">{m.body}</div>
+                <div className="text-xs text-gray-400 mt-1">Sent on: {m.created_at}</div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </DashboardLayout>
   );
-};
+}
 
-export default CommunicationPage;
+/* ---------- small UI pieces ---------- */
+function TabButton({ active, onClick, icon, label }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm ${
+        active ? 'bg-gray-900 text-white border-gray-900' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
+      }`}
+    >
+      {icon}{label}
+    </button>
+  );
+}
+function SectionCard({ title, subtitle, children }) {
+  return (
+    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md mb-8 border border-gray-100 dark:border-gray-700">
+      <h2 className="text-xl font-semibold mb-1 text-gray-800 dark:text-white">{title}</h2>
+      {subtitle && <div className="text-sm text-gray-500 dark:text-gray-400 mb-4">{subtitle}</div>}
+      {children}
+    </div>
+  );
+}
+function TextInput({ label, value, onChange }) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{label}</label>
+      <input
+        type="text"
+        value={value}
+        onChange={(e)=>onChange(e.target.value)}
+        className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+        required
+      />
+    </div>
+  );
+}
+function TextArea({ label, value, onChange, rows=5 }) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{label}</label>
+      <textarea
+        value={value}
+        onChange={(e)=>onChange(e.target.value)}
+        rows={rows}
+        className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+        required
+      />
+    </div>
+  );
+}
+function ChannelCheck({ icon, label, checked, onChange }) {
+  return (
+    <label className="inline-flex items-center space-x-2 text-sm text-gray-700 dark:text-gray-300">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded"
+      />
+      <span className="inline-flex items-center gap-1">{icon}{label}</span>
+    </label>
+  );
+}
+function ActionRow({ sending, err, ok }) {
+  return (
+    <>
+      {err && <div className="text-sm text-rose-600">{err}</div>}
+      {ok && <div className="text-sm text-emerald-600 inline-flex items-center gap-1"><CheckCircle2 className="w-4 h-4" /> {ok}</div>}
+      <div className="mt-2">
+        <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-md text-sm font-medium shadow inline-flex items-center gap-2">
+          {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+          Send Message
+        </button>
+      </div>
+    </>
+  );
+}
+function readableAudience(targetType, classId, classes) {
+  const c = classes.find(x => Number(x.class_id) === Number(classId));
+  switch (String(targetType || '').toUpperCase()) {
+    case 'ALL':             return 'All (Parents, Teachers & Students)';
+    case 'ALL_PARENTS':     return 'All Parents';
+    case 'ALL_TEACHERS':    return 'All Teachers/Staff';
+    case 'ALL_STUDENTS':    return 'All Students';
+    case 'CLASS_PARENTS':   return `Class Parents${c ? ` — ${c.class_name}` : ''}`;
+    case 'CLASS_STUDENTS':  return `Class Students${c ? ` — ${c.class_name}` : ''}`;
+    default:                return targetType || '';
+  }
+}

@@ -1,3 +1,4 @@
+// src/SchoolLogin.jsx
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -7,11 +8,11 @@ import {
 import { useAuth } from './AuthContext';
 import { useTheme } from './contexts/ThemeContext';
 
-// Read-only LOV stays locked
-const LOV_READ_ONLY = true;
-
-// Optional: set to true if you want to restore last chosen school from localStorage
-const RESTORE_LAST_SCHOOL = false;
+// === Config =========================================================
+const LOCK_ONLY_WHEN_PRESELECTED = true; // if true, field is read-only only when preselected
+const RESTORE_LAST_SCHOOL = false;       // restore last chosen school from localStorage?
+const AFTER_LOGIN_ROUTE = "/";           // change to "/dashboard" if you prefer
+// ===================================================================
 
 // ORDS endpoint (returns [{ school_name, school_id, created_at }, ...])
 const SCHOOLS_LIST_ENDPOINT =
@@ -22,59 +23,51 @@ export default function SchoolLogin() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  // --- Default to null (empty string) ---
-  const [schoolId, setSchoolId] = useState(""); // p_school_id
+  // p_school_id value
+  const [schoolId, setSchoolId] = useState("");
   const [schools, setSchools] = useState([]);
   const [isLoadingSchools, setIsLoadingSchools] = useState(false);
 
-  // for interactive mode (if you ever set LOV_READ_ONLY=false)
+  // interactive LOV query
   const [lovQuery, setLovQuery] = useState("");
 
   const [userType, setUserType] = useState("teacher");
-  const [isDemoMode, setIsDemoMode] = useState(false);
+  const [isDemoMode] = useState(false);
   const [error, setError] = useState("");
 
-  const { login, isLoading, apiCall } = useAuth();
+  const { login, isLoading } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  // Read p_school_id from URL first (takes precedence)
+  // Read p_school_id from URL if present
   useEffect(() => {
     const sidFromUrl = searchParams.get("p_school_id");
-    if (sidFromUrl) setSchoolId(String(sidFromUrl)); // else leave null
+    if (sidFromUrl) setSchoolId(String(sidFromUrl));
   }, [searchParams]);
 
-  // Load schools (no auto-select; keep null unless URL or manual)
+  // Load schools
   useEffect(() => {
     const loadSchools = async () => {
       try {
         setIsLoadingSchools(true);
-
-        // If you route through your apiCall/proxy in dev:
-        // const data = await apiCall('academic/get/school/', { skipAuth: true });
-        // const arr = Array.isArray(data) ? data : [];
-
         const res = await fetch(SCHOOLS_LIST_ENDPOINT, { method: "GET", headers: { Accept: "application/json" } });
         const arr = await res.json();
-
         const mapped = (Array.isArray(arr) ? arr : [])
-          .map((r) => ({ id: r.school_id, name: r.school_name }))
-          .filter((x) => x.id != null && x.name)
+          .map(r => ({ id: r.school_id, name: r.school_name }))
+          .filter(x => x.id != null && x.name)
           .sort((a, b) => a.name.localeCompare(b.name));
-
         setSchools(mapped);
 
-        // Optionally restore last selection only if flag is ON and URL didn’t set it
+        // Optionally restore last selection (only if URL didn’t set it)
         if (!searchParams.get("p_school_id") && RESTORE_LAST_SCHOOL) {
           try {
             const saved = localStorage.getItem("last_school_id");
-            if (saved && mapped.some((s) => String(s.id) === String(saved))) {
+            if (saved && mapped.some(s => String(s.id) === String(saved))) {
               setSchoolId(saved);
             }
           } catch {}
         }
-        // Otherwise do NOTHING → stays null by default
       } catch (e) {
         console.error("Failed to load schools:", e);
         setSchools([]);
@@ -82,63 +75,67 @@ export default function SchoolLogin() {
         setIsLoadingSchools(false);
       }
     };
-
     loadSchools();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [searchParams]);
 
-  // Resolve display name for read-only view
+  // Resolve a nice display name for read-only view
   const resolvedSchoolName = useMemo(() => {
-    const found = schools.find((s) => String(s.id) === String(schoolId));
+    const found = schools.find(s => String(s.id) === String(schoolId));
     if (found) return found.name;
     if (isLoadingSchools) return "Loading schools...";
     if (!schoolId) return "No school selected";
-    return `School ID: ${schoolId}`; // fallback if id not in list
+    return `School ID: ${schoolId}`;
   }, [schools, schoolId, isLoadingSchools]);
 
-  // Filtered list for interactive LOV (if you ever unlock it)
+  // Filtered list for interactive LOV
   const filteredSchools = useMemo(() => {
-    if (!lovQuery) return schools;
-    const q = lovQuery.toLowerCase();
-    return schools.filter((s) => s.name.toLowerCase().includes(q));
+    const q = (lovQuery || "").toLowerCase();
+    if (!q) return schools;
+    return schools.filter(s => s.name.toLowerCase().includes(q));
   }, [schools, lovQuery]);
+
+  // The field is read-only only when we already have a school preselected
+  const lovReadOnly = LOCK_ONLY_WHEN_PRESELECTED ? !!schoolId : true;
+
+  const canSubmit = useMemo(() => {
+    const e = email.trim();
+    const p = password.trim();
+    const sid = String(schoolId || "").trim();
+    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+    return !!sid && emailOk && p.length > 0 && !isLoading;
+  }, [email, password, schoolId, isLoading]);
 
   const handleSubmit = async () => {
     setError("");
 
-    if (!schoolId) {
-      setError("Please select your school.");
-      return;
-    }
-    if (!email || !password) {
-      setError("Please fill in all fields");
-      return;
-    }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      setError("Please enter a valid email address");
-      return;
-    }
+    const e = email.trim();
+    const p = password.trim();
+    const sid = String(schoolId || "").trim();
+
+    if (!sid) return setError("Please select your school.");
+    if (!e || !p) return setError("Please fill in all fields.");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return setError("Please enter a valid email address.");
 
     try {
-      // Save last selection (even though we don’t auto-restore by default)
-      try { localStorage.setItem("last_school_id", String(schoolId)); } catch {}
+      // Save last selection only if present
+      try { if (sid) localStorage.setItem("last_school_id", sid); } catch {}
 
-      const result = await login(email, password, userType, isDemoMode, Number(schoolId));
+      const result = await login(e, p, userType, isDemoMode, Number(sid));
       if (!result?.success) {
         setError(result?.error || "Login failed. Please check your credentials.");
+      } else {
+        navigate(AFTER_LOGIN_ROUTE, { replace: true });
       }
-    } catch (error) {
-      console.error('Login error:', error);
+    } catch (err) {
+      console.error("Login error:", err);
       setError("An unexpected error occurred. Please try again.");
     }
   };
 
-  const handleKeyPress = (e) => { if (e.key === 'Enter') handleSubmit(); };
+  const handleKeyPress = (e) => { if (e.key === "Enter" && canSubmit) handleSubmit(); };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex relative text-gray-900 dark:text-gray-100">
-
       {/* Theme Toggle */}
       <button
         onClick={toggleTheme}
@@ -214,10 +211,11 @@ export default function SchoolLogin() {
               </div>
             </div>
 
-            {/* School LOV (read-only; defaults to null) */}
+            {/* School Field */}
             <div className="mb-4">
               <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">School</label>
-              {LOV_READ_ONLY ? (
+
+              {lovReadOnly ? (
                 <div className="relative">
                   <GraduationCap className="absolute left-3 top-3 text-gray-400" />
                   <input
@@ -226,7 +224,7 @@ export default function SchoolLogin() {
                     readOnly
                     aria-readonly="true"
                     className="pl-10 pr-10 py-2 w-full border rounded-lg bg-gray-100 dark:bg-gray-700/60 text-gray-900 dark:text-white cursor-not-allowed"
-                    title="School selection is locked"
+                    title="School selection is locked because it was preselected"
                   />
                   <Lock className="absolute right-3 top-2.5 text-gray-400" />
                 </div>
@@ -266,9 +264,6 @@ export default function SchoolLogin() {
                       ))}
                     </ul>
                   )}
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Your selection is sent as <code>p_school_id</code>.
-                  </p>
                 </div>
               )}
             </div>
@@ -320,8 +315,8 @@ export default function SchoolLogin() {
             {/* Submit */}
             <button
               onClick={handleSubmit}
-              disabled={isLoading}
-              className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition"
+              disabled={!canSubmit}
+              className={`w-full py-2 rounded-lg font-semibold transition text-white ${canSubmit ? "bg-indigo-600 hover:bg-indigo-700" : "bg-indigo-400 cursor-not-allowed"}`}
             >
               {isLoading ? (
                 <span className="flex items-center justify-center">
@@ -344,7 +339,7 @@ export default function SchoolLogin() {
             <div className="mt-6 text-center">
               <p className="text-sm text-gray-600 dark:text-gray-400">Don't have an account?</p>
               <button
-                onClick={() => window.location.href = 'https://www.schoolmasterhub.net'}
+                onClick={() => window.location.href = 'https://www.schoolmasterhub.net/#pricing'}
                 className="mt-2 inline-block text-indigo-600 dark:text-indigo-400 hover:underline font-semibold text-sm"
               >
                 Sign Up for Free Trial

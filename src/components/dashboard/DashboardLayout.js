@@ -1,21 +1,75 @@
 // components/dashboard/DashboardLayout.js
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import Sidebar from './Sidebar';
 import { useAuth } from '../../AuthContext';
-import { LogOut, Search, Bell, Settings, Sun, Moon, Menu } from 'lucide-react';
+import { LogOut, Search, Sun, Moon, Menu } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../../contexts/ThemeContext';
+import { roleBasedMenus } from '../../constants/roleBasedMenus';
 
 const DashboardLayout = ({ title = 'Dashboard', subtitle = '', children }) => {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const [isCollapsed, setIsCollapsed] = useState(false); // Sidebar collapse state
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [query, setQuery] = useState('');
   const navigate = useNavigate();
+
+  const role = String(user?.userType || 'guest').toLowerCase();
+  const menusForRole = roleBasedMenus[role] || [];
+
+  const menuIndex = useMemo(() => {
+    const flatten = (items = []) =>
+      items.flatMap(item => [
+        ...(item.path ? [{ label: item.label, path: item.path }] : []),
+        ...(item.children ? flatten(item.children) : []),
+      ]);
+    return flatten(menusForRole);
+  }, [menusForRole]);
+
+  const handleSearch = (e) => {
+    e?.preventDefault?.();
+    const q = query.trim().toLowerCase();
+    if (!q) return;
+
+    const scored = menuIndex
+      .map(m => {
+        const l = String(m.label || '').toLowerCase();
+        let score = 0;
+        if (l === q) score = 100;
+        else if (l.startsWith(q)) score = 80;
+        else if (l.includes(q)) score = 60;
+        return { ...m, score };
+      })
+      .filter(m => m.score > 0)
+      .sort((a, b) => b.score - a.score);
+
+    const fallback =
+      q.includes('student') ? '/dashboard/manage-students' :
+      q.includes('staff')   ? '/dashboard/manage-staff' :
+      q.includes('class')   ? '/dashboard/classes' :
+      q.includes('exam')    ? '/dashboard/manage-exam' :
+      q.includes('fees')    ? '/dashboard/manage-fees' :
+      q.includes('attend')  ? '/dashboard/attendance' :
+      '/dashboard';
+
+    const target = scored[0]?.path || fallback;
+    navigate(target);
+    setQuery('');
+  };
+
+  const handleLogout = async () => {
+    try {
+      await Promise.resolve(logout?.());
+    } finally {
+      const schoolId = user?.schoolId ?? user?.school_id ?? user?.school?.id ?? '';
+      window.location.href = `http://localhost:3000/login/?p_school_id=${encodeURIComponent(schoolId ?? '')}`;
+    }
+  };
 
   return (
     <div className="flex min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
-      {/* Sidebar */}
-      <Sidebar isCollapsed={isCollapsed} />
+      {/* Sidebar (now supports auto-expand from inside) */}
+      <Sidebar isCollapsed={isCollapsed} onExpand={() => setIsCollapsed(false)} />
 
       {/* Main content section */}
       <div className="flex-1 flex flex-col">
@@ -41,17 +95,19 @@ const DashboardLayout = ({ title = 'Dashboard', subtitle = '', children }) => {
                 )}
               </div>
 
-              {/* Right Header Icons */}
+              {/* Right Header Items */}
               <div className="flex items-center space-x-4">
-                {/* Search */}
-                <div className="relative hidden md:block">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                {/* Search (works) */}
+                <form onSubmit={handleSearch} className="relative hidden md:block">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
                   <input
                     type="text"
-                    placeholder="Search..."
+                    placeholder="Search pages…"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
                     className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 w-64"
                   />
-                </div>
+                </form>
 
                 {/* Theme Toggle */}
                 <button
@@ -62,15 +118,6 @@ const DashboardLayout = ({ title = 'Dashboard', subtitle = '', children }) => {
                   {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
                 </button>
 
-                <button className="p-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
-                  <Settings className="h-5 w-5" />
-                </button>
-
-                <button className="relative p-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
-                  <Bell className="h-5 w-5" />
-                  <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">5</span>
-                </button>
-
                 {/* Profile */}
                 <div className="flex items-center space-x-3">
                   <div className="text-right hidden sm:block">
@@ -78,10 +125,10 @@ const DashboardLayout = ({ title = 'Dashboard', subtitle = '', children }) => {
                     <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">{user?.userType || 'Role'}</p>
                   </div>
                   <div className="h-8 w-8 bg-purple-500 rounded-full flex items-center justify-center text-white font-medium">
-                    {user?.name?.charAt(0) || 'U'}
+                    {user?.name?.charAt(0)?.toUpperCase() || 'U'}
                   </div>
                   <button
-                    onClick={logout}
+                    onClick={handleLogout}
                     className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
                     title="Logout"
                   >

@@ -19,7 +19,7 @@ const COMMS_CREATE_DASH_API = `${HOST}/comms/dashboard/message/`; // POST
 const COMMS_SENT_API        = `${HOST}/comms/dashboard/sent/`;    // GET ?p_school_id=&p_created_by=
 
 /* transactional sends (GET) */
-const SEND_SMS_API   = `${HOST}/comms/send/sms/`; // GET p_contact, p_msg (single recipient)
+const SEND_SMS_API = `${HOST}/comms/send/sms/`; // GET p_contact, p_msg (single recipient)
 
 /* staff role labels & options */
 const ROLE_LABELS = { HT: 'HeadTeacher', AD: 'Admin', TE: 'Teacher', AC: 'Accountant' };
@@ -49,8 +49,6 @@ const jobj = async (u, body) => {
 const csv = (arr) => arr.filter(Boolean).join(',');
 const uniq = (arr) => [...new Set(arr.filter(Boolean))];
 const listToCsv = (list) => csv(uniq(list));
-
-// split a CSV / semi-colon / whitespace list
 const splitCsv = (s) => (s || '').split(/[;,\s]+/).map(x => x.trim()).filter(Boolean);
 
 // Convert to local Ghana format for SMS API (expects 0XXXXXXXXX)
@@ -74,55 +72,36 @@ async function sendSmsBatch(numbersCsv, message) {
   }
 }
 
-/* -------- SendGrid (front-end REST) -------- */
-const SG_KEY =
-  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SENDGRID_API_KEY) ||
-  (typeof process !== 'undefined' && process.env && process.env.REACT_APP_SENDGRID_API_KEY) ||
-  (typeof window !== 'undefined' && window.SENDGRID_API_KEY) ||
-  '';
-
-const DEFAULT_FROM_EMAIL =
-  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_EMAIL_FROM) ||
-  (typeof process !== 'undefined' && process.env && process.env.REACT_APP_EMAIL_FROM) ||
-  'no-reply@schoolmasterhub.net';
-
+/* -------- Email via your backend (/api/send-email) -------- */
 function toHtml(text) {
-  return String(text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/\n/g,'<br>');
+  return String(text || '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/\n/g,'<br>');
 }
 
-async function sendEmailSendGridBatch(toCsv, subject, message, fromEmail, fromName) {
-  const apiKey = (SG_KEY || '').trim();
-  if (!apiKey) throw new Error('Missing SendGrid API key');
-
+// Posts to your API route (which talks to SendGrid). Batches in chunks.
+async function postEmail(toCsv, subject, message, fromEmail, fromName, tag = 'broadcast') {
   const recipients = uniq(splitCsv(toCsv));
   if (!recipients.length) return;
-
-  const chunkSize = 500; // SG supports large batches; keep it reasonable
+  const chunkSize = 500;
   for (let i = 0; i < recipients.length; i += chunkSize) {
     const chunk = recipients.slice(i, i + chunkSize);
-    const payload = {
-      personalizations: [{ to: chunk.map(e => ({ email: e })) }],
-      from: { email: fromEmail, name: fromName },
-      subject: subject || '',
-      content: [
-        { type: 'text/plain', value: String(message || '') },
-        { type: 'text/html',  value: toHtml(message) }
-      ],
-      tracking_settings: { click_tracking: { enable: false, enable_text: false } }
-    };
-
-    const resp = await fetch('https://api.sendgrid.com/v3/mail/send', {
+    const resp = await fetch('/api/send-email', {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(payload)
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: chunk,
+        subject,
+        text: message,
+        html: toHtml(message),
+        fromEmail,
+        fromName,
+        tag
+      })
     });
-
     if (!resp.ok) {
       const t = await resp.text();
-      throw new Error(`SendGrid ${resp.status}: ${t || 'send failed'}`);
+      throw new Error(`Email send failed: ${resp.status} ${t}`);
     }
   }
 }
@@ -134,6 +113,7 @@ export default function CommunicationPage() {
   const staffId  = user?.staff_id ?? user?.id ?? 0;
   const schoolName =
     (user?.school?.name || user?.school_name || user?.schoolName || 'School Master Hub').toString().toUpperCase();
+  const fromEmailDefault = 'no-reply@schoolmasterhub.net'; // or read from a public env if you wish
 
   /* tabs */
   const [activeTab, setActiveTab] = useState('staff'); // 'staff' | 'class' | 'parents'
@@ -151,7 +131,7 @@ export default function CommunicationPage() {
           class_name: r.class_name ?? r.CLASS_NAME ?? r.name ?? r.NAME,
         })).filter(x=>x.class_id!=null);
         setClasses(norm);
-        if (!classId) setClassId('ALL'); // include ALL STUDENTS in LOV
+        if (!classId) setClassId('ALL');
       } catch {
         setClasses([]);
       }
@@ -254,12 +234,13 @@ export default function CommunicationPage() {
       if (staffVia.email) {
         const emailsCsv = (staffEmails || '').trim();
         if (emailsCsv) {
-          await sendEmailSendGridBatch(
+          await postEmail(
             emailsCsv,
             staffSubject,
             staffMessage,
-            DEFAULT_FROM_EMAIL,
-            schoolName
+            fromEmailDefault,
+            schoolName,
+            'staff-broadcast'
           );
         }
       }
@@ -381,12 +362,13 @@ export default function CommunicationPage() {
       if (parentsVia.email) {
         const emailsCsv = (parentsEmails || '').trim();
         if (emailsCsv) {
-          await sendEmailSendGridBatch(
+          await postEmail(
             emailsCsv,
             parentsSubject,
             parentsMessage,
-            DEFAULT_FROM_EMAIL,
-            schoolName
+            fromEmailDefault,
+            schoolName,
+            'parents-broadcast'
           );
         }
       }

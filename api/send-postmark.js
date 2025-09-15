@@ -1,24 +1,26 @@
-// /api/send-postmark.js   <-- now SendGrid-powered (no client changes)
+// /api/send-postmark.js   <-- SendGrid-powered, school name & login URL dynamic
 import sgMail from '@sendgrid/mail';
 
 // ---- CORS ----
 const ORIGIN_WHITELIST = new Set([
   'http://localhost:3000',
   'https://schoolmasterhub.vercel.app',
+  'http://app.schoolmasterhub.net',
+  'https://app.schoolmasterhub.net',
 ]);
 
 function isEmail(s = '') {
   return /^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$/.test(s);
 }
 function escapeHtml(s = '') {
-  return s
+  return String(s)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
 function escapeAttr(s = '') {
-  return s.replace(/"/g, '&quot;');
+  return String(s).replace(/"/g, '&quot;');
 }
 function parseBcc(bcc) {
   if (!bcc) return undefined;
@@ -29,10 +31,16 @@ function parseBcc(bcc) {
   }
   return undefined;
 }
+// Extract the email part from EMAIL_FROM; display name will be overridden by schoolName
+function extractEmail(fromValue = '') {
+  // supports "Display Name <email@domain>" OR "email@domain"
+  const m = String(fromValue).match(/<?([^<>@\s]+@[^<>@\s]+)>?$/);
+  return (m ? m[1] : String(fromValue).trim()) || 'no-reply@schoolmasterhub.net';
+}
 
 const SENDGRID_KEY = (process.env.SENDGRID_API_KEY ?? '').trim();
-const DEFAULT_FROM = process.env.EMAIL_FROM || 'School Master Hub <no-reply@schoolmasterhub.net>';
-const LOGIN_URL_DEFAULT = process.env.LOGIN_URL || 'https://schoolmasterhub.vercel.app/login';
+const DEFAULT_FROM_EMAIL = extractEmail(process.env.EMAIL_FROM);
+const LOGIN_HOST = 'http://app.schoolmasterhub.net';
 
 // Set once at module load
 if (SENDGRID_KEY) sgMail.setApiKey(SENDGRID_KEY);
@@ -53,7 +61,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    // Optional tiny abuse guard (same as before)
+    // Optional tiny abuse guard
     const PUBLIC_TOKEN = process.env.PUBLIC_EMAIL_API_TOKEN;
     if (PUBLIC_TOKEN) {
       const token = req.headers['x-smh-token'] || req.body?.token;
@@ -69,8 +77,13 @@ export default async function handler(req, res) {
       email,
       role,
       tempPassword,
-      loginUrl,
-      from,
+      // allow passing these, but we override/derive below
+      schoolName: bodySchoolName,
+      school_name: bodySchool_name,
+      school_id: bodySchoolId,
+      schoolId: bodySchoolIdAlt,
+      // optional overrides
+      from,         // if you ever want to force a different sender
       replyTo,
       bcc,
     } = req.body || {};
@@ -82,13 +95,25 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Invalid email format' });
     }
 
-    const subject = 'Welcome to SchoolMasterHub';
-    const LOGIN_URL = loginUrl || LOGIN_URL_DEFAULT;
+    // ---- School identity (name + id) ----
+    const schoolName =
+      (bodySchoolName || bodySchool_name || process.env.SCHOOL_NAME || 'Your School').toString();
+
+    const schoolId =
+      bodySchoolId ?? bodySchoolIdAlt ?? null;
+
+    // Final login URL as requested
+    const LOGIN_URL = schoolId
+      ? `${LOGIN_HOST}/login/?p_school_id=${encodeURIComponent(schoolId)}`
+      : `${LOGIN_HOST}/login`;
+
+    // ---- Email content (fully school-branded) ----
+    const subject = `Welcome to SchoolMasterHub`;
 
     const html = `
       <div style="font-family:Segoe UI,Roboto,Arial,sans-serif;max-width:600px;margin:auto;">
         <h2 style="color:#111">Welcome, ${escapeHtml(full_name || '')} 🎉</h2>
-        <p>You have been added as <b>${escapeHtml(role || 'Staff')}</b> at SchoolMasterHub.</p>
+        <p>You have been added as <b>${escapeHtml(role || 'Staff')}</b> at <b>${escapeHtml(schoolName)}</b>.</p>
         <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px;margin:16px 0">
           <p><b>Login details</b></p>
           <p>Email: ${escapeHtml(email)}<br/>
@@ -98,7 +123,7 @@ export default async function handler(req, res) {
           <a href="${escapeAttr(LOGIN_URL)}"
              style="display:inline-block;padding:12px 18px;background:#4f46e5;color:#fff;
              text-decoration:none;border-radius:6px;font-weight:500">
-             Log in to SchoolMasterHub
+             Log in to ${escapeHtml(schoolName)}
           </a>
         </p>
         <p style="font-size:12px;color:#666;margin-top:20px">
@@ -109,7 +134,7 @@ export default async function handler(req, res) {
 
     const text = [
       `Welcome, ${full_name || ''}`,
-      `You have been added as ${role || 'Staff'} at SchoolMasterHub.`,
+      `You have been added as ${role || 'Staff'} at ${schoolName}.`,
       `Login details:`,
       `Email: ${email}`,
       `Temporary Password: ${tempPassword}`,
@@ -117,17 +142,20 @@ export default async function handler(req, res) {
       `Please change your password after logging in.`,
     ].join('\n');
 
+    // From: keep your verified sender email, but show the school's name as display name
+    const fromEmail = extractEmail(from || process.env.EMAIL_FROM);
+    const fromName = schoolName;
+
     const msg = {
       to: email,
-      from: from || DEFAULT_FROM, // must be a verified sender/domain in SendGrid
+      from: { email: fromEmail, name: fromName },
       subject,
       text,
       html,
-      // keep analytics similar to Postmark "Tag"
       categories: ['welcome'],
       trackingSettings: { clickTracking: { enable: false, enableText: false } },
       mailSettings: {
-        sandboxMode: { enable: process.env.SENDGRID_SANDBOX === '1' }, // optional
+        sandboxMode: { enable: process.env.SENDGRID_SANDBOX === '1' },
       },
     };
 

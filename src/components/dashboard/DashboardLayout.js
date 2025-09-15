@@ -62,7 +62,7 @@ const DashboardLayout = ({ title = 'Dashboard', subtitle = '', children }) => {
       await Promise.resolve(logout?.());
     } finally {
       const schoolId = user?.schoolId ?? user?.school_id ?? user?.school?.id ?? '';
-      window.location.href = `http://localhost:3000/login/?p_school_id=${encodeURIComponent(schoolId ?? '')}`;
+      window.location.href = `http://app.schoolmasterhub.net/login/?p_school_id=${encodeURIComponent(schoolId ?? '')}`;
     }
   };
 

@@ -1,3 +1,4 @@
+// src/pages/CommunicationPage.js
 import React, { useEffect, useMemo, useState } from 'react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 import {
@@ -27,7 +28,7 @@ const SEND_SMS_API = `${HOST}/comms/send/sms/`; // GET p_contact, p_msg
 const ROLE_LABELS = { HT: 'HeadTeacher', AD: 'Admin', TE: 'Teacher', AC: 'Accountant' };
 const FIXED_ROLE_CODES = ['HT','AD','TE','AC'];
 
-/* ------------ helpers ------------ */
+/* ------------ simple fetch helpers ------------ */
 const jtxt = async (u, init) => {
   const r = await fetch(u, { cache: 'no-store', headers: { Accept: 'application/json' }, ...init });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -35,7 +36,10 @@ const jtxt = async (u, init) => {
 };
 const jarr = async (u) => {
   const t = await jtxt(u); if (!t) return [];
-  try { const d = JSON.parse(t); return Array.isArray(d) ? d : (Array.isArray(d.items) ? d.items : []); } catch { return []; }
+  try {
+    const d = JSON.parse(t);
+    return Array.isArray(d) ? d : (Array.isArray(d.items) ? d.items : []);
+  } catch { return []; }
 };
 const jobj = async (u, body) => {
   const r = await fetch(u, {
@@ -48,6 +52,7 @@ const jobj = async (u, body) => {
   try { return JSON.parse(t || '{}'); } catch { return {}; }
 };
 
+/* ------------ small utils ------------ */
 const csv  = (arr) => arr.filter(Boolean).join(',');
 const uniq = (arr) => [...new Set(arr.filter(Boolean))];
 const listToCsv = (list) => csv(uniq(list));
@@ -74,28 +79,9 @@ async function sendSmsBatch(numbersCsv, message) {
   }
 }
 
-/* -------- SendGrid (front-end only — dangerous) -------- */
-const SG_KEY = (
-  (typeof process !== 'undefined' && process.env && (
-    process.env.NEXT_PUBLIC_SENDGRID_API_KEY ||
-    process.env.REACT_APP_SENDGRID_API_KEY
-  )) ||
-  (typeof import.meta !== 'undefined' && import.meta.env && (
-    import.meta.env.VITE_SENDGRID_API_KEY
-  )) ||
-  ''
-)?.trim?.() || '';
-
-const FROM_EMAIL = (
-  (typeof process !== 'undefined' && process.env && (
-    process.env.NEXT_PUBLIC_EMAIL_FROM ||
-    process.env.REACT_APP_EMAIL_FROM
-  )) ||
-  (typeof import.meta !== 'undefined' && import.meta.env && (
-    import.meta.env.VITE_EMAIL_FROM
-  )) ||
-  'no-reply@schoolmasterhub.net'
-);
+/* -------- SendGrid (front-end call; uses ONLY these two envs) -------- */
+const SG_API_KEY  = (process.env.SENDGRID_API_KEY || '').trim();
+const FROM_EMAIL  = (process.env.EMAIL_FROM || 'no-reply@schoolmasterhub.net').trim();
 
 function toHtml(text) {
   return String(text || '')
@@ -106,25 +92,14 @@ function toHtml(text) {
     .replace(/\n/g,'<br>');
 }
 
-function maskKey(k = '') {
-  if (!k) return '(empty)';
-  if (!k.startsWith('SG.')) return '(invalid format)';
-  return `SG.${k.slice(3,7)}…${k.slice(-4)}`;
-}
-
 async function sendEmailSendGridBatch(toCsv, subject, message, fromEmail, fromName) {
-  const apiKey = (SG_KEY || '').trim();
+  const apiKey = (process.env.SENDGRID_API_KEY || '').trim(); // ← exactly as requested
   if (!apiKey) throw new Error('Missing SendGrid API key');
 
   const recipients = uniq(splitCsv(toCsv));
   if (!recipients.length) return;
 
-  if (process.env.NODE_ENV !== 'production') {
-    // eslint-disable-next-line no-console
-    console.log('[SG] using key:', maskKey(apiKey));
-  }
-
-  const CHUNK = 400; // keep URL/payload safe
+  const CHUNK = 400; // reasonable safety margin
   for (let i = 0; i < recipients.length; i += CHUNK) {
     const chunk = recipients.slice(i, i + CHUNK);
 
@@ -230,6 +205,7 @@ export default function CommunicationPage() {
     })();
   }, [schoolId]);
 
+  // Autofill STAFF recipients when role or school changes
   useEffect(() => {
     (async () => {
       try {

@@ -1,4 +1,3 @@
-// src/pages/CommunicationPage.js
 import React, { useEffect, useMemo, useState } from 'react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 import {
@@ -28,7 +27,7 @@ const SEND_SMS_API = `${HOST}/comms/send/sms/`; // GET p_contact, p_msg
 const ROLE_LABELS = { HT: 'HeadTeacher', AD: 'Admin', TE: 'Teacher', AC: 'Accountant' };
 const FIXED_ROLE_CODES = ['HT','AD','TE','AC'];
 
-/* ------------ simple fetch helpers ------------ */
+/* ------------ helpers ------------ */
 const jtxt = async (u, init) => {
   const r = await fetch(u, { cache: 'no-store', headers: { Accept: 'application/json' }, ...init });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -36,10 +35,7 @@ const jtxt = async (u, init) => {
 };
 const jarr = async (u) => {
   const t = await jtxt(u); if (!t) return [];
-  try {
-    const d = JSON.parse(t);
-    return Array.isArray(d) ? d : (Array.isArray(d.items) ? d.items : []);
-  } catch { return []; }
+  try { const d = JSON.parse(t); return Array.isArray(d) ? d : (Array.isArray(d.items) ? d.items : []); } catch { return []; }
 };
 const jobj = async (u, body) => {
   const r = await fetch(u, {
@@ -52,7 +48,6 @@ const jobj = async (u, body) => {
   try { return JSON.parse(t || '{}'); } catch { return {}; }
 };
 
-/* ------------ small utils ------------ */
 const csv  = (arr) => arr.filter(Boolean).join(',');
 const uniq = (arr) => [...new Set(arr.filter(Boolean))];
 const listToCsv = (list) => csv(uniq(list));
@@ -79,55 +74,32 @@ async function sendSmsBatch(numbersCsv, message) {
   }
 }
 
-/* -------- SendGrid (front-end call; uses ONLY these two envs) -------- */
-const SG_API_KEY  = (process.env.SENDGRID_API_KEY || '').trim();
-const FROM_EMAIL  = (process.env.EMAIL_FROM || 'no-reply@schoolmasterhub.net').trim();
-
-function toHtml(text) {
-  return String(text || '')
-    .replace(/&/g,'&amp;')
-    .replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;')
-    .replace(/\n/g,'<br>');
-}
-
-async function sendEmailSendGridBatch(toCsv, subject, message, fromEmail, fromName) {
-  const apiKey = (process.env.SENDGRID_API_KEY || '').trim(); // ← exactly as requested
-  if (!apiKey) throw new Error('Missing SendGrid API key');
-
+/* -------- Client → Serverless email helper (no keys in browser) -------- */
+async function sendEmailViaApi(toCsv, subject, message, fromName) {
   const recipients = uniq(splitCsv(toCsv));
   if (!recipients.length) return;
 
-  const CHUNK = 400; // reasonable safety margin
+  const CHUNK = 500;
   for (let i = 0; i < recipients.length; i += CHUNK) {
     const chunk = recipients.slice(i, i + CHUNK);
 
-    const payload = {
-      personalizations: [{ to: chunk.map(e => ({ email: e })) }],
-      from: { email: fromEmail, name: fromName || 'School Master Hub' },
-      subject: subject || '',
-      content: [
-        { type: 'text/plain', value: String(message || '') },
-        { type: 'text/html',  value: toHtml(message) }
-      ],
-      tracking_settings: { click_tracking: { enable: false, enable_text: false } }
-    };
-
-    const resp = await fetch('https://api.sendgrid.com/v3/mail/send', {
+    const resp = await fetch('/api/send-email', {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(payload)
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: chunk,            // array of emails
+        subject,
+        message,
+        fromName,             // server uses EMAIL_FROM address + this display name
+      }),
     });
 
     if (!resp.ok) {
-      let details = '';
-      try { details = await resp.text(); } catch {}
-      throw new Error(`Email send failed: ${resp.status} ${details || 'SendGrid error'}`);
+      const text = await resp.text();
+      throw new Error(text || 'Email send failed');
     }
+    const data = await resp.json();
+    if (!data?.success) throw new Error(data?.error || 'Email send failed');
   }
 }
 
@@ -205,7 +177,6 @@ export default function CommunicationPage() {
     })();
   }, [schoolId]);
 
-  // Autofill STAFF recipients when role or school changes
   useEffect(() => {
     (async () => {
       try {
@@ -255,15 +226,14 @@ export default function CommunicationPage() {
         if (numsCsv) await sendSmsBatch(numsCsv, staffMessage);
       }
 
-      // email (SendGrid from browser)
+      // email via API
       if (staffVia.email) {
         const emailsCsv = (staffEmails || '').trim();
         if (emailsCsv) {
-          await sendEmailSendGridBatch(
+          await sendEmailViaApi(
             emailsCsv,
             staffSubject,
             staffMessage,
-            FROM_EMAIL,
             schoolName
           );
         }
@@ -386,11 +356,10 @@ export default function CommunicationPage() {
       if (parentsVia.email) {
         const emailsCsv = (parentsEmails || '').trim();
         if (emailsCsv) {
-          await sendEmailSendGridBatch(
+          await sendEmailViaApi(
             emailsCsv,
             parentsSubject,
             parentsMessage,
-            FROM_EMAIL,
             schoolName
           );
         }

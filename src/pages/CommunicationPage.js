@@ -1,7 +1,9 @@
-// src/pages/CommunicationPage.js
 import React, { useEffect, useMemo, useState } from 'react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
-import { Mail, MessageSquare, Send, Loader2, Users, Building2, Inbox, CheckCircle2, UserCheck2, Shield } from 'lucide-react';
+import {
+  Mail, MessageSquare, Send, Loader2, Users, Building2, Inbox,
+  CheckCircle2, UserCheck2, Shield
+} from 'lucide-react';
 import { useAuth } from '../AuthContext';
 
 /* -------- ORDS HOST & endpoints -------- */
@@ -18,8 +20,8 @@ const STUDENTS_API = `${HOST}/student/get/students/`; // ?p_school_id=&p_class_i
 const COMMS_CREATE_DASH_API = `${HOST}/comms/dashboard/message/`; // POST
 const COMMS_SENT_API        = `${HOST}/comms/dashboard/sent/`;    // GET ?p_school_id=&p_created_by=
 
-/* transactional sends (GET) */
-const SEND_SMS_API = `${HOST}/comms/send/sms/`; // GET p_contact, p_msg (single recipient)
+/* transactional SMS (GET) */
+const SEND_SMS_API = `${HOST}/comms/send/sms/`; // GET p_contact, p_msg
 
 /* staff role labels & options */
 const ROLE_LABELS = { HT: 'HeadTeacher', AD: 'Admin', TE: 'Teacher', AC: 'Accountant' };
@@ -46,7 +48,7 @@ const jobj = async (u, body) => {
   try { return JSON.parse(t || '{}'); } catch { return {}; }
 };
 
-const csv = (arr) => arr.filter(Boolean).join(',');
+const csv  = (arr) => arr.filter(Boolean).join(',');
 const uniq = (arr) => [...new Set(arr.filter(Boolean))];
 const listToCsv = (list) => csv(uniq(list));
 const splitCsv = (s) => (s || '').split(/[;,\s]+/).map(x => x.trim()).filter(Boolean);
@@ -72,36 +74,84 @@ async function sendSmsBatch(numbersCsv, message) {
   }
 }
 
-/* -------- Email via your backend (/api/send-email) -------- */
+/* -------- SendGrid (front-end only — dangerous) -------- */
+const SG_KEY = (
+  (typeof process !== 'undefined' && process.env && (
+    process.env.NEXT_PUBLIC_SENDGRID_API_KEY ||
+    process.env.REACT_APP_SENDGRID_API_KEY
+  )) ||
+  (typeof import.meta !== 'undefined' && import.meta.env && (
+    import.meta.env.VITE_SENDGRID_API_KEY
+  )) ||
+  ''
+)?.trim?.() || '';
+
+const FROM_EMAIL = (
+  (typeof process !== 'undefined' && process.env && (
+    process.env.NEXT_PUBLIC_EMAIL_FROM ||
+    process.env.REACT_APP_EMAIL_FROM
+  )) ||
+  (typeof import.meta !== 'undefined' && import.meta.env && (
+    import.meta.env.VITE_EMAIL_FROM
+  )) ||
+  'no-reply@schoolmasterhub.net'
+);
+
 function toHtml(text) {
   return String(text || '')
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;').replace(/\n/g,'<br>');
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/\n/g,'<br>');
 }
 
-// Posts to your API route (which talks to SendGrid). Batches in chunks.
-async function postEmail(toCsv, subject, message, fromEmail, fromName, tag = 'broadcast') {
+function maskKey(k = '') {
+  if (!k) return '(empty)';
+  if (!k.startsWith('SG.')) return '(invalid format)';
+  return `SG.${k.slice(3,7)}…${k.slice(-4)}`;
+}
+
+async function sendEmailSendGridBatch(toCsv, subject, message, fromEmail, fromName) {
+  const apiKey = (SG_KEY || '').trim();
+  if (!apiKey) throw new Error('Missing SendGrid API key');
+
   const recipients = uniq(splitCsv(toCsv));
   if (!recipients.length) return;
-  const chunkSize = 500;
-  for (let i = 0; i < recipients.length; i += chunkSize) {
-    const chunk = recipients.slice(i, i + chunkSize);
-    const resp = await fetch('/api/send-email', {
+
+  if (process.env.NODE_ENV !== 'production') {
+    // eslint-disable-next-line no-console
+    console.log('[SG] using key:', maskKey(apiKey));
+  }
+
+  const CHUNK = 400; // keep URL/payload safe
+  for (let i = 0; i < recipients.length; i += CHUNK) {
+    const chunk = recipients.slice(i, i + CHUNK);
+
+    const payload = {
+      personalizations: [{ to: chunk.map(e => ({ email: e })) }],
+      from: { email: fromEmail, name: fromName || 'School Master Hub' },
+      subject: subject || '',
+      content: [
+        { type: 'text/plain', value: String(message || '') },
+        { type: 'text/html',  value: toHtml(message) }
+      ],
+      tracking_settings: { click_tracking: { enable: false, enable_text: false } }
+    };
+
+    const resp = await fetch('https://api.sendgrid.com/v3/mail/send', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        to: chunk,
-        subject,
-        text: message,
-        html: toHtml(message),
-        fromEmail,
-        fromName,
-        tag
-      })
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
     });
+
     if (!resp.ok) {
-      const t = await resp.text();
-      throw new Error(`Email send failed: ${resp.status} ${t}`);
+      let details = '';
+      try { details = await resp.text(); } catch {}
+      throw new Error(`Email send failed: ${resp.status} ${details || 'SendGrid error'}`);
     }
   }
 }
@@ -113,7 +163,6 @@ export default function CommunicationPage() {
   const staffId  = user?.staff_id ?? user?.id ?? 0;
   const schoolName =
     (user?.school?.name || user?.school_name || user?.schoolName || 'School Master Hub').toString().toUpperCase();
-  const fromEmailDefault = 'no-reply@schoolmasterhub.net'; // or read from a public env if you wish
 
   /* tabs */
   const [activeTab, setActiveTab] = useState('staff'); // 'staff' | 'class' | 'parents'
@@ -156,17 +205,15 @@ export default function CommunicationPage() {
   const [err, setErr] = useState('');
   const [ok, setOk] = useState('');
 
-  /* ---------- STAFF TAB (ALL_TEACHERS) ---------- */
+  /* ---------- STAFF TAB ---------- */
   const [staffSubject, setStaffSubject] = useState('');
   const [staffMessage, setStaffMessage] = useState('');
   const [staffVia, setStaffVia] = useState({ dashboard: true, email: false, sms: false });
   const toggleStaffVia = (k) => setStaffVia(prev => ({ ...prev, [k]: !prev[k] }));
 
-  // staff role filter
-  const [staffRoles, setStaffRoles] = useState([]);
+  const [staffRoles, setStaffRoles] = useState([]); // merged list
   const [staffRole, setStaffRole] = useState('');   // '' = all
 
-  // recipients (autofilled)
   const [staffEmails, setStaffEmails] = useState('');
   const [staffPhones, setStaffPhones] = useState('');
 
@@ -183,7 +230,6 @@ export default function CommunicationPage() {
     })();
   }, [schoolId]);
 
-  // Autofill STAFF recipients when role or school changes
   useEffect(() => {
     (async () => {
       try {
@@ -211,6 +257,7 @@ export default function CommunicationPage() {
 
     setSending(true);
     try {
+      // dashboard persist
       if (staffVia.dashboard) {
         await jobj(COMMS_CREATE_DASH_API, {
           p_school_id: schoolId,
@@ -226,21 +273,22 @@ export default function CommunicationPage() {
         });
       }
 
+      // sms
       if (staffVia.sms) {
         const numsCsv = (staffPhones || '').trim();
         if (numsCsv) await sendSmsBatch(numsCsv, staffMessage);
       }
 
+      // email (SendGrid from browser)
       if (staffVia.email) {
         const emailsCsv = (staffEmails || '').trim();
         if (emailsCsv) {
-          await postEmail(
+          await sendEmailSendGridBatch(
             emailsCsv,
             staffSubject,
             staffMessage,
-            fromEmailDefault,
-            schoolName,
-            'staff-broadcast'
+            FROM_EMAIL,
+            schoolName
           );
         }
       }
@@ -255,7 +303,7 @@ export default function CommunicationPage() {
     }
   };
 
-  /* ---------- CLASS TAB (CLASS_STUDENTS, Dashboard only) ---------- */
+  /* ---------- CLASS TAB ---------- */
   const [classSubject, setClassSubject] = useState('');
   const [classMessage, setClassMessage] = useState('');
 
@@ -288,7 +336,7 @@ export default function CommunicationPage() {
     }
   };
 
-  /* ---------- PARENTS TAB (ALL_PARENTS / CLASS_PARENTS) ---------- */
+  /* ---------- PARENTS TAB ---------- */
   const [parentsScope, setParentsScope] = useState('ALL'); // 'ALL' | 'CLASS'
   const [parentsSubject, setParentsSubject] = useState('');
   const [parentsMessage, setParentsMessage] = useState('');
@@ -362,13 +410,12 @@ export default function CommunicationPage() {
       if (parentsVia.email) {
         const emailsCsv = (parentsEmails || '').trim();
         if (emailsCsv) {
-          await postEmail(
+          await sendEmailSendGridBatch(
             emailsCsv,
             parentsSubject,
             parentsMessage,
-            fromEmailDefault,
-            schoolName,
-            'parents-broadcast'
+            FROM_EMAIL,
+            schoolName
           );
         }
       }

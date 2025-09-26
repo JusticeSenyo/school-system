@@ -7,16 +7,18 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
-// ===== ORDS endpoints =====
-const UNMARKED_API =
-  'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/report/class_teacher/unmarked/';
-const MARKED_TODAY_API =
-  'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/report/class_teacher/attendance/';
-const MARK_ATTENDANCE_API =
-  'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/report/mark/attendance/';
-const CLASS_LIST_API =
-  'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/academic/class_teacher/class/';
+/* ================== ORDS endpoints ================== */
+const BASE = 'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools';
 
+const UNMARKED_API        = `${BASE}/report/class_teacher/unmarked/`;
+const MARKED_TODAY_API    = `${BASE}/report/class_teacher/attendance/`;
+const MARK_ATTENDANCE_API = `${BASE}/report/mark/attendance/`;
+const CLASS_LIST_API      = `${BASE}/academic/class_teacher/class/`;
+
+const ACADEMIC_YEAR_API   = `${BASE}/academic/get/academic_year/`;
+const ACADEMIC_TERM_API   = `${BASE}/academic/get/term/`;
+
+/* ================== Helpers ================== */
 // Map UI value -> API value
 const statusToApi = { present: 'PRESENT', absent: 'ABSENT' };
 
@@ -25,6 +27,17 @@ function formatYmd(d) {
   return d.toISOString().slice(0, 10);
 }
 
+const jarr = async (url) => {
+  const r = await fetch(url, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+  const t = (await r.text()).trim();
+  if (!t) return [];
+  try {
+    const d = JSON.parse(t);
+    return Array.isArray(d) ? d : Array.isArray(d?.items) ? d.items : [];
+  } catch { return []; }
+};
+
+/* ================== Component ================== */
 const ManageAttendancePage = () => {
   const { user } = useAuth?.() || {};
   const userId = user?.user_id ?? user?.id ?? 1;
@@ -38,7 +51,15 @@ const ManageAttendancePage = () => {
   const [classesLoading, setClassesLoading] = useState(false);
   const [classesErr, setClassesErr] = useState('');
   const [classId, setClassId] = useState(null);
+
+  // Date (still user-selectable, capped to today)
   const [date, setDate] = useState(today);
+
+  // Read-only "current" academic year & term (auto-loaded)
+  const [currentYearId, setCurrentYearId] = useState('');
+  const [currentTermId, setCurrentTermId] = useState('');
+  const [currentYearName, setCurrentYearName] = useState('');
+  const [currentTermName, setCurrentTermName] = useState('');
 
   // Data
   const [unmarked, setUnmarked] = useState([]);
@@ -60,17 +81,45 @@ const ManageAttendancePage = () => {
     return { total, present, absent, unchosen, rate };
   }, [unmarked, attendance]);
 
-  // ========== Fetch class list for this teacher ==========
+  /* ========== Load CURRENT Year/Term (read-only) ========== */
+  useEffect(() => {
+    if (!schoolId) return;
+    (async () => {
+      try {
+        const yrs = await jarr(`${ACADEMIC_YEAR_API}?p_school_id=${encodeURIComponent(schoolId)}`);
+        const normY = yrs.map(r => ({
+          id: r.academic_year_id ?? r.ACADEMIC_YEAR_ID ?? r.id,
+          name: r.academic_year_name ?? r.ACADEMIC_YEAR_NAME ?? r.name,
+          status: r.status ?? r.STATUS ?? '',
+        })).filter(y => y.id != null);
+        const curY = normY.find(y => String(y.status).toUpperCase() === 'CURRENT') || normY[0];
+        setCurrentYearId(String(curY?.id || ''));
+        setCurrentYearName(curY?.name || '');
+
+        const trm = await jarr(`${ACADEMIC_TERM_API}?p_school_id=${encodeURIComponent(schoolId)}`);
+        const normT = trm.map(r => ({
+          id: r.term_id ?? r.TERM_ID ?? r.id,
+          name: r.term_name ?? r.TERM_NAME ?? r.name,
+          status: r.status ?? r.STATUS ?? '',
+        })).filter(t => t.id != null);
+        const curT = normT.find(t => String(t.status).toUpperCase() === 'CURRENT') || normT[0];
+        setCurrentTermId(String(curT?.id || ''));
+        setCurrentTermName(curT?.name || '');
+      } catch {
+        // keep read-only fields blank if fetch fails; submission still works without labels
+      }
+    })();
+  }, [schoolId]);
+
+  /* ========== Fetch class list for this teacher ========== */
   const fetchClasses = async () => {
     setClassesLoading(true);
     setClassesErr('');
     try {
       const url = `${CLASS_LIST_API}?p_user_id=${encodeURIComponent(userId)}`;
-      const res = await fetch(url, { headers: { Accept: 'application/json' } });
-      if (!res.ok) throw new Error(`Classes fetch failed: ${res.status}`);
-      const rows = await res.json();
+      const rows = await jarr(url);
 
-      const normalized = (Array.isArray(rows) ? rows : []).map(r => ({
+      const normalized = rows.map(r => ({
         class_id: r.class_id ?? r.CLASS_ID ?? r.id ?? r.ID,
         class_name: r.class_name ?? r.CLASS_NAME ?? r.name ?? r.NAME
       })).filter(r => r.class_id != null);
@@ -95,7 +144,7 @@ const ManageAttendancePage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  // ========== Attendance data fetchers ==========
+  /* ========== Attendance data fetchers ========== */
   const fetchUnmarked = async () => {
     if (!classId) return;
     const url =
@@ -103,7 +152,7 @@ const ManageAttendancePage = () => {
       `&p_class_id=${encodeURIComponent(classId)}` +
       `&p_date=${encodeURIComponent(date)}`;
 
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!res.ok) throw new Error(`Unmarked fetch failed: ${res.status}`);
     const rows = await res.json();
 
@@ -112,7 +161,7 @@ const ManageAttendancePage = () => {
       full_name: r.full_name ?? r.FULL_NAME,
       class_id: r.class_id ?? r.CLASS_ID,
       school_id: r.school_id ?? r.SCHOOL_ID,
-    }));
+    })).filter(x => x.student_id != null);
 
     setUnmarked(normalized);
     setAttendance({});
@@ -126,7 +175,7 @@ const ManageAttendancePage = () => {
       `&p_user_id=${encodeURIComponent(recordedBy)}` +
       `&p_date=${encodeURIComponent(date)}`;
 
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!res.ok) throw new Error(`Marked fetch failed: ${res.status}`);
     const rows = await res.json();
 
@@ -138,9 +187,6 @@ const ManageAttendancePage = () => {
     const normalized = filtered.map(r => ({
       full_name: r.full_name ?? r.FULL_NAME,
       status: (r.status ?? r.STATUS)?.toUpperCase(),
-      attendance_date: (r.attendance_date ?? r.ATTENDANCE_DATE)?.slice(0, 10),
-      class_teacher: r.class_teacher ?? r.CLASS_TEACHER,
-      class_teacher_id: r.class_teacher_id ?? r.CLASS_TEACHER_ID,
     }));
 
     setMarked(normalized);
@@ -164,7 +210,7 @@ const ManageAttendancePage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schoolId, classId, date, recordedBy]);
 
-  // ========== UI actions ==========
+  /* ========== UI actions ========== */
   const handleAttendanceChange = (student_id, status) => {
     setAttendance(prev => ({ ...prev, [student_id]: status }));
   };
@@ -197,7 +243,9 @@ const ManageAttendancePage = () => {
           `&p_student_id=${encodeURIComponent(s.student_id)}` +
           `&p_status=${encodeURIComponent(apiStatus)}` +
           `&p_date=${encodeURIComponent(date)}` +
-          `&p_recorded_by=${encodeURIComponent(recordedBy)}`;
+          `&p_recorded_by=${encodeURIComponent(recordedBy)}` +
+          (currentYearId ? `&p_academic_year=${encodeURIComponent(currentYearId)}` : '') +
+          (currentTermId ? `&p_term=${encodeURIComponent(currentTermId)}` : '');
 
         const res = await fetch(url, { method: 'GET' });
         if (!res.ok) {
@@ -221,7 +269,7 @@ const ManageAttendancePage = () => {
     setDate(v > today ? today : v);
   };
 
-  // ========== Excel export for Marked Today ==========
+  /* ========== Excel export for Marked Today ========== */
   const downloadMarkedExcel = () => {
     if (!marked.length) return;
 
@@ -236,23 +284,18 @@ const ManageAttendancePage = () => {
       Status: r.status === 'PRESENT' ? 'Present' : 'Absent'
     }));
 
-    // Create worksheet & workbook
     const ws = XLSX.utils.json_to_sheet(rows);
 
-    // Autosize columns based on content
-    const headers = Object.keys(rows[0] || { '#': '', Student: '', Status: '', Date: '', Teacher: '', TeacherID: '', Class: '', ClassID: '' });
+    // Autosize columns
+    const headers = Object.keys(rows[0] || { '#': '', Student: '', Status: '' });
     const colWidths = headers.map(h => {
-      const maxLen = Math.max(
-        h.length,
-        ...rows.map(r => (r[h] ? String(r[h]).length : 0))
-      );
+      const maxLen = Math.max(h.length, ...rows.map(r => (r[h] ? String(r[h]).length : 0)));
       return { wch: Math.min(Math.max(maxLen + 2, 10), 40) };
     });
     ws['!cols'] = colWidths;
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Marked');
-
     const filename = `attendance_${className}_${date}.xlsx`;
     XLSX.writeFile(wb, filename);
   };
@@ -262,7 +305,8 @@ const ManageAttendancePage = () => {
   return (
     <DashboardLayout title="Manage Attendance" subtitle="Class teacher daily attendance">
       {/* Top Bar */}
-      <div className="mb-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+      <div className="mb-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+        {/* Class (class-teacher-only LOV) */}
         <div className="flex items-center gap-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-3 shadow-sm">
           <Users className="w-5 h-5" />
           <div className="flex-1">
@@ -288,6 +332,7 @@ const ManageAttendancePage = () => {
           </div>
         </div>
 
+        {/* Date */}
         <div className="flex items-center gap-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-3 shadow-sm">
           <Calendar className="w-5 h-5" />
           <div className="flex-1">
@@ -302,25 +347,38 @@ const ManageAttendancePage = () => {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-3 shadow-sm">
-          <button
-            onClick={() => markAll('present')}
-            className="inline-flex items-center gap-2 bg-emerald-600 text-white px-3 py-2 rounded-xl hover:bg-emerald-700"
-          >
-            <CheckSquare className="w-4 h-4" /> Mark All Present
-          </button>
-          <button
-            onClick={() => markAll('absent')}
-            className="inline-flex items-center gap-2 bg-rose-600 text-white px-3 py-2 rounded-xl hover:bg-rose-700"
-          >
-            <XCircle className="w-4 h-4" /> Mark All Absent
-          </button>
-          <button
-            onClick={resetMarks}
-            className="inline-flex items-center gap-2 bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100 px-3 py-2 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-600"
-          >
-            <RefreshCcw className="w-4 h-4" /> Reset
-          </button>
+        {/* Academic Year (read-only current) */}
+        <div className="flex items-center gap-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-3 shadow-sm">
+          <Calendar className="w-5 h-5" />
+          <div className="flex-1">
+            <div className="text-xs text-gray-500">Academic Year</div>
+            <select
+              value={currentYearId}
+              disabled
+              title="Current year (read-only)"
+              onChange={() => {}}
+              className="w-full mt-0.5 px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 text-gray-700 dark:text-gray-300 cursor-not-allowed"
+            >
+              <option value={currentYearId}>{currentYearName || '—'}</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Term (read-only current) */}
+        <div className="flex items-center gap-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-3 shadow-sm">
+          <Calendar className="w-5 h-5" />
+          <div className="flex-1">
+            <div className="text-xs text-gray-500">Term</div>
+            <select
+              value={currentTermId}
+              disabled
+              title="Current term (read-only)"
+              onChange={() => {}}
+              className="w-full mt-0.5 px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 text-gray-700 dark:text-gray-300 cursor-not-allowed"
+            >
+              <option value={currentTermId}>{currentTermName || '—'}</option>
+            </select>
+          </div>
         </div>
       </div>
 

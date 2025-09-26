@@ -1,32 +1,32 @@
+// src/pages/ManageTermsPage.js
 import React, { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../components/dashboard/DashboardLayout";
 import { Search, Plus, Edit3, Trash2, X, Save, CheckCircle2, AlertTriangle, Download } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useAuth } from "../AuthContext";
 
-// === ORDS base ===
+/* === ORDS base === */
 const BASE_ORDS = "https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools";
 
-// Endpoint builders
-const GET_SUBJECTS_URL   = (schoolId) => `${BASE_ORDS}/academic/get/subject/?p_school_id=${encodeURIComponent(schoolId)}`;
-const ADD_SUBJECT_URL    = (schoolId, name) => `${BASE_ORDS}/academic/add/subject/?p_school_id=${encodeURIComponent(schoolId)}&p_subject_name=${encodeURIComponent(name)}`;
-const UPDATE_SUBJECT_URL = (id, schoolId, name) => `${BASE_ORDS}/academic/update/subject/?p_subject_id=${encodeURIComponent(id)}&p_school_id=${encodeURIComponent(schoolId)}&p_subject_name=${encodeURIComponent(name)}`;
-const DELETE_SUBJECT_URL = (id) => `${BASE_ORDS}/academic/delete/subject/?p_subject_id=${encodeURIComponent(id)}`;
+/* URLs */
+const GET_TERMS_URL    = (schoolId) => `${BASE_ORDS}/academic/get/terms/?p_school_id=${encodeURIComponent(schoolId)}`;
+const ADD_TERM_URL     = (schoolId, name, status) =>
+  `${BASE_ORDS}/academic/add/term/?p_school_id=${encodeURIComponent(schoolId)}&p_term_name=${encodeURIComponent(name)}&p_status=${encodeURIComponent(status || "")}`;
+const UPDATE_TERM_URL  = (id, schoolId, name, status) =>
+  `${BASE_ORDS}/academic/update/term/?p_term_id=${encodeURIComponent(id)}&p_school_id=${encodeURIComponent(schoolId)}&p_term_name=${encodeURIComponent(name)}&p_status=${encodeURIComponent(status || "")}`;
+const DELETE_TERM_URL  = (id) => `${BASE_ORDS}/academic/delete/term/?p_term_id=${encodeURIComponent(id)}`;
 
-// Resolve schoolId from auth (with localStorage fallback)
+/* Hook to resolve schoolId + token (same style as Classes page) */
 function useSchoolId() {
   const { user, token } = useAuth() || {};
   const fromUser =
-    user?.school_id ??
-    user?.schoolId ??
-    user?.school?.id ??
-    null;
+    user?.school_id ?? user?.schoolId ?? user?.school?.id ?? null;
   const fromStorage = Number(localStorage.getItem("school_id"));
   const schoolId = Number.isFinite(fromUser) ? fromUser : (Number.isFinite(fromStorage) ? fromStorage : null);
   return { schoolId, token };
 }
 
-export default function ManageSubjectsPage() {
+export default function ManageTermsPage() {
   const { schoolId, token } = useSchoolId();
 
   const [q, setQ] = useState("");
@@ -34,16 +34,17 @@ export default function ManageSubjectsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [err, setErr] = useState("");
 
-  // Create
+  // Create dialog
   const [openCreate, setOpenCreate] = useState(false);
   const [createName, setCreateName] = useState("");
+  const [createIsCurrent, setCreateIsCurrent] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Edit
-  const [editing, setEditing] = useState(null); // { id, name }
+  // Edit dialog
+  const [editing, setEditing] = useState(null); // { id, name, status }
   const [updating, setUpdating] = useState(false);
 
-  // Delete
+  // Delete dialog
   const [deletingId, setDeletingId] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -52,7 +53,7 @@ export default function ManageSubjectsPage() {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 
-  async function loadSubjects() {
+  async function loadTerms() {
     if (!schoolId) {
       setErr("No school selected.");
       setIsLoading(false);
@@ -61,30 +62,28 @@ export default function ManageSubjectsPage() {
     try {
       setIsLoading(true);
       setErr("");
-      const res = await fetch(GET_SUBJECTS_URL(schoolId), { headers: authHeaders });
+      const res = await fetch(GET_TERMS_URL(schoolId), { headers: authHeaders });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-
-      // Handle uppercase/lowercase keys
-      const mapped = (Array.isArray(data) ? data : []).map(item => ({
-        id: item.subject_id ?? item.SUBJECT_ID,
-        schoolId: item.school_id ?? item.SCHOOL_ID,
-        name: item.name ?? item.NAME,
-        createdAt: item.created_at ?? item.CREATED_AT
-      })).filter(x => x.id != null);
-
+      const list = Array.isArray(data) ? data : (Array.isArray(data.items) ? data.items : []);
+      const mapped = list.map((t) => ({
+        id: t.term_id ?? t.TERM_ID,
+        name: t.term_name ?? t.TERM_NAME,
+        status: t.status ?? t.STATUS ?? null, // expect 'CURRENT' or null
+      }));
       setRows(mapped);
     } catch (e) {
-      setErr(`Failed to load subjects: ${e.message}`);
+      setErr(`Failed to load terms: ${e.message}`);
     } finally {
       setIsLoading(false);
     }
   }
 
-  useEffect(() => { loadSubjects(); /* eslint-disable-next-line */ }, [schoolId]);
+  useEffect(() => { loadTerms(); /* eslint-disable-next-line */ }, [schoolId]);
 
   const filtered = useMemo(() => {
-    return rows.filter(r => (q ? String(r.name || "").toLowerCase().includes(q.toLowerCase()) : true));
+    const ql = q.trim().toLowerCase();
+    return rows.filter(r => (!ql || r.name?.toLowerCase().includes(ql)));
   }, [rows, q]);
 
   // Create
@@ -93,13 +92,15 @@ export default function ManageSubjectsPage() {
     if (!name || !schoolId) return;
     try {
       setSaving(true);
-      const res = await fetch(ADD_SUBJECT_URL(schoolId, name), { method: "GET", headers: authHeaders });
+      const statusValue = createIsCurrent ? "CURRENT" : ""; // empty -> NULL on DB
+      const res = await fetch(ADD_TERM_URL(schoolId, name, statusValue), { method: "GET", headers: authHeaders });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setOpenCreate(false);
       setCreateName("");
-      await loadSubjects();
+      setCreateIsCurrent(false);
+      await loadTerms();
     } catch (e) {
-      alert(`Could not create subject: ${e.message}`);
+      alert(`Could not create term: ${e.message}`);
     } finally {
       setSaving(false);
     }
@@ -107,15 +108,19 @@ export default function ManageSubjectsPage() {
 
   // Update
   async function handleUpdate() {
-    if (!editing || !editing.name || !editing.name.trim() || !schoolId) return;
+    if (!editing || !editing.name?.trim() || !schoolId) return;
     try {
       setUpdating(true);
-      const res = await fetch(UPDATE_SUBJECT_URL(editing.id, schoolId, editing.name.trim()), { method: "GET", headers: authHeaders });
+      const statusValue = editing.status === "CURRENT" ? "CURRENT" : "";
+      const res = await fetch(
+        UPDATE_TERM_URL(editing.id, schoolId, editing.name.trim(), statusValue),
+        { method: "GET", headers: authHeaders }
+      );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setEditing(null);
-      await loadSubjects();
+      await loadTerms();
     } catch (e) {
-      alert(`Could not update subject: ${e.message}`);
+      alert(`Could not update term: ${e.message}`);
     } finally {
       setUpdating(false);
     }
@@ -126,12 +131,12 @@ export default function ManageSubjectsPage() {
     if (!deletingId) return;
     try {
       setDeleting(true);
-      const res = await fetch(DELETE_SUBJECT_URL(deletingId), { method: "GET", headers: authHeaders });
+      const res = await fetch(DELETE_TERM_URL(deletingId), { method: "GET", headers: authHeaders });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setDeletingId(null);
-      await loadSubjects();
+      await loadTerms();
     } catch (e) {
-      alert(`Could not delete subject: ${e.message}`);
+      alert(`Could not delete term: ${e.message}`);
     } finally {
       setDeleting(false);
     }
@@ -139,48 +144,36 @@ export default function ManageSubjectsPage() {
 
   // Excel export
   function exportToExcel() {
-    const rowsForExcel = filtered.map(r => ({
-      "Subject ID": r.id,
-      "Subject Name": r.name,
-      "School ID": r.schoolId ?? "",
-      "Created": r.createdAt ? new Date(r.createdAt).toLocaleString() : "",
+    const rowsForExcel = rows.map(r => ({
+      "Term ID": r.id,
+      "Term Name": r.name,
+      "Status": r.status === "CURRENT" ? "CURRENT" : "",
     }));
     const ws = XLSX.utils.json_to_sheet(rowsForExcel);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Subjects");
-    XLSX.writeFile(wb, "subjects.xlsx");
+    XLSX.utils.book_append_sheet(wb, ws, "Terms");
+    XLSX.writeFile(wb, "academic_terms.xlsx");
   }
 
   return (
-    <DashboardLayout title="Manage Subjects" subtitle="Create, rename, and delete subjects">
+    <DashboardLayout title="Manage Academic Terms" subtitle="Create and manage academic terms">
       {/* Controls */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 border border-gray-100 dark:border-gray-700 mb-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                className="pl-9 pr-3 py-2 border rounded-lg bg-white dark:bg-gray-900 text-sm"
-                placeholder="Search subject"
-              />
-            </div>
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              className="pl-9 pr-3 py-2 border rounded-lg bg-white dark:bg-gray-900 text-sm"
+              placeholder="Search term"
+            />
           </div>
           <div className="flex gap-2">
-            <button
-              onClick={() => setOpenCreate(true)}
-              className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg"
-              disabled={!schoolId}
-            >
-              <Plus className="h-4 w-4" /> New Subject
+            <button onClick={() => setOpenCreate(true)} className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg" disabled={!schoolId}>
+              <Plus className="h-4 w-4" /> New Term
             </button>
-            <button
-              onClick={exportToExcel}
-              className="inline-flex items-center gap-2 px-3 py-2 border rounded-lg"
-              disabled={!rows.length}
-              title="Download Excel"
-            >
+            <button onClick={exportToExcel} className="inline-flex items-center gap-2 px-3 py-2 border rounded-lg" disabled={!rows.length}>
               <Download className="h-4 w-4" /> Download Excel
             </button>
           </div>
@@ -194,26 +187,32 @@ export default function ManageSubjectsPage() {
           <table className="min-w-full text-sm">
             <thead>
               <tr className="text-left text-gray-600 dark:text-gray-300 border-b dark:border-gray-700">
-                <th className="p-3">Subject</th>
+                <th className="p-3">Term</th>
+                <th className="p-3">Status</th>
                 <th className="p-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td className="p-6 text-center text-gray-500 dark:text-gray-400" colSpan={3}>
-                    Loading subjects…
-                  </td>
-                </tr>
+                <tr><td className="p-6 text-center text-gray-500 dark:text-gray-400" colSpan={4}>Loading terms…</td></tr>
               ) : filtered.length ? (
                 filtered.map(r => (
                   <tr key={r.id} className="border-b last:border-0 dark:border-gray-700">
                     <td className="p-3 font-medium">{r.name}</td>
                     <td className="p-3">
+                      {r.status === "CURRENT" ? (
+                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300">
+                          CURRENT
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
+                    </td>
+                    <td className="p-3">
                       <div className="flex justify-end gap-2">
                         <button
                           className="px-2 py-1 border rounded-lg inline-flex items-center gap-1"
-                          onClick={() => setEditing({ id: r.id, name: r.name })}
+                          onClick={() => setEditing({ id: r.id, name: r.name, status: r.status })}
                         >
                           <Edit3 className="h-4 w-4" /> Edit
                         </button>
@@ -228,11 +227,7 @@ export default function ManageSubjectsPage() {
                   </tr>
                 ))
               ) : (
-                <tr>
-                  <td className="p-6 text-center text-gray-500 dark:text-gray-400" colSpan={3}>
-                    No subjects found.
-                  </td>
-                </tr>
+                <tr><td className="p-6 text-center text-gray-500 dark:text-gray-400" colSpan={4}>No terms found.</td></tr>
               )}
             </tbody>
           </table>
@@ -241,9 +236,14 @@ export default function ManageSubjectsPage() {
 
       {/* Create */}
       {openCreate && (
-        <Modal title="New Subject" onClose={() => setOpenCreate(false)}>
+        <Modal title="New Term" onClose={() => setOpenCreate(false)}>
           <div className="grid gap-3">
-            <Input label="Subject Name" value={createName} onChange={setCreateName} />
+            <Input label="Term Name (e.g., Term 1)" value={createName} onChange={setCreateName} />
+            <Checkbox
+              label="Mark as CURRENT term"
+              checked={createIsCurrent}
+              onChange={setCreateIsCurrent}
+            />
             <div className="flex justify-end gap-2 mt-2">
               <button className="px-3 py-2 border rounded-lg inline-flex items-center gap-2" onClick={() => setOpenCreate(false)}>
                 <X className="h-4 w-4" /> Cancel
@@ -262,9 +262,14 @@ export default function ManageSubjectsPage() {
 
       {/* Edit */}
       {editing && (
-        <Modal title="Edit Subject" onClose={() => setEditing(null)}>
+        <Modal title="Edit Term" onClose={() => setEditing(null)}>
           <div className="grid gap-3">
-            <Input label="Subject Name" value={editing.name} onChange={(v) => setEditing(s => ({ ...s, name: v }))} />
+            <Input label="Term Name" value={editing.name} onChange={(v) => setEditing(s => ({ ...s, name: v }))} />
+            <Checkbox
+              label="Mark as CURRENT term"
+              checked={editing.status === "CURRENT"}
+              onChange={(checked) => setEditing(s => ({ ...s, status: checked ? "CURRENT" : "" }))}
+            />
             <div className="flex justify-end gap-2 mt-2">
               <button className="px-3 py-2 border rounded-lg inline-flex items-center gap-2" onClick={() => setEditing(null)}>
                 <X className="h-4 w-4" /> Cancel
@@ -283,11 +288,11 @@ export default function ManageSubjectsPage() {
 
       {/* Delete confirm */}
       {deletingId !== null && (
-        <Modal title="Delete Subject" onClose={() => setDeletingId(null)}>
+        <Modal title="Delete Term" onClose={() => setDeletingId(null)}>
           <div className="flex items-start gap-3">
             <AlertTriangle className="mt-1 h-5 w-5 text-amber-500" />
             <div className="text-sm">
-              <p>Are you sure you want to delete this subject?</p>
+              <p>Are you sure you want to delete this term?</p>
               <p className="text-gray-500 mt-1">This action cannot be undone.</p>
             </div>
           </div>
@@ -329,6 +334,19 @@ function Input({ label, value, onChange }) {
     <label className="text-sm grid gap-1">
       <span className="text-gray-700 dark:text-gray-300">{label}</span>
       <input value={value} onChange={(e) => onChange(e.target.value)} className="border rounded-lg px-3 py-2 bg-white dark:bg-gray-800" />
+    </label>
+  );
+}
+function Checkbox({ label, checked, onChange }) {
+  return (
+    <label className="text-sm flex items-center gap-2 select-none">
+      <input
+        type="checkbox"
+        checked={!!checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-4 w-4 text-indigo-600 border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded"
+      />
+      <span className="text-gray-700 dark:text-gray-300">{label}</span>
     </label>
   );
 }

@@ -1,16 +1,29 @@
 // src/pages/ManageStudentsPage.js
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
-import { PlusCircle, X, Mail, UserCircle2,
-   Loader2, CheckCircle2, AlertCircle, RefreshCcw as RotateCcw, Pencil,
-   Download, Search, KeyRound, Eye, Image as ImageIcon, Printer,
-   Hash, Users, Phone } from 'lucide-react';
+import {
+  PlusCircle, X, Mail, UserCircle2,
+  Loader2, CheckCircle2, AlertCircle, RefreshCcw as RotateCcw, Pencil,
+  Download, Search, KeyRound, Eye, Image as ImageIcon, Printer,
+  Hash, Users, Phone, Upload, Info
+} from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../AuthContext';
 import { getTempPassword } from '../lib/passwords';
 import { buildPublicUrl, putToOCI } from '../config/storage';
 
-// ===== ORDS endpoints (absolute) =====
+/* ================== Plans / limits ================== */
+const PLAN_LIMITS = { BASIC: 100, STANDARD: 1000, PREMIUM: Infinity };
+const PLAN_NAME_BY_CODE = (raw) => {
+  const v = String(raw ?? '').trim().toUpperCase();
+  if (v === '1' || v === 'BASIC') return 'BASIC';
+  if (v === '2' || v === 'STANDARD') return 'STANDARD';
+  if (v === '3' || v === 'PREMIUM' || v === 'PREMUIM') return 'PREMIUM';
+  return 'BASIC';
+};
+const HUMAN_PLAN = (code) => ({ BASIC: 'Basic', STANDARD: 'Standard', PREMIUM: 'Premium' }[code] || 'Basic');
+
+/* ================== ORDS endpoints (absolute) ================== */
 const GET_STUDENTS_ENDPOINT =
   'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/student/get/students/';
 const GET_CLASSES_ENDPOINT =
@@ -26,10 +39,10 @@ const RESET_STUDENT_PWD_ENDPOINT =
 const TEMP_PASS_ENDPOINT =
   'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/security/temp/pass/';
 
-// ===== Email sender (same as staff) =====
+/* ================== Email sender ================== */
 const EMAIL_API_BASE = 'https://schoolmasterhub.vercel.app';
 
-// ===== Safe URL builder (same as staff) =====
+/* ================== Safe URL builder ================== */
 const useApiJoin = (API_BASE) => {
   const API_ROOT = (API_BASE || '').replace(/\/+$/, '') + '/';
   const toUrl = (path = '', params = {}) => {
@@ -46,12 +59,29 @@ const useApiJoin = (API_BASE) => {
   return { toUrl };
 };
 
-// ===== Helpers (mirrors staff) =====
+/* ================== Helpers ================== */
 const initials = (name = '') =>
   name.split(' ').filter(Boolean).slice(0, 2).map(s => s[0]?.toUpperCase()).join('') || 'ST';
 
 function mapOracleError(errText = '') {
   const t = String(errText);
+  // new -201xx friendly errors
+  if (/-20110/.test(t)) return 'Creator not found in this school.';
+  if (/-20111/.test(t)) return 'Not authorized: only AD/SA can add students.';
+  if (/-20112/.test(t)) return 'Full name is required.';
+  if (/-20113/.test(t)) return 'Role must be ST.';
+  if (/-20114/.test(t)) return 'Password is required for student.';
+  if (/-20115/.test(t)) return 'Class ID is required.';
+  if (/-20116/.test(t)) return 'Gender is required.';
+  if (/-20117/.test(t)) return 'Gender must be M or F.';
+  if (/-20118/.test(t)) return 'Invalid DOB format. Use YYYY-MM-DD.';
+  if (/-20119/.test(t)) return 'Class not found for this school.';
+  if (/-20120/.test(t)) return 'Admission number already exists for this school.';
+  if (/-20121/.test(t)) return 'Index number already exists for this school.';
+  if (/-20122/.test(t)) return 'Email already exists for this school.';
+  if (/-20123/.test(t)) return 'Duplicate unique field (admission/index/email).';
+  if (/-20199/.test(t)) return 'Failed to add student (server).';
+  // generic ORA mappings
   if (/ORA-00001/i.test(t)) return 'Duplicate detected (unique constraint).';
   if (/ORA-01400/i.test(t)) return 'A required column was empty. Check all required fields.';
   if (/ORA-06502|numeric or value error/i.test(t)) return 'Value too long or wrong data type (check field lengths).';
@@ -61,6 +91,17 @@ function mapOracleError(errText = '') {
   if (/ORA-00907|missing right parenthesis|ORA-00933|ORA-00936/i.test(t)) return 'Backend SQL syntax error.';
   return null;
 }
+
+/* fetch JSON-like arrays safely (for plan info) */
+const jarr = async (url, headers = {}) => {
+  const r = await fetch(url, { headers: { Accept: 'application/json', ...headers }, cache: 'no-store' });
+  const t = (await r.text()).trim();
+  if (!t) return [];
+  try {
+    const d = JSON.parse(t);
+    return Array.isArray(d) ? d : Array.isArray(d.items) ? d.items : Array.isArray(d.rows) ? d.rows : [];
+  } catch { return []; }
+};
 
 const Avatar = ({ urls = [], name, size = 80, rounded = 'rounded-full' }) => {
   const [idx, setIdx] = useState(0);
@@ -93,7 +134,7 @@ const Avatar = ({ urls = [], name, size = 80, rounded = 'rounded-full' }) => {
 const buildStudentKey = (schoolId, studentId, ext = 'jpg') =>
   `schools/${schoolId}/students/${studentId}.${ext}`;
 
-// Robust "next id" fetch (like staff)
+// Robust "next id" fetch
 async function fetchNextStudentId(toUrl, { token, schoolId } = {}) {
   const headers = { Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
   const url = toUrl(NEXT_STUDENT_ID_ENDPOINT, schoolId ? { p_school_id: String(schoolId) } : undefined);
@@ -116,7 +157,7 @@ async function fetchNextStudentId(toUrl, { token, schoolId } = {}) {
   throw new Error(`Unexpected response from student/id/next: ${body.slice(0, 200)}`);
 }
 
-// Fetch temp password from ORDS (fallback to local generator)
+// Fetch temp password from ORDS (fallback)
 async function fetchTempPassword() {
   try {
     const res = await fetch(TEMP_PASS_ENDPOINT, { headers: { Accept: 'application/json' } });
@@ -126,7 +167,7 @@ async function fetchTempPassword() {
   return getTempPassword(12);
 }
 
-// ===== Component =====
+/* ================== Component ================== */
 export default function ManageStudentsPage() {
   const { token, user, API_BASE } = useAuth();
   const { toUrl } = useApiJoin(API_BASE);
@@ -137,6 +178,43 @@ export default function ManageStudentsPage() {
 
   const SCHOOL_NAME =
     user?.school?.name ?? user?.school_name ?? user?.SCHOOL_NAME ?? user?.orgName ?? user?.organisation ?? '';
+
+  /* ---------- Plan & expiry ---------- */
+  const [planCode, setPlanCode] = useState('BASIC'); // BASIC|STANDARD|PREMIUM
+  const [planHuman, setPlanHuman] = useState('Basic');
+  const [expiryISO, setExpiryISO] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const schoolInfoUrl = toUrl('academic/get/school/');
+        const rows = await jarr(schoolInfoUrl, token ? { Authorization: `Bearer ${token}` } : {});
+        const rec = (rows || []).find(r => String(r.school_id ?? r.SCHOOL_ID) === String(schoolId));
+
+        const pkgRaw = rec?.package ?? rec?.PACKAGE ?? user?.package ?? user?.PACKAGE ?? user?.plan;
+        const code = PLAN_NAME_BY_CODE(pkgRaw);
+        const exp  = rec?.expiry ?? rec?.EXPIRY ?? user?.expiry ?? user?.EXPIRY ?? null;
+        if (!mounted) return;
+        setPlanCode(code);
+        setPlanHuman(HUMAN_PLAN(code));
+        setExpiryISO(exp ? String(exp) : null);
+      } catch {
+        const fallback = PLAN_NAME_BY_CODE(user?.package ?? user?.plan);
+        setPlanCode(fallback);
+        setPlanHuman(HUMAN_PLAN(fallback));
+        setExpiryISO(user?.expiry ?? null);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [schoolId, user, token, toUrl]);
+
+  const planMax = PLAN_LIMITS[planCode] ?? 100;
+  const planExpired = useMemo(() => {
+    if (!expiryISO) return false;
+    const d = new Date(expiryISO);
+    return isFinite(d.getTime()) && d.getTime() < Date.now();
+  }, [expiryISO]);
 
   // State
   const [students, setStudents] = useState([]);
@@ -162,7 +240,7 @@ export default function ManageStudentsPage() {
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
 
-  // Photo (UI only – URL hidden, we upload to OCI)
+  // Photo
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState('');
   const fileInputRef = useRef(null);
@@ -174,10 +252,19 @@ export default function ManageStudentsPage() {
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [infoStudent, setInfoStudent] = useState(null);
 
-  // Pre-allocated id (like staff)
+  // Pre-allocated id
   const [pendingStudentId, setPendingStudentId] = useState(null);
 
-  // ===== Fetch students =====
+  // BULK IMPORT
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkBusy] = useState(false);
+  const [bulkErr, setBulkErr] = useState('');
+  const [bulkOk, setBulkOk] = useState('');
+  const [bulkFileName, setBulkFileName] = useState('');
+  const [previewRows, setPreviewRows] = useState([]);
+  const [importing, setImporting] = useState(false);
+
+  /* ---------- Fetch students ---------- */
   const fetchStudents = async () => {
     setLoading(true);
     setLoadError('');
@@ -200,7 +287,6 @@ export default function ManageStudentsPage() {
         const created = r.CREATED_AT ?? r.created_at ?? '';
         const imageUrl = r.IMAGE_URL ?? r.image_url ?? '';
 
-        // chain of photo candidates (no URL text shown anywhere)
         const urlChain = [];
         if (imageUrl) {
           try {
@@ -243,7 +329,7 @@ export default function ManageStudentsPage() {
     }
   };
 
-  // ===== Fetch classes (for filter + labels) =====
+  /* ---------- Fetch classes ---------- */
   const fetchClasses = async () => {
     setClassesErr('');
     try {
@@ -260,7 +346,7 @@ export default function ManageStudentsPage() {
 
   useEffect(() => { fetchStudents(); fetchClasses(); /* eslint-disable-next-line */ }, [schoolId]);
 
-  // ===== Filtering & search (expanded to search entire "report") =====
+  /* ---------- Filtering & search ---------- */
   const classIdToName = useMemo(() => {
     const m = new Map();
     for (const c of classes) {
@@ -270,38 +356,32 @@ export default function ManageStudentsPage() {
     return m;
   }, [classes]);
 
+  const classNameToId = useMemo(() => {
+    const m = new Map();
+    for (const c of classes) {
+      const name = String(c.class_name ?? '').trim().toLowerCase();
+      const id = String(c.class_id ?? '');
+      if (name) m.set(name, id);
+    }
+    return m;
+  }, [classes]);
+
   const getClassName = (id) => classIdToName.get(String(id ?? '')) || String(id ?? '');
 
-  // ---- Search helpers: full-report search & fielded queries ----
   const normalize = (v) => String(v ?? '').toLowerCase();
-
-  const genderLabel = (g) =>
-    g === 'M' ? 'male' : (g === 'F' ? 'female' : normalize(g));
+  const genderLabel = (g) => (g === 'M' ? 'male' : (g === 'F' ? 'female' : normalize(g)));
 
   function studentMatchesQuery(s, q, getClassNameFn) {
     const haystack = [
-      s.full_name,
-      s.email,
-      getClassNameFn(s.class_id),
-      s.status,
-      genderLabel(s.gender),
-      s.admission_no,
-      s.index_no,
-      s.phone,
-      s.father_name,
-      s.father_phone,
-      s.mother_name,
-      s.mother_phone,
-      s.guardian_name,
-      s.guardian_phone,
-      s.created_at,
-      s.id
+      s.full_name, s.email, getClassNameFn(s.class_id), s.status, genderLabel(s.gender),
+      s.admission_no, s.index_no, s.phone, s.father_name, s.father_phone, s.mother_name,
+      s.mother_phone, s.guardian_name, s.guardian_phone, s.created_at, s.id
     ].map(normalize).join(' ');
 
-    const tokens = normalize(q).split(/\s+/).filter(Boolean); // AND across tokens
+    const tokens = normalize(q).split(/\s+/).filter(Boolean);
 
     return tokens.every(tok => {
-      const m = tok.match(/^(\w+):(.*)$/); // field:value
+      const m = tok.match(/^(\w+):(.*)$/);
       if (m) {
         const [, field, valRaw] = m;
         const val = valRaw.trim();
@@ -312,7 +392,7 @@ export default function ManageStudentsPage() {
           case 'email':    return normalize(s.email).includes(v);
           case 'class':    return normalize(getClassNameFn(s.class_id)).includes(v);
           case 'status':   return normalize(s.status).includes(v);
-          case 'gender':   return genderLabel(s.gender).startsWith(v); // m/f/male/female
+          case 'gender':   return genderLabel(s.gender).startsWith(v);
           case 'adm':
           case 'admission':return normalize(s.admission_no).includes(v);
           case 'index':    return normalize(s.index_no).includes(v);
@@ -323,29 +403,24 @@ export default function ManageStudentsPage() {
           case 'id':       return String(s.id).includes(val);
           case 'created':
           case 'date':     return normalize(s.created_at).includes(v);
-          default:         return haystack.includes(tok); // fallback
+          default:         return haystack.includes(tok);
         }
       }
-      // plain token
       return haystack.includes(tok);
     });
   }
 
   const filtered = useMemo(() => {
     let list = students;
-
-    if (filterClass) {
-      list = list.filter(s => String(s.class_id) === String(filterClass));
-    }
-
-    if (searchQuery.trim()) {
-      list = list.filter(s => studentMatchesQuery(s, searchQuery, getClassName));
-    }
-
+    if (filterClass) list = list.filter(s => String(s.class_id) === String(filterClass));
+    if (searchQuery.trim()) list = list.filter(s => studentMatchesQuery(s, searchQuery, getClassName));
     return list;
   }, [students, filterClass, searchQuery, getClassName]);
 
-  // ===== Utilities (like staff) =====
+  const studentCount = students.length;
+  const remaining = useMemo(() => (isFinite(planMax) ? Math.max(0, planMax - studentCount) : Infinity), [planMax, studentCount]);
+
+  /* ---------- Utilities ---------- */
   const generateTempPassword = () => getTempPassword(12);
 
   const sendWelcomeEmail = async ({ full_name, email, tempPassword, schoolName, replyTo, subject }) => {
@@ -377,11 +452,16 @@ export default function ManageStudentsPage() {
   const validateForm = () => {
     if (!form.full_name.trim()) return 'Full name is required';
     if (!form.class_id) return 'Class is required';
+    if (!form.gender || !['M','F'].includes(String(form.gender).toUpperCase())) {
+      return 'Gender is required (M/F).';
+    }
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) return 'Valid email is required';
+    if (planExpired) return 'Plan expired. Please renew.';
+    if (isFinite(planMax) && remaining <= 0 && dialogMode === 'add') return `Reached ${planHuman} plan student limit.`;
     return '';
   };
 
-  // ===== Robust UPDATE (form-urlencoded → GET → JSON), includes full param set =====
+  /* ---------- Robust UPDATE ---------- */
   const updateStudentRobust = async (payload) => {
     const mustParams = {
       p_student_id: String(payload.studentId),
@@ -408,7 +488,6 @@ export default function ManageStudentsPage() {
     const encodeForm = (obj) =>
       Object.entries(obj).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&');
 
-    // 1) POST x-www-form-urlencoded
     try {
       const r = await fetch(UPDATE_STUDENT_ENDPOINT, {
         method: 'POST',
@@ -418,16 +497,12 @@ export default function ManageStudentsPage() {
       const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {}
       if (r.ok && (j == null || j?.success !== false)) return true;
     } catch {}
-
-    // 2) GET with query
     try {
       const getUrl = toUrl(UPDATE_STUDENT_ENDPOINT, mustParams);
       const r = await fetch(getUrl, { method: 'GET' });
       const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {}
       if (r.ok && (j == null || j?.success !== false)) return true;
     } catch {}
-
-    // 3) POST JSON
     const r = await fetch(UPDATE_STUDENT_ENDPOINT, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(mustParams),
@@ -437,7 +512,7 @@ export default function ManageStudentsPage() {
     throw new Error((j?.error || t || `HTTP ${r.status}`).slice(0, 800));
   };
 
-  // ===== Dialog open helpers (mirror staff) =====
+  /* ---------- Dialog open helpers ---------- */
   const resetForm = () => {
     setForm({
       full_name: '', email: '', class_id: '', status: 'ACTIVE',
@@ -445,7 +520,7 @@ export default function ManageStudentsPage() {
       father_name: '', mother_name: '', father_phone: '', mother_phone: '',
       guardian_name: '', guardian_phone: '',
       image_url: '',
-      _password: '', // hidden temp password
+      _password: '',
     });
     setPhotoFile(null);
     setPhotoPreview('');
@@ -454,6 +529,9 @@ export default function ManageStudentsPage() {
   };
 
   const openAdd = async () => {
+    if (planExpired) { setFormError('Plan expired. Please renew.'); return; }
+    if (isFinite(planMax) && remaining <= 0) { setFormError(`Reached ${planHuman} plan student limit.`); return; }
+
     resetForm();
     setDialogMode('add');
     setIsOpen(true);
@@ -464,7 +542,6 @@ export default function ManageStudentsPage() {
       ]);
       if (!nextId) throw new Error('Could not fetch next student ID');
       setPendingStudentId(nextId);
-      // keep password hidden in UI; store internally
       setForm(f => ({ ...f, _password: pwd }));
     } catch (e) {
       setFormError(e.message || 'Could not prepare new student form');
@@ -491,7 +568,7 @@ export default function ManageStudentsPage() {
       guardian_name: row.guardian_name || '',
       guardian_phone: row.guardian_phone || '',
       image_url: row.image_url || '',
-      _password: '', // not used on edit
+      _password: '',
     });
     setPhotoFile(null);
     setPhotoPreview('');
@@ -504,7 +581,7 @@ export default function ManageStudentsPage() {
     setPhotoPreview(f ? URL.createObjectURL(f) : '');
   };
 
-  // ===== ADD (pre-id + ORDS temp password + OCI upload + GET call) =====
+  /* ---------- ADD ---------- */
   const submitAddStudent = async () => {
     setFormError(''); setFormSuccess('');
     const err = validateForm();
@@ -515,17 +592,16 @@ export default function ManageStudentsPage() {
 
     setSubmitting(true);
     try {
-      // Upload to OCI if a file was picked; save the public URL
       let finalImageUrl = form.image_url || '';
       if (photoFile && schoolId && pendingStudentId) {
         const ext = (photoFile.name.split('.').pop() || 'jpg').toLowerCase();
         const key = buildStudentKey(schoolId, pendingStudentId, ext);
-        await putToOCI(photoFile, key);                // uploads/overwrites
-        finalImageUrl = buildPublicUrl(key);           // make it public
+        await putToOCI(photoFile, key);
+        finalImageUrl = buildPublicUrl(key);
       }
 
-      // Call ADD endpoint with full param set (including p_image_url)
       const addUrl = toUrl(ADD_STUDENT_ENDPOINT, {
+        p_creator_user_id: String(userId),
         p_full_name: form.full_name.trim(),
         p_gender: form.gender || '',
         p_image_url: finalImageUrl || '',
@@ -551,12 +627,11 @@ export default function ManageStudentsPage() {
       const res = await fetch(addUrl, { method: 'GET' });
       let data = null; let raw = '';
       try { raw = await res.text(); data = JSON.parse(raw); } catch {}
-      if (!res.ok || data?.success === false) {
-        const serverMsg = (data?.error || raw || '').slice(0, 600) || `HTTP ${res.status}`;
+      if (!res.ok || data?.ok === false || data?.success === false) {
+        const serverMsg = mapOracleError(data?.error || raw) || (data?.error || raw || '').slice(0, 600) || `HTTP ${res.status}`;
         throw new Error(serverMsg);
       }
 
-      // Update UI immediately (like staff)
       setStudents(prev => ([
         ...prev,
         {
@@ -586,7 +661,6 @@ export default function ManageStudentsPage() {
         }
       ]));
 
-      // Email credentials (same pattern as staff)
       if (form.email) {
         const emailResult = await sendWelcomeEmail({
           full_name: form.full_name.trim(),
@@ -619,7 +693,7 @@ export default function ManageStudentsPage() {
     }
   };
 
-  // ===== UPDATE (allow replacing the image and save new URL) =====
+  /* ---------- UPDATE ---------- */
   const submitUpdateStudent = async () => {
     setFormError(''); setFormSuccess('');
     const err = validateForm();
@@ -628,10 +702,7 @@ export default function ManageStudentsPage() {
 
     setSubmitting(true);
     try {
-      // Default to current URL
       let imageUrlToSave = form.image_url || '';
-
-      // If a new file was chosen, upload and replace
       if (photoFile && schoolId && editingId) {
         const prevExtMatch = (form.image_url || '').match(/\.(jpg|jpeg|png|webp|gif)$/i);
         const prevExt = prevExtMatch ? prevExtMatch[1].toLowerCase() : null;
@@ -639,7 +710,7 @@ export default function ManageStudentsPage() {
         const ext = prevExt || uploadedExt;
 
         const key = buildStudentKey(schoolId, editingId, ext);
-        await putToOCI(photoFile, key);               // overwrites same object
+        await putToOCI(photoFile, key);
         imageUrlToSave = buildPublicUrl(key);
       }
 
@@ -674,7 +745,7 @@ export default function ManageStudentsPage() {
     }
   };
 
-  // ===== Reset password & email (use ORDS temp pass for parity) =====
+  /* ---------- Reset password & email (PREMIUM ONLY) ---------- */
   const resetPasswordForStudent = async (studentId, newPassword) => {
     const url = toUrl(RESET_STUDENT_PWD_ENDPOINT, {
       p_student_id: String(studentId),
@@ -689,6 +760,7 @@ export default function ManageStudentsPage() {
   };
 
   const resetAndSend = async (row) => {
+    if (planCode !== 'PREMIUM') return; // guard
     if (!row?.id || !row?.email) return;
     if (!window.confirm(`Reset password for ${row.full_name || row.email}?`)) return;
 
@@ -720,7 +792,7 @@ export default function ManageStudentsPage() {
     }
   };
 
-  // ===== Export to Excel (match staff’s columns shape) =====
+  /* ---------- Export to Excel ---------- */
   const exportToExcel = () => {
     try {
       const rows = filtered.map((s, idx) => ({
@@ -743,7 +815,167 @@ export default function ManageStudentsPage() {
     }
   };
 
-  // ===== Keyboard helpers (same as staff) =====
+  /* ---------- Bulk Import ---------- */
+  const openBulk = () => {
+    if (planExpired) { setBulkErr('Plan expired — renew to use this feature'); setBulkOpen(true); return; }
+    if (isFinite(planMax) && remaining <= 0) { setBulkErr(`Reached ${planHuman} plan student limit`); setBulkOpen(true); return; }
+    setBulkErr(''); setBulkOk(''); setBulkFileName('');
+    setPreviewRows([]);
+    setImporting(false);
+    setBulkOpen(true);
+  };
+
+  const downloadTemplate = () => {
+    const rows = [
+      { full_name: 'Ama Boateng', class_id: '1', class_name: '', status: 'ACTIVE', email: 'ama@school.edu', gender: 'F', dob: '2011-06-20', admission_no: '', index_no: '', phone: '', father_name: '', father_phone: '', mother_name: '', mother_phone: '', guardian_name: '', guardian_phone: '', image_url: '' },
+      { full_name: 'Kofi Mensah', class_id: '2', class_name: '', status: 'ACTIVE', email: 'kofi@school.edu', gender: 'M', dob: '2012-02-03', admission_no: '', index_no: '', phone: '', father_name: '', father_phone: '', mother_name: '', mother_phone: '', guardian_name: '', guardian_phone: '', image_url: '' },
+    ];
+    const ws = XLSX.utils.json_to_sheet(rows, { header: ['full_name','class_id','class_name','status','email','gender','dob','admission_no','index_no','phone','father_name','father_phone','mother_name','mother_phone','guardian_name','guardian_phone','image_url'] });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Template');
+    XLSX.writeFile(wb, 'students_import_template.xlsx');
+  };
+
+  const handleBulkFile = async (e) => {
+    setBulkErr(''); setBulkOk('');
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setBulkFileName(f.name);
+
+    try {
+      const data = await f.arrayBuffer();
+      const wb = XLSX.read(data, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+      const cleaned = rows.map((r, i) => {
+        const full_name = String(r.full_name || r.FULL_NAME || '').trim();
+        // class may be provided as class_id or class_name
+        let class_id = String(r.class_id ?? r.CLASS_ID ?? '').trim();
+        const class_name_raw = String(r.class_name ?? r.CLASS_NAME ?? '').trim().toLowerCase();
+        if (!class_id && class_name_raw) {
+          const mapped = classNameToId.get(class_name_raw);
+          if (mapped) class_id = String(mapped);
+        }
+
+        const status    = String(r.status || r.STATUS || 'ACTIVE').trim().toUpperCase();
+        const email     = String(r.email || r.EMAIL || '').trim().toLowerCase();
+        const gender    = String(r.gender || r.GENDER || '').trim().toUpperCase(); // "", "M", "F"
+        const dob       = String(r.dob || r.DOB || '').trim();
+        const admission_no = String(r.admission_no || r.ADMISSION_NO || '').trim();
+        const index_no  = String(r.index_no || r.INDEX_NO || '').trim();
+        const phone     = String(r.phone || r.PHONE || '').trim();
+        const father_name   = String(r.father_name || r.FATHER_NAME || '').trim();
+        const father_phone  = String(r.father_phone || r.FATHER_PHONE || '').trim();
+        const mother_name   = String(r.mother_name || r.MOTHER_NAME || '').trim();
+        const mother_phone  = String(r.mother_phone || r.MOTHER_PHONE || '').trim();
+        const guardian_name = String(r.guardian_name || r.GUARDIAN_NAME || '').trim();
+        const guardian_phone= String(r.guardian_phone || r.GUARDIAN_PHONE || '').trim();
+        const image_url = String(r.image_url || r.IMAGE_URL || '').trim();
+
+        let valid = true;
+        let message = '';
+
+        if (!full_name) { valid = false; message = 'full_name is required'; }
+        else if (!class_id) { valid = false; message = 'class_id (or class_name) is required'; }
+        else if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { valid = false; message = 'email is invalid'; }
+        else if (gender && !['M','F'].includes(gender)) { valid = false; message = 'gender must be M/F'; }
+
+        return {
+          idx: i+1, full_name, class_id, status, email, gender, dob, admission_no, index_no, phone,
+          father_name, father_phone, mother_name, mother_phone, guardian_name, guardian_phone,
+          image_url, valid, message, toImport: valid
+        };
+      });
+
+      const capacity = isFinite(planMax) ? Math.max(0, planMax - studentCount) : Infinity;
+      if (isFinite(capacity)) {
+        cleaned.forEach((row, i) => {
+          if (i >= capacity) {
+            row.valid = false;
+            row.toImport = false;
+            row.message = `exceeds remaining capacity (${capacity})`;
+          }
+        });
+      }
+      setPreviewRows(cleaned);
+    } catch (err) {
+      setBulkErr(err?.message || 'Failed to read file.');
+    }
+  };
+
+  const doImport = async () => {
+    if (!previewRows.length) return;
+    setBulkErr(''); setBulkOk('');
+    setImporting(true);
+
+    const rows = previewRows.filter(r => r.toImport && r.valid);
+    let okCount = 0;
+    let failCount = 0;
+    const updated = [...previewRows];
+
+    for (const r of rows) {
+      try {
+        const newId = await fetchNextStudentId(toUrl, { token, schoolId });
+        const tempPwd = getTempPassword(12);
+
+        const addUrl = toUrl(ADD_STUDENT_ENDPOINT, {
+          p_creator_user_id: String(userId),
+          p_full_name: r.full_name,
+          p_gender: r.gender || '',
+          p_image_url: r.image_url || '',
+          p_dob: r.dob || '',
+          p_class_id: r.class_id,
+          p_admission_no: r.admission_no || '',
+          p_student_id: String(newId),
+          p_role: 'ST',
+          p_password: tempPwd,
+          p_status: r.status || 'ACTIVE',
+          p_index_no: r.index_no || '',
+          p_school_id: String(schoolId),
+          p_father_name: r.father_name || '',
+          p_mother_name: r.mother_name || '',
+          p_father_phone: r.father_phone || '',
+          p_mother_phone: r.mother_phone || '',
+          p_guardian_name: r.guardian_name || '',
+          p_guardian_phone: r.guardian_phone || '',
+          p_phone: r.phone || '',
+          p_email: (r.email || '').trim().toLowerCase(),
+        });
+
+        const resp = await fetch(addUrl, { method: 'GET', headers: { Accept: 'application/json' }, cache: 'no-store' });
+        const body = await resp.text();
+        if (!resp.ok) {
+          throw new Error(mapOracleError(body) || body || `HTTP ${resp.status}`);
+        }
+        // parse ok/json structure if present
+        try {
+          const jj = JSON.parse(body);
+          if (jj?.ok === false || jj?.success === false) {
+            throw new Error(mapOracleError(jj?.error) || jj?.error || 'Failed');
+          }
+        } catch { /* some handlers return plain text; ignore */ }
+
+        okCount += 1;
+        const idxInPrev = updated.findIndex(x => x.idx === r.idx);
+        if (idxInPrev >= 0) updated[idxInPrev] = { ...updated[idxInPrev], message: 'Imported', valid: true, toImport: false };
+      } catch (e) {
+        failCount += 1;
+        const idxInPrev = updated.findIndex(x => x.idx === r.idx);
+        if (idxInPrev >= 0) {
+          const nice = mapOracleError(e?.message || '') || (e?.message || 'Failed');
+          updated[idxInPrev] = { ...updated[idxInPrev], message: nice, valid: false, toImport: false };
+        }
+      }
+    }
+
+    setPreviewRows(updated);
+    setBulkOk(`Imported ${okCount} student${okCount !== 1 ? 's' : ''}${failCount ? `, ${failCount} failed` : ''}.`);
+    setImporting(false);
+    await fetchStudents();
+  };
+
+  /* ---------- Keyboard helpers ---------- */
   useEffect(() => {
     if (!isOpen) return;
     const onKey = (e) => {
@@ -757,16 +989,21 @@ export default function ManageStudentsPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [isOpen, submitting, form, dialogMode]); // eslint-disable-line
 
-  const addDisabled = submitting || !!validateForm() || !pendingStudentId;
+  const addDisabled = submitting || !!validateForm() || !pendingStudentId || planExpired || (isFinite(planMax) && remaining <= 0);
   const editDisabled = submitting || !!validateForm();
 
-  // ===== Render (copied look from ManageStaff) =====
+  const premiumOnly = planCode !== 'PREMIUM';
+
+  /* ================== Render ================== */
   return (
     <DashboardLayout title="Manage Students" subtitle="View, filter, edit, and manage student records">
+      {/* Plan banner */}
+      <PlanBanner planHuman={planHuman} expiryISO={expiryISO} count={studentCount} max={planMax} />
+
       {/* Toolbar */}
       <div className="mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          {/* Class filter like staff’s role filter */}
+          {/* Class filter */}
           <select
             value={filterClass}
             onChange={(e) => setFilterClass(e.target.value)}
@@ -805,11 +1042,32 @@ export default function ManageStudentsPage() {
           >
             <Download size={16} /> Download Excel
           </button>
+
+          <button
+            onClick={openBulk}
+            disabled={planExpired || (isFinite(planMax) && remaining <= 0)}
+            title={
+              planExpired
+                ? 'Plan expired — renew to use this feature'
+                : (isFinite(planMax) && remaining <= 0)
+                ? `Reached ${planHuman} plan student limit`
+                : 'Import students from Excel'
+            }
+            className="flex items-center gap-2 px-4 py-2 bg-sky-600 text-white text-sm rounded-md hover:bg-sky-700 disabled:opacity-60"
+          >
+            <Upload size={16} /> Bulk Import
+          </button>
         </div>
 
         <button
           onClick={openAdd}
-          className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 text-sm"
+          disabled={planExpired || (isFinite(planMax) && remaining <= 0)}
+          title={
+            planExpired ? 'Plan expired — renew to add students'
+            : (isFinite(planMax) && remaining <= 0) ? `Reached ${planHuman} plan student limit`
+            : 'Add a new student'
+          }
+          className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 text-sm disabled:opacity-60"
         >
           <PlusCircle size={16} /> Add New Student
         </button>
@@ -830,7 +1088,7 @@ export default function ManageStudentsPage() {
         </div>
       )}
 
-      {/* Table (same columns shape as staff: Student | Class | Email | Status | Actions) */}
+      {/* Table */}
       <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm">
         <table className="min-w-full text-sm">
           <thead className="bg-indigo-100 dark:bg-gray-800">
@@ -881,15 +1139,20 @@ export default function ManageStudentsPage() {
                     </button>
 
                     <button
-                      onClick={() => resetAndSend(s)}
-                      disabled={resettingId === s.id}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 disabled:opacity-60"
-                      title="Reset password & email credentials"
+                      onClick={() => premiumOnly ? null : resetAndSend(s)}
+                      disabled={premiumOnly || resettingId === s.id}
+                      className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-md border ${premiumOnly ? 'opacity-60 cursor-not-allowed' : 'text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'}`}
+                      title={premiumOnly ? 'Premium plan required for Reset & Send' : 'Reset password & email credentials'}
                     >
                       {resettingId === s.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound size={14} />}
                       {resettingId === s.id ? 'Resetting…' : 'Reset & Send'}
                     </button>
                   </div>
+                  {premiumOnly && (
+                    <div className="mt-1 flex items-center gap-1 text-xs text-gray-500">
+                      <Info className="h-3 w-3" /> Reset &amp; Send is a Premium feature
+                    </div>
+                  )}
                 </td>
               </tr>
             ))}
@@ -904,53 +1167,29 @@ export default function ManageStudentsPage() {
         </table>
       </div>
 
-      {/* Add / Edit Dialog (scrollable & responsive) */}
+      {/* Add / Edit Dialog */}
       {isOpen && (
         <div className="fixed inset-0 z-50">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/50"
-            onClick={() => (submitting ? null : setIsOpen(false))}
-          />
-          {/* Scroll container */}
+          <div className="absolute inset-0 bg-black/50" onClick={() => (submitting ? null : setIsOpen(false))} />
           <div className="relative z-10 h-full overflow-y-auto">
             <div className="flex min-h-full items-center justify-center p-4">
               <div className="w-full max-w-2xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col max-h-[90vh]">
-                {/* Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
                   <h3 className="text-lg font-semibold">{dialogMode === 'add' ? 'Add Student' : 'Edit Student'}</h3>
-                  <button
-                    className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
-                    onClick={() => (submitting ? null : setIsOpen(false))}
-                  >
+                  <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" onClick={() => (submitting ? null : setIsOpen(false))}>
                     <X className="h-5 w-5" />
                   </button>
                 </div>
 
-                {/* Body (scrollable) */}
                 <div className="px-6 py-4 overflow-y-auto flex-1">
                   <div className="grid grid-cols-1 gap-4">
                     {/* Photo */}
                     <div>
                       <span className="text-sm text-gray-700 dark:text-gray-300">Photo</span>
                       <div className="mt-2 flex items-center gap-3">
-                        <Avatar
-                          urls={[...(photoPreview ? [photoPreview] : [])]}
-                          name={form.full_name}
-                          size={56}
-                        />
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={onPickImage}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          className="px-3 py-2 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-800 inline-flex items-center gap-2"
-                        >
+                        <Avatar urls={[...(photoPreview ? [photoPreview] : [])]} name={form.full_name} size={56} />
+                        <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onPickImage} />
+                        <button type="button" onClick={() => fileInputRef.current?.click()} className="px-3 py-2 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-800 inline-flex items-center gap-2">
                           <ImageIcon className="h-4 w-4" />
                           {dialogMode === 'add' ? 'Upload Image' : 'Change Image'}
                         </button>
@@ -1131,7 +1370,7 @@ export default function ManageStudentsPage() {
                       </div>
                     )}
                     {formSuccess && (
-                      <div className="flex items-start gap-2 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                      <div className="flex items-start gap-2 text-emerald-700 bg-emerald-50 border-emerald-200 rounded-lg p-3">
                         <CheckCircle2 className="mt-0.5 h-4 w-4" />
                         <span className="text-sm">{formSuccess}</span>
                       </div>
@@ -1139,7 +1378,6 @@ export default function ManageStudentsPage() {
                   </div>
                 </div>
 
-                {/* Footer (sticks below body content) */}
                 <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-end gap-2 flex-shrink-0">
                   <button className="px-4 py-2 rounded-lg border" onClick={() => (submitting ? null : setIsOpen(false))} disabled={submitting}>
                     Cancel
@@ -1149,7 +1387,7 @@ export default function ManageStudentsPage() {
                     <button
                       className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60"
                       onClick={submitAddStudent}
-                      disabled={submitting || !!validateForm() || !pendingStudentId}
+                      disabled={addDisabled}
                     >
                       {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlusCircle className="h-4 w-4" />}
                       {submitting ? 'Adding…' : 'Add Student'}
@@ -1158,7 +1396,7 @@ export default function ManageStudentsPage() {
                     <button
                       className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60"
                       onClick={submitUpdateStudent}
-                      disabled={submitting || !!validateForm()}
+                      disabled={editDisabled}
                     >
                       {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />}
                       {submitting ? 'Updating…' : 'Update Student'}
@@ -1171,7 +1409,7 @@ export default function ManageStudentsPage() {
         </div>
       )}
 
-      {/* Info Dialog (already scrollable, just ensure container can't exceed viewport) */}
+      {/* Info Dialog */}
       {isInfoOpen && infoStudent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-3xl rounded-2xl bg-white dark:bg-gray-900 shadow-2xl border border-gray-200 dark:border-gray-700 max-h-[90vh] flex flex-col">
@@ -1218,10 +1456,8 @@ export default function ManageStudentsPage() {
                     <InfoLine
                       label="Gender"
                       value={
-                        infoStudent.gender === 'M'
-                          ? 'Male'
-                          : infoStudent.gender === 'F'
-                          ? 'Female'
+                        infoStudent.gender === 'M' ? 'Male'
+                          : infoStudent.gender === 'F' ? 'Female'
                           : infoStudent.gender
                       }
                     />
@@ -1286,16 +1522,172 @@ export default function ManageStudentsPage() {
           </div>
         </div>
       )}
+
+      {/* Bulk Import Dialog */}
+      {bulkOpen && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/40" onClick={() => (bulkBusy || importing) ? null : setBulkOpen(false)} />
+          <div className="relative z-10 h-full overflow-y-auto">
+            <div className="flex min-h-full items-center justify-center p-4">
+              <div className="w-full max-w-4xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col max-h-[90vh]">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+                  <h3 className="text-lg font-semibold">Bulk Import Students</h3>
+                  <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" onClick={() => (bulkBusy || importing) ? null : setBulkOpen(false)}>
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+
+                <div className="px-6 py-4 space-y-4 overflow-y-auto">
+                  <div className="rounded-lg border p-3 text-sm bg-indigo-50/60 dark:bg-indigo-900/20 dark:border-indigo-900/40">
+                    <div className="flex items-start gap-2">
+                      <Info className="h-4 w-4 mt-0.5 text-indigo-600" />
+                      <div>
+                        <div>Upload an <strong>.xlsx</strong> file with headers: <code>full_name</code>, <code>class_id</code> (or <code>class_name</code>), <code>status</code>, <code>email</code>, <code>gender</code> (M/F), <code>dob</code> (YYYY-MM-DD), and optional contact fields.</div>
+                        <div className="mt-1">Your plan: <strong>{planHuman}</strong>. Remaining capacity: <strong>{isFinite(remaining) ? remaining : 'unlimited'}</strong>.</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={downloadTemplate}
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800"
+                    >
+                      <Download size={16} /> Download Template
+                    </button>
+
+                    <label className="inline-flex items-center gap-2 px-3 py-2 rounded-md border bg-white hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800 cursor-pointer">
+                      <Upload size={16} /> Choose File
+                      <input type="file" accept=".xlsx" className="hidden" onChange={handleBulkFile} />
+                    </label>
+
+                    {bulkFileName && <span className="text-sm text-gray-600">Selected: {bulkFileName}</span>}
+                  </div>
+
+                  {bulkErr && (
+                    <div className="flex items-start gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
+                      <AlertCircle className="mt-0.5 h-4 w-4" />
+                      <span className="text-sm">{bulkErr}</span>
+                    </div>
+                  )}
+                  {bulkOk && (
+                    <div className="flex items-start gap-2 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4" />
+                      <span className="text-sm">{bulkOk}</span>
+                    </div>
+                  )}
+
+                  {/* Preview table */}
+                  {previewRows.length > 0 && (
+                    <div className="overflow-x-auto rounded-lg border">
+                      <table className="min-w-full text-xs">
+                        <thead className="bg-gray-50 dark:bg-gray-800">
+                          <tr>
+                            <th className="px-3 py-2 text-left">#</th>
+                            <th className="px-3 py-2 text-left">Full Name</th>
+                            <th className="px-3 py-2 text-left">Class ID</th>
+                            <th className="px-3 py-2 text-left">Email</th>
+                            <th className="px-3 py-2 text-left">Status</th>
+                            <th className="px-3 py-2 text-left">Gender</th>
+                            <th className="px-3 py-2 text-left">Result</th>
+                            <th className="px-3 py-2 text-left">Import?</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {previewRows.map((r) => (
+                            <tr key={r.idx} className="border-t">
+                              <td className="px-3 py-2">{r.idx}</td>
+                              <td className="px-3 py-2">{r.full_name}</td>
+                              <td className="px-3 py-2">{r.class_id}</td>
+                              <td className="px-3 py-2">{r.email}</td>
+                              <td className="px-3 py-2">{r.status}</td>
+                              <td className="px-3 py-2">{r.gender}</td>
+                              <td className="px-3 py-2">
+                                {r.message ? (
+                                  <span className={`inline-flex text-[11px] px-2 py-0.5 rounded ${/imported/i.test(r.message) ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                                    {r.message}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-500">—</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2">
+                                <input
+                                  type="checkbox"
+                                  checked={!!r.toImport}
+                                  onChange={(e) => {
+                                    setPreviewRows(prev => prev.map(x => x.idx === r.idx ? { ...x, toImport: e.target.checked && x.valid } : x));
+                                  }}
+                                  disabled={!r.valid || importing}
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-end gap-2">
+                  <button
+                    className="px-4 py-2 rounded-lg border"
+                    onClick={() => (bulkBusy || importing) ? null : setBulkOpen(false)}
+                    disabled={bulkBusy || importing}
+                  >
+                    Close
+                  </button>
+                  <button
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-60"
+                    onClick={doImport}
+                    disabled={importing || previewRows.filter(r => r.toImport && r.valid).length === 0}
+                  >
+                    {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    {importing ? 'Importing…' : `Import ${previewRows.filter(r => r.toImport && r.valid).length}`}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }
 
+/* ---------- Small components ---------- */
 function InfoLine({ label, value }) {
   if (!value) return null;
   return (
     <div className="space-y-0.5">
       <div className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{label}</div>
       <div className="text-sm">{value}</div>
+    </div>
+  );
+}
+
+function PlanBanner({ planHuman, expiryISO, count, max }) {
+  const expired = (() => {
+    if (!expiryISO) return false;
+    const d = new Date(expiryISO);
+    return isFinite(d.getTime()) && d.getTime() < Date.now();
+  })();
+  const limited = isFinite(max);
+  const remaining = limited ? Math.max(0, max - count) : Infinity;
+
+  return (
+    <div className={`mb-4 rounded-xl border p-4 ${expired ? 'bg-red-50 border-red-200 text-red-800' : 'bg-gray-50 border-gray-200 text-gray-800'} dark:${expired ? 'bg-red-900/20 border-red-900/40 text-red-200' : 'bg-gray-800 border-gray-700 text-gray-100'}`}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Info className="h-4 w-4" />
+          <div className="text-sm">
+            Plan: <strong>{planHuman}</strong>{' '}
+            {limited ? <>• Students: <strong>{count}</strong> / <strong>{max}</strong> (remaining <strong>{remaining}</strong>)</> : <>• Students: <strong>{count}</strong> / <strong>unlimited</strong></>}
+            {expiryISO ? <> • Expires: <strong>{new Date(expiryISO).toLocaleDateString()}</strong></> : null}
+            {expired ? <span className="ml-2 inline-flex px-2 py-0.5 rounded bg-red-100 text-red-800 text-xs">Expired</span> : null}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

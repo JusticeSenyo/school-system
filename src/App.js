@@ -1,9 +1,11 @@
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+
 import { AuthProvider, useAuth } from './AuthContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import LoadingSpinner from './components/LoadingSpinner';
 import SchoolLogin from './SchoolLogin';
+
 import OnboardingDashboard from './pages/OnboardingDashboard';
 import AddUsersPage from './pages/AddUsersPage';
 import AssignSubjectsPage from './pages/AssignSubjectsPage';
@@ -12,23 +14,15 @@ import AddFeesPage from './pages/AddFeesPage';
 import AddStudentsPage from './pages/AddStudentsPage';
 import SetupCompletePage from './pages/SetupCompletePage';
 import SchoolDetailsPage from './pages/SchoolDetailsPage';
-import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 
-// Optional DataContext fallback
-let DataProvider;
-try {
-  const DataContextModule = require('./contexts/DataContext');
-  DataProvider = DataContextModule.DataProvider;
-} catch (error) {
-  console.warn('DataContext not found, using fallback');
-  DataProvider = ({ children }) => children;
-}
+import { ThemeProvider, useTheme } from './contexts/ThemeContext';
+import { TeacherAccessProvider, useTeacherAccess } from './contexts/TeacherAccessContext';
 
 // Lazy-loaded dashboards
 const TeacherDashboard = lazy(() => import('./dashboards/TeacherDashboard'));
 const AdminDashboard = lazy(() => import('./dashboards/AdminDashboard'));
 const AccountantDashboard = lazy(() => import('./dashboards/AccountantDashboard'));
-const HeadTeacherDashboard = lazy(() => import('./dashboards/HeadTeacherDashboard')); // NEW
+const HeadTeacherDashboard = lazy(() => import('./dashboards/HeadTeacherDashboard'));
 
 // Lazy-loaded pages
 const Profile = lazy(() => import('./pages/Profile'));
@@ -50,14 +44,21 @@ const ManageClassTeacherPage = lazy(() => import('./pages/ManageClassTeacherPage
 const ManageSubjectsPage = lazy(() => import('./pages/ManageSubjectsPage'));
 const ManageClassesPage = lazy(() => import('./pages/ManageClassesPage'));
 
+// NEW: Academic Years & Terms (Admin-only)
+const ManageAcademicYearsPage = lazy(() => import('./pages/ManageAcademicYearsPage'));
+const ManageTermsPage = lazy(() => import('./pages/ManageTermsPage'));
+
 // Examination
 const PrintExamReportPage = lazy(() => import('./pages/PrintExamReportPage')); // Admin + HeadTeacher
-const ManageExamReportPage = lazy(() => import('./pages/ManageExamReportPage')); // HeadTeacher + Teacher ONLY
+const ManageExamReportPage = lazy(() => import('./pages/ManageExamReportPage')); // HeadTeacher + Teacher (class-teacher only)
 
 // HeadTeacher Attendance Report (NEW)
 const AttendanceReportPage = lazy(() => import('./pages/AttendanceReportPage')); // HT only
 
-// Loading fallback UI
+// NEW PAGES
+const ExamScaleSetupPage = lazy(() => import('./pages/ExamScaleSetupPage')); // Admin-only
+const EnterScoresPage = lazy(() => import('./pages/EnterScoresPage')); // ALL teachers
+
 const DashboardLoading = () => (
   <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
     <div className="text-center">
@@ -75,6 +76,7 @@ const normalizeRole = (role) => {
   if (r === 'ad' || r === 'admin') return 'admin';
   if (r === 'tr' || r === 'teacher') return 'teacher';
   if (r === 'ac' || r === 'accountant') return 'accountant';
+  if (r === 'ow' || r === 'owner') return 'owner';
   return r;
 };
 
@@ -91,6 +93,17 @@ const RoleRoute = ({ allowed = [], children }) => {
   const { user } = useAuth();
   const role = normalizeRole(user?.userType);
   if (!allowed.includes(role)) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return children;
+};
+
+// Extra feature-gate for "class teacher only" pages when role is teacher
+const FeatureRoute = ({ requireClassTeacher = false, children }) => {
+  const { user } = useAuth();
+  const role = normalizeRole(user?.userType);
+  const { isClassTeacher } = useTeacherAccess();
+  if (requireClassTeacher && role === 'teacher' && !isClassTeacher) {
     return <Navigate to="/dashboard" replace />;
   }
   return children;
@@ -170,16 +183,23 @@ const AppRoutes = () => {
       />
 
       {/* Feature Pages */}
+      {/* Communication: NOT available to teachers */}
       <Route
-        path="/dashboard/communication"
-        element={
-          <ProtectedRoute>
-            <Suspense fallback={<DashboardLoading />}>
-              <CommunicationPage />
-            </Suspense>
-          </ProtectedRoute>
-        }
-      />
+  path="/dashboard/communication"
+  element={
+    <ProtectedRoute>
+      {/* block teachers; allow others */}
+      <RoleRoute allowed={['admin', 'accountant', 'headteacher', 'owner']}>
+        <Suspense fallback={<DashboardLoading />}>
+          <CommunicationPage />
+        </Suspense>
+      </RoleRoute>
+    </ProtectedRoute>
+  }
+/>
+
+
+      {/* Manage Staff (same as before) */}
       <Route
         path="/dashboard/manage-staff"
         element={
@@ -190,16 +210,24 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       />
+
+      {/* Manage Students: teacher sees ONLY if class teacher */}
       <Route
         path="/dashboard/manage-students"
         element={
           <ProtectedRoute>
-            <Suspense fallback={<DashboardLoading />}>
-              <ManageStudentsPage />
-            </Suspense>
+            <RoleRoute allowed={['admin','owner','headteacher','accountant','teacher']}>
+              <FeatureRoute requireClassTeacher>
+                <Suspense fallback={<DashboardLoading />}>
+                  <ManageStudentsPage />
+                </Suspense>
+              </FeatureRoute>
+            </RoleRoute>
           </ProtectedRoute>
         }
       />
+
+      {/* Attendance (plain view if you still use it elsewhere) */}
       <Route
         path="/dashboard/attendance"
         element={
@@ -210,13 +238,19 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       />
+
+      {/* Manage Attendance: teacher sees ONLY if class teacher */}
       <Route
         path="/dashboard/manage-attendance"
         element={
           <ProtectedRoute>
-            <Suspense fallback={<DashboardLoading />}>
-              <ManageAttendancePage />
-            </Suspense>
+            <RoleRoute allowed={['teacher']}>
+              <FeatureRoute requireClassTeacher>
+                <Suspense fallback={<DashboardLoading />}>
+                  <ManageAttendancePage />
+                </Suspense>
+              </FeatureRoute>
+            </RoleRoute>
           </ProtectedRoute>
         }
       />
@@ -322,9 +356,33 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       />
+      {/* NEW: Academic Years & Terms (Admin only) */}
+      <Route
+        path="/dashboard/academic-years"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowed={['admin']}>
+              <Suspense fallback={<DashboardLoading />}>
+                <ManageAcademicYearsPage />
+              </Suspense>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/academic-terms"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowed={['admin']}>
+              <Suspense fallback={<DashboardLoading />}>
+                <ManageTermsPage />
+              </Suspense>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
 
       {/* Examination */}
-      {/* Print Exam Report (Admin & HeadTeacher) */}
       <Route
         path="/dashboard/print-exam-report"
         element={
@@ -337,14 +395,44 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       />
-      {/* Manage Exam Report (HeadTeacher & Teacher only) */}
+      {/* Manage Exam Report: teacher sees ONLY if class teacher */}
       <Route
         path="/dashboard/manage-exam"
         element={
           <ProtectedRoute>
             <RoleRoute allowed={['headteacher', 'teacher']}>
+              <FeatureRoute requireClassTeacher>
+                <Suspense fallback={<DashboardLoading />}>
+                  <ManageExamReportPage />
+                </Suspense>
+              </FeatureRoute>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
+      {/* NEW: Enter Scores (all teachers) */}
+      <Route
+        path="/dashboard/exams/enter-scores"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowed={['teacher','headteacher','admin']}>
               <Suspense fallback={<DashboardLoading />}>
-                <ManageExamReportPage />
+                <EnterScoresPage />
+              </Suspense>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
+
+
+      {/* NEW: Grading Scale Setup (Admin) */}
+      <Route
+        path="/dashboard/exams/scale"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowed={['admin'] /* add 'owner' if needed */}>
+              <Suspense fallback={<DashboardLoading />}>
+                <ExamScaleSetupPage />
               </Suspense>
             </RoleRoute>
           </ProtectedRoute>
@@ -418,17 +506,30 @@ function App() {
     <ErrorBoundary>
       <ThemeProvider>
         <AuthProvider>
-          <DataProvider>
-            <Router>
-              <ThemeWrapper>
-                <AppRoutes />
-              </ThemeWrapper>
-            </Router>
-          </DataProvider>
+          <TeacherAccessProvider>
+            <DataProvider>
+              <Router>
+                <ThemeWrapper>
+                  <AppRoutes />
+                </ThemeWrapper>
+              </Router>
+            </DataProvider>
+          </TeacherAccessProvider>
         </AuthProvider>
       </ThemeProvider>
     </ErrorBoundary>
   );
+}
+
+// Optional DataContext fallback (kept at bottom to avoid hoisting issues)
+let DataProvider;
+try {
+  // eslint-disable-next-line global-require
+  const DataContextModule = require('./contexts/DataContext');
+  DataProvider = DataContextModule.DataProvider;
+} catch (error) {
+  console.warn('DataContext not found, using fallback');
+  DataProvider = ({ children }) => children;
 }
 
 export default App;

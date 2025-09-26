@@ -4,15 +4,15 @@ import DashboardLayout from '../components/dashboard/DashboardLayout';
 import {
   PlusCircle, X, Mail, UserCircle2,
   Loader2, CheckCircle2, AlertCircle, RotateCcw, Pencil,
-  Download, Search, KeyRound, Eye, Image as ImageIcon, Printer
+  Download, Search, KeyRound, Eye, Image as ImageIcon, Printer,
+  Upload, Info
 } from 'lucide-react';
 import { getTempPassword } from '../lib/passwords';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../AuthContext';
+import { buildStaffKey, buildPublicUrl, putToOCI } from '../config/storage';
 
-import { OCI, buildStaffKey, buildPublicUrl, putToOCI } from '../config/storage';
-
-// ===== Constants =====
+/* ================== Constants kept from first page ================== */
 const ROLE_LABELS = { AD: 'Admin', HT: 'Head Teacher', TE: 'Teacher', AC: 'Accountant', SO: 'Owner' };
 const ROLE_OPTIONS = [
   { value: 'AD', label: 'Admin' },
@@ -24,7 +24,7 @@ const ROLE_OPTIONS = [
 
 const EMAIL_API_BASE = 'https://schoolmasterhub.vercel.app';
 
-// Relative API paths (joined with API_BASE by the safe builder)
+// Relative API path (joined with API_BASE by safe builder)
 const RESET_PWD_PATH = 'staff/reset_password/';
 
 // Try both variants for next-id (whichever is wired in ORDS)
@@ -33,13 +33,24 @@ const NEXT_STAFF_ID_PATHS = [
   'school/staff/staff_api/staff/id/next',
 ];
 
-// Absolute endpoints in the new `schools` schema
+// Absolute endpoints (first page style)
 const ADD_STAFF_ENDPOINT =
   'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/staff/add/staff/';
 const UPDATE_STAFF_ENDPOINT =
   'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/staff/update/staff/';
 
-// ===== Safe URL builder (prevents //, handles query params, and lets absolute URLs pass-through) =====
+/* ================== Plans / limits (from second page) ================== */
+const PLAN_LIMITS = { BASIC: 10, STANDARD: 100, PREMIUM: Infinity };
+const PLAN_NAME_BY_CODE = (raw) => {
+  const v = String(raw ?? '').trim().toUpperCase();
+  if (v === '1' || v === 'BASIC') return 'BASIC';
+  if (v === '2' || v === 'STANDARD') return 'STANDARD';
+  if (v === '3' || v === 'PREMIUM' || v === 'PREMUIM') return 'PREMIUM';
+  return 'BASIC';
+};
+const HUMAN_PLAN = (code) => ({ BASIC: 'Basic', STANDARD: 'Standard', PREMIUM: 'Premium' }[code] || 'Basic');
+
+/* ================== Safe URL builder (first page) ================== */
 const useApiJoin = (API_BASE) => {
   const API_ROOT = (API_BASE || '').replace(/\/+$/, '') + '/';
   const toUrl = (path = '', params = {}) => {
@@ -56,7 +67,49 @@ const useApiJoin = (API_BASE) => {
   return { toUrl };
 };
 
-// ===== Fetch next staff id (robust to JSON / stray text / alt paths) =====
+/* ================== Helpers (shared) ================== */
+const initials = (name = '') =>
+  name.split(' ').filter(Boolean).slice(0, 2).map(s => s[0]?.toUpperCase()).join('') || 'ST';
+
+function mapOracleError(errText = '') {
+  const t = String(errText);
+  if (/ORA-00001/i.test(t)) return 'Email already exists (unique constraint).';
+  if (/ORA-01400/i.test(t)) return 'A required column was empty. Check all required fields.';
+  if (/ORA-06502|numeric or value error|ORA-12899/i.test(t)) return 'Value too long or wrong data type (check field lengths).';
+  if (/ORA-01036|illegal variable name|number/i.test(t)) return 'Backend bind variables mismatch (check parameter names).';
+  if (/ORA-00904|invalid identifier/i.test(t)) return 'Backend column/parameter name mismatch.';
+  if (/ORA-00907|ORA-00933|ORA-00936/i.test(t)) return 'Backend SQL syntax error.';
+  return null;
+}
+
+/* Fetch JSON (array-like) for school info (plan/expiry) */
+const jarr = async (url, headers = {}) => {
+  const r = await fetch(url, { headers: { Accept: 'application/json', ...headers }, cache: 'no-store' });
+  const t = (await r.text()).trim();
+  if (!t) return [];
+  try {
+    const d = JSON.parse(t);
+    return Array.isArray(d) ? d : Array.isArray(d.items) ? d.items : Array.isArray(d.rows) ? d.rows : [];
+  } catch { return []; }
+};
+
+/* Parse response text into JSON or raw */
+const jparse = async (r) => {
+  const t = (await r.text()).trim();
+  if (!t) return {};
+  try { return JSON.parse(t); } catch { return { _raw: t }; }
+};
+
+/* Build GET url from base + params (used for plan fetch only if needed) */
+const buildGet = (base, params) => {
+  const qp = new URLSearchParams();
+  Object.entries(params || {}).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') qp.set(k, String(v));
+  });
+  return `${base}?${qp.toString()}`;
+};
+
+/* ================== Next staff ID (first page, using toUrl) ================== */
 async function fetchNextStaffId(toUrl, { token, schoolId } = {}) {
   const headers = { Accept: 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -97,29 +150,7 @@ async function fetchNextStaffId(toUrl, { token, schoolId } = {}) {
   throw lastErr ?? new Error('Could not fetch next staff ID');
 }
 
-// ===== Helper: initials for avatar fallback =====
-const initials = (name = '') =>
-  name
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map(s => s[0]?.toUpperCase())
-    .join('') || 'ST';
-
-// ===== Helper: nicer messages for common Oracle errors =====
-function mapOracleError(errText = '') {
-  const t = String(errText);
-  if (/ORA-00001/i.test(t)) return 'Email already exists (unique constraint).';
-  if (/ORA-01400/i.test(t)) return 'A required column was empty. Check all required fields.';
-  if (/ORA-06502|numeric or value error/i.test(t)) return 'Value too long or wrong data type (check field lengths).';
-  if (/ORA-12899/i.test(t)) return 'One of the values exceeds the column size. Shorten and try again.';
-  if (/ORA-01036|illegal variable name|number/i.test(t)) return 'Backend bind variables mismatch (check parameter names).';
-  if (/ORA-00904|invalid identifier/i.test(t)) return 'Backend column/parameter name mismatch.';
-  if (/ORA-00907|missing right parenthesis|ORA-00933|ORA-00936/i.test(t)) return 'Backend SQL syntax error.';
-  return null;
-}
-
-// ===== Avatar component =====
+/* ================== Avatar ================== */
 const Avatar = ({ urls = [], name, size = 80, rounded = 'rounded-full' }) => {
   const [idx, setIdx] = useState(0);
   const src = urls && urls.length > idx ? urls[idx] : null;
@@ -147,6 +178,7 @@ const Avatar = ({ urls = [], name, size = 80, rounded = 'rounded-full' }) => {
   );
 };
 
+/* ================== Page ================== */
 export default function ManageStaffPage() {
   const { token, user, API_BASE } = useAuth();
   const { toUrl } = useApiJoin(API_BASE);
@@ -163,36 +195,51 @@ export default function ManageStaffPage() {
     user?.organisation ??
     '';
 
+  /* ---------- Plan & expiry (added from second page, using toUrl) ---------- */
+  const [planCode, setPlanCode] = useState('BASIC'); // BASIC|STANDARD|PREMIUM
+  const [planHuman, setPlanHuman] = useState('Basic');
+  const [expiryISO, setExpiryISO] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        // Prefer API_BASE to remain consistent with first page
+        const schoolInfoUrl = toUrl('academic/get/school/');
+        const rows = await jarr(schoolInfoUrl, token ? { Authorization: `Bearer ${token}` } : {});
+        const rec = (rows || []).find(r => String(r.school_id ?? r.SCHOOL_ID) === String(schoolId));
+
+        const pkgRaw = rec?.package ?? rec?.PACKAGE ?? user?.package ?? user?.PACKAGE ?? user?.plan;
+        const code = PLAN_NAME_BY_CODE(pkgRaw);
+        const exp  = rec?.expiry ?? rec?.EXPIRY ?? user?.expiry ?? user?.EXPIRY ?? null;
+        if (!mounted) return;
+        setPlanCode(code);
+        setPlanHuman(HUMAN_PLAN(code));
+        setExpiryISO(exp ? String(exp) : null);
+      } catch {
+        const fallback = PLAN_NAME_BY_CODE(user?.package ?? user?.plan);
+        setPlanCode(fallback);
+        setPlanHuman(HUMAN_PLAN(fallback));
+        setExpiryISO(user?.expiry ?? null);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [schoolId, user, token, toUrl]);
+
+  const planMax = PLAN_LIMITS[planCode] ?? 10;
+  const planExpired = useMemo(() => {
+    if (!expiryISO) return false;
+    const d = new Date(expiryISO);
+    return isFinite(d.getTime()) && d.getTime() < Date.now();
+  }, [expiryISO]);
+
+  /* ---------- Staff list (kept from first page) ---------- */
   const [staffList, setStaffList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [filter, setFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Image in dialog
-  const [photoFile, setPhotoFile] = useState(null);
-  const [photoPreview, setPhotoPreview] = useState('');
-  const fileInputRef = useRef(null);
-
-  // Info dialog
-  const [isInfoOpen, setIsInfoOpen] = useState(false);
-  const [infoStaff, setInfoStaff] = useState(null);
-
-  // Add / Edit
-  const [isOpen, setIsOpen] = useState(false);
-  const [dialogMode, setDialogMode] = useState('add');
-  const [editingId, setEditingId] = useState(null);
-
-  const [form, setForm] = useState({ full_name: '', email: '', role: 'TE', status: 'ACTIVE', password: '', image_url: '' });
-  const [submitting, setSubmitting] = useState(false);
-  const [formError, setFormError] = useState('');
-  const [formSuccess, setFormSuccess] = useState('');
-  const [regenLoading, setRegenLoading] = useState(false);
-
-  // Newly required by your backend: pre-generated id
-  const [pendingUserId, setPendingUserId] = useState(null);
-
-  // ===== Fetch Staff =====
   const fetchStaff = async () => {
     setLoading(true);
     setLoadError('');
@@ -253,9 +300,44 @@ export default function ManageStaffPage() {
     }
   };
 
-  useEffect(() => { fetchStaff(); /* eslint-disable-next-line */ }, [schoolId]);
+  useEffect(() => { fetchStaff(); /* eslint-disable-next-line */ }, [schoolId, token]);
 
-  // ===== Filtering =====
+  const staffCount = staffList.length;
+  const remaining = useMemo(() => (isFinite(planMax) ? Math.max(0, planMax - staffCount) : Infinity), [planMax, staffCount]);
+
+  /* ---------- UI state ---------- */
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const [infoStaff, setInfoStaff] = useState(null);
+
+  const [isOpen, setIsOpen] = useState(false);
+  const [dialogMode, setDialogMode] = useState('add');
+  const [editingId, setEditingId] = useState(null);
+
+  const [form, setForm] = useState({ full_name: '', email: '', role: 'TE', status: 'ACTIVE', password: '', image_url: '' });
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [formSuccess, setFormSuccess] = useState('');
+  const [regenLoading, setRegenLoading] = useState(false);
+  const [pendingUserId, setPendingUserId] = useState(null);
+
+  // image
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState('');
+  const fileInputRef = useRef(null);
+
+  // reset password in table
+  const [resettingId, setResettingId] = useState(null);
+
+  // BULK IMPORT (added)
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkBusy] = useState(false);
+  const [bulkErr, setBulkErr] = useState('');
+  const [bulkOk, setBulkOk] = useState('');
+  const [bulkFileName, setBulkFileName] = useState('');
+  const [previewRows, setPreviewRows] = useState([]);
+  const [importing, setImporting] = useState(false);
+
+  /* ---------- Filtering ---------- */
   const filtered = useMemo(() => {
     let list = staffList;
     if (filter) {
@@ -271,7 +353,7 @@ export default function ManageStaffPage() {
     return list;
   }, [staffList, filter, searchQuery]);
 
-  // ===== Utilities =====
+  /* ---------- Utilities kept from first page ---------- */
   const generateTempPassword = () => getTempPassword(12);
 
   const sendWelcomeEmail = async ({ full_name, email, roleLabel, tempPassword, schoolName, replyTo, bcc, subject }) => {
@@ -308,6 +390,7 @@ export default function ManageStaffPage() {
     setPhotoPreview('');
     setFormError(''); setFormSuccess('');
     setEditingId(null); setDialogMode('add');
+    setPendingUserId(null);
   };
 
   const validateForm = () => {
@@ -317,9 +400,8 @@ export default function ManageStaffPage() {
     return '';
   };
 
-  // ===== Robust UPDATE function (tries POST form-urlencoded → GET → POST JSON) =====
+  /* ---------- Update (kept from first page; robust) ---------- */
   const updateStaffRobust = async (payload) => {
-    // exact binds your PL/SQL uses (NO p_password here)
     const mustParams = {
       p_user_id: String(payload.userId),
       p_school_id: String(payload.schoolId),
@@ -335,7 +417,7 @@ export default function ManageStaffPage() {
         .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
         .join('&');
 
-    // 1) POST form-urlencoded (simple request, avoids preflight)
+    // 1) POST form-urlencoded
     try {
       const r = await fetch(UPDATE_STAFF_ENDPOINT, {
         method: 'POST',
@@ -345,10 +427,7 @@ export default function ManageStaffPage() {
       const t = await r.text();
       let j = null; try { j = JSON.parse(t); } catch {}
       if (r.ok && (j == null || j?.success !== false)) return true;
-      // fall through to next attempts
-    } catch (e) {
-      // ignore and try next
-    }
+    } catch {}
 
     // 2) GET with query params
     try {
@@ -357,28 +436,25 @@ export default function ManageStaffPage() {
       const t = await r.text();
       let j = null; try { j = JSON.parse(t); } catch {}
       if (r.ok && (j == null || j?.success !== false)) return true;
-    } catch (e) {
-      // ignore and try next
-    }
+    } catch {}
 
     // 3) POST JSON fallback
-    try {
-      const r = await fetch(UPDATE_STAFF_ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(mustParams),
-      });
-      const t = await r.text();
-      let j = null; try { j = JSON.parse(t); } catch {}
-      if (r.ok && (j == null || j?.success !== false)) return true;
-      throw new Error((j?.error || t || `HTTP ${r.status}`).slice(0, 800));
-    } catch (e) {
-      throw e;
-    }
+    const r = await fetch(UPDATE_STAFF_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(mustParams),
+    });
+    const t = await r.text();
+    let j = null; try { j = JSON.parse(t); } catch {}
+    if (r.ok && (j == null || j?.success !== false)) return true;
+    throw new Error((j?.error || t || `HTTP ${r.status}`).slice(0, 800));
   };
 
-  // ===== Dialog open helpers =====
+  /* ---------- Open dialogs ---------- */
   const openAdd = async () => {
+    if (planExpired) { setFormError('Plan expired. Please renew.'); return; }
+    if (isFinite(planMax) && remaining <= 0) { setFormError(`You have reached the ${planHuman} plan staff limit.`); return; }
+
     resetForm();
     setDialogMode('add');
     setIsOpen(true);
@@ -401,7 +477,7 @@ export default function ManageStaffPage() {
       email: row.email,
       role: row.role,
       status: row.status || 'ACTIVE',
-      password: '', // not used on edit anymore
+      password: '',
       image_url: row.image_url || ''
     });
     setPhotoFile(null);
@@ -415,7 +491,7 @@ export default function ManageStaffPage() {
     setPhotoPreview(f ? URL.createObjectURL(f) : '');
   };
 
-  // ===== ADD: upload first -> add with p_image_url -> email -> refresh =====
+  /* ---------- ADD (GET with headers; keep first page’s absolute endpoint) ---------- */
   const submitAddStaff = async () => {
     setFormError(''); setFormSuccess('');
     const err = validateForm();
@@ -423,6 +499,8 @@ export default function ManageStaffPage() {
     if (!userId) { setFormError('Missing current user ID. Please re-login.'); return; }
     if (!pendingUserId) { setFormError('Unable to allocate a new Staff ID. Please try again.'); return; }
     if (!form.password?.trim()) { setFormError('Temporary password is empty. Click "Regenerate" and try again.'); return; }
+    if (planExpired) { setFormError('Plan expired. Please renew.'); return; }
+    if (isFinite(planMax) && remaining <= 0) { setFormError(`You have reached the ${planHuman} plan staff limit.`); return; }
 
     setSubmitting(true);
     try {
@@ -437,7 +515,7 @@ export default function ManageStaffPage() {
         finalImageUrl = buildPublicUrl(key);
       }
 
-      // Call the NEW absolute add endpoint and include p_image_url
+      // Use the absolute add endpoint; toUrl passes through absolute
       const addUrl = toUrl(ADD_STAFF_ENDPOINT, {
         p_user_id: String(newUserId),
         p_school_id: String(schoolId),
@@ -450,15 +528,16 @@ export default function ManageStaffPage() {
         p_image_url: finalImageUrl || ''
       });
 
-      const res = await fetch(addUrl, { method: 'GET' });
+      const res = await fetch(addUrl, { method: 'GET', headers: { Accept: 'application/json' }, cache: 'no-store' });
       let data = null; let raw = '';
       try { raw = await res.text(); data = JSON.parse(raw); } catch {}
+
       if (!res.ok || data?.success === false) {
         const serverMsg = (data?.error || raw || '').slice(0, 600) || `HTTP ${res.status}`;
         throw new Error(serverMsg);
       }
 
-      // Update UI immediately
+      // Optimistic row
       setStaffList(prev => ([
         ...prev,
         {
@@ -506,7 +585,7 @@ export default function ManageStaffPage() {
     }
   };
 
-  // ===== EDIT: (optional) upload -> robust update (OCI overwrite if new image) =====
+  /* ---------- UPDATE (keep first page flow; may overwrite image) ---------- */
   const submitUpdateStaff = async () => {
     setFormError(''); setFormSuccess('');
     const err = validateForm();
@@ -531,13 +610,12 @@ export default function ManageStaffPage() {
 
       await updateStaffRobust({
         userId: editingId,
-        schoolId,                       // required by your UPDATE
+        schoolId,
         fullName: form.full_name,
         email: form.email,
         role: form.role,
         status: form.status,
         imageUrl: imageUrlToSave,
-        // no password on edit
       });
 
       setFormSuccess('Staff updated successfully.');
@@ -550,9 +628,7 @@ export default function ManageStaffPage() {
     }
   };
 
-  // ===== Reset password & email =====
-  const [resettingId, setResettingId] = useState(null);
-
+  /* ---------- Reset password (kept) ---------- */
   const resetPasswordForUser = async (userIdParam, newPassword) => {
     const url = toUrl(RESET_PWD_PATH, {
       p_user_id: String(userIdParam),
@@ -601,7 +677,7 @@ export default function ManageStaffPage() {
     }
   };
 
-  // ===== Export to Excel =====
+  /* ---------- Export Excel (kept) ---------- */
   const exportToExcel = () => {
     try {
       const rows = filtered.map((s, idx) => ({
@@ -624,7 +700,124 @@ export default function ManageStaffPage() {
     }
   };
 
-  // ===== Keyboard helpers =====
+  /* ================== BULK IMPORT (added) ================== */
+  const openBulk = () => {
+    if (planExpired) { setBulkErr('Plan expired — renew to use this feature'); setBulkOpen(true); return; }
+    if (isFinite(planMax) && remaining <= 0) { setBulkErr(`Reached ${planHuman} plan staff limit`); setBulkOpen(true); return; }
+    setBulkErr(''); setBulkOk(''); setBulkFileName('');
+    setPreviewRows([]);
+    setImporting(false);
+    setBulkOpen(true);
+  };
+
+  const downloadTemplate = () => {
+    const rows = [
+      { full_name: 'Ama Boateng', email: 'ama@school.edu', role: 'TE', status: 'ACTIVE', image_url: '' },
+      { full_name: 'Kofi Mensah', email: 'kofi@school.edu', role: 'HT', status: 'ACTIVE', image_url: '' },
+    ];
+    const ws = XLSX.utils.json_to_sheet(rows, { header: ['full_name','email','role','status','image_url'] });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Template');
+    XLSX.writeFile(wb, 'staff_import_template.xlsx');
+  };
+
+  const handleBulkFile = async (e) => {
+    setBulkErr(''); setBulkOk('');
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setBulkFileName(f.name);
+
+    try {
+      const data = await f.arrayBuffer();
+      const wb = XLSX.read(data, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+      const cleaned = rows.map((r, i) => {
+        const full_name = String(r.full_name || r.FULL_NAME || '').trim();
+        const email     = String(r.email || r.EMAIL || '').trim().toLowerCase();
+        const role      = String(r.role || r.ROLE || '').trim().toUpperCase();
+        const status    = String(r.status || r.STATUS || 'ACTIVE').trim().toUpperCase();
+        const image_url = String(r.image_url || r.IMAGE_URL || '').trim();
+
+        let valid = true;
+        let message = '';
+
+        if (!full_name) { valid = false; message = 'full_name is required'; }
+        else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { valid = false; message = 'email is invalid'; }
+        else if (!['AD','HT','TE','AC','SO'].includes(role)) { valid = false; message = 'role must be AD/HT/TE/AC/SO'; }
+
+        return { idx: i+1, full_name, email, role, status, image_url, valid, message, toImport: valid };
+      });
+
+      const capacity = isFinite(planMax) ? Math.max(0, planMax - staffCount) : Infinity;
+      if (isFinite(capacity)) {
+        cleaned.forEach((row, i) => {
+          if (i >= capacity) {
+            row.valid = false;
+            row.toImport = false;
+            row.message = `exceeds remaining capacity (${capacity})`;
+          }
+        });
+      }
+      setPreviewRows(cleaned);
+    } catch (err) {
+      setBulkErr(err?.message || 'Failed to read file.');
+    }
+  };
+
+  const doImport = async () => {
+    if (!previewRows.length) return;
+    setBulkErr(''); setBulkOk('');
+    setImporting(true);
+
+    const rows = previewRows.filter(r => r.toImport && r.valid);
+    let okCount = 0;
+    let failCount = 0;
+    const updated = [...previewRows];
+
+    for (const r of rows) {
+      try {
+        const newId = await fetchNextStaffId(toUrl, { token, schoolId });
+
+        const addUrl = toUrl(ADD_STAFF_ENDPOINT, {
+          p_user_id: String(newId),
+          p_school_id: String(schoolId),
+          p_creator_user_id: String(userId ?? ''),
+          p_full_name: r.full_name,
+          p_email: r.email,
+          p_role: r.role,
+          p_status: r.status || 'ACTIVE',
+          p_password: getTempPassword(12),
+          p_image_url: r.image_url || '',
+        });
+
+        const resp = await fetch(addUrl, { method: 'GET', headers: { Accept: 'application/json' }, cache: 'no-store' });
+        if (!resp.ok) {
+          const body = await jparse(resp);
+          throw new Error(body?.error || body?._raw || `HTTP ${resp.status}`);
+        }
+
+        okCount += 1;
+        const idxInPrev = updated.findIndex(x => x.idx === r.idx);
+        if (idxInPrev >= 0) updated[idxInPrev] = { ...updated[idxInPrev], message: 'Imported', valid: true, toImport: false };
+      } catch (e) {
+        failCount += 1;
+        const idxInPrev = updated.findIndex(x => x.idx === r.idx);
+        if (idxInPrev >= 0) {
+          const nice = mapOracleError(e?.message || '') || (e?.message || 'Failed');
+          updated[idxInPrev] = { ...updated[idxInPrev], message: nice, valid: false, toImport: false };
+        }
+      }
+    }
+
+    setPreviewRows(updated);
+    setBulkOk(`Imported ${okCount} staff${failCount ? `, ${failCount} failed` : ''}.`);
+    setImporting(false);
+    await fetchStaff();
+  };
+
+  /* ---------- Keyboard helpers ---------- */
   useEffect(() => {
     if (!isOpen) return;
     const onKey = (e) => {
@@ -638,12 +831,15 @@ export default function ManageStaffPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [isOpen, submitting, form, dialogMode]);
 
-  const addDisabled  = submitting || !!validateForm() || !pendingUserId;
+  const addDisabled  = submitting || !!validateForm() || !pendingUserId || planExpired || (isFinite(planMax) && remaining <= 0);
   const editDisabled = submitting || !!validateForm();
 
-  // ===== Render =====
+  /* ================== Render ================== */
   return (
     <DashboardLayout title="Manage Staff" subtitle="View, filter, edit, and manage staff records">
+      {/* Plan banner (added) */}
+      <PlanBanner planHuman={planHuman} expiryISO={expiryISO} count={staffCount} max={planMax} />
+
       {/* Toolbar */}
       <div className="mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -681,11 +877,32 @@ export default function ManageStaffPage() {
           >
             <Download size={16} /> Download Excel
           </button>
+
+          <button
+            onClick={openBulk}
+            disabled={planExpired || (isFinite(planMax) && remaining <= 0)}
+            title={
+              planExpired
+                ? 'Plan expired — renew to use this feature'
+                : (isFinite(planMax) && remaining <= 0)
+                ? `Reached ${planHuman} plan staff limit`
+                : 'Import staff from Excel'
+            }
+            className="flex items-center gap-2 px-4 py-2 bg-sky-600 text-white text-sm rounded-md hover:bg-sky-700 disabled:opacity-60"
+          >
+            <Upload size={16} /> Bulk Import
+          </button>
         </div>
 
         <button
           onClick={openAdd}
-          className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 text-sm"
+          disabled={planExpired || (isFinite(planMax) && remaining <= 0)}
+          title={
+            planExpired ? 'Plan expired — renew to add staff'
+            : (isFinite(planMax) && remaining <= 0) ? `Reached ${planHuman} plan staff limit`
+            : 'Add a new staff'
+          }
+          className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 text-sm disabled:opacity-60"
         >
           <PlusCircle size={16} /> Add New Staff
         </button>
@@ -774,7 +991,7 @@ export default function ManageStaffPage() {
         </table>
       </div>
 
-      {/* Add / Edit Dialog */}
+      {/* Add / Edit Modal */}
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/50" onClick={() => (submitting ? null : setIsOpen(false))} />
@@ -842,8 +1059,7 @@ export default function ManageStaffPage() {
                 />
               </label>
 
-              {/* No password field in edit mode */}
-
+              {/* Role + Status */}
               <div className="grid grid-cols-2 gap-4">
                 <label className="grid gap-1">
                   <span className="text-sm text-gray-700 dark:text-gray-300">Role</span>
@@ -851,6 +1067,7 @@ export default function ManageStaffPage() {
                     className="border rounded-lg px-3 py-2 bg-white dark:bg-gray-800"
                     value={form.role}
                     onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
+                    title="AD = Administrator, HT = Head Teacher, TE = Teacher, AC = Accountant, SO = Owner"
                   >
                     {ROLE_OPTIONS.map((r) => (
                       <option key={r.value} value={r.value}>{r.label}</option>
@@ -871,6 +1088,8 @@ export default function ManageStaffPage() {
                   </select>
                 </label>
               </div>
+
+             
 
               {formError && (
                 <div className="flex items-start gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
@@ -948,9 +1167,8 @@ export default function ManageStaffPage() {
               </div>
             </div>
 
-            <div className="px-6 py-5 max-h-[70vh] overflow-y-auto">
+            <div className="px-6 py-5 max-h={[`70vh`]} overflow-y-auto">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
                 <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
                   <div className="flex items-center gap-2 mb-3">
                     <UserCircle2 className="h-4 w-4 text-indigo-600" />
@@ -978,16 +1196,174 @@ export default function ManageStaffPage() {
           </div>
         </div>
       )}
+
+      {/* Bulk Import Modal (added) */}
+      {bulkOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => (bulkBusy || importing ? null : setBulkOpen(false))} />
+          <div className="relative z-10 w-full max-w-4xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Bulk Import Staff</h3>
+              <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" onClick={() => (bulkBusy || importing ? null : setBulkOpen(false))}>
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="text-sm text-gray-700 dark:text-gray-300 flex items-start gap-2">
+                <Info className="h-4 w-4 mt-0.5" />
+                <div>
+                  <div><b>Format (columns):</b> <code>full_name</code>, <code>email</code>, <code>role</code>, <code>status</code> (optional), <code>image_url</code> (optional)</div>
+                  <div className="mt-1">Role must be one of: <b>AD</b>, <b>HT</b>, <b>TE</b>, <b>AC</b>, <b>SO</b>.</div>
+                  <div className="mt-1">IDs and <code>school_id</code> are not needed — they’re generated/attached automatically.</div>
+                  <div className="mt-1">Plan limits: <b>Basic (10)</b>, <b>Standard (100)</b>, <b>Premium (Unlimited)</b>. Rows above remaining capacity are blocked.</div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={downloadTemplate}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  <Download className="h-4 w-4" /> Download Template
+                </button>
+
+                <label className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">
+                  <Upload className="h-4 w-4" />
+                  <span>Choose File</span>
+                  <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleBulkFile} disabled={bulkBusy || importing} />
+                </label>
+
+                {bulkFileName && <span className="text-sm text-gray-600 dark:text-gray-400">Selected: {bulkFileName}</span>}
+              </div>
+
+              {previewRows.length > 0 && (
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 dark:bg-gray-800">
+                      <tr className="text-left">
+                        <th className="p-2">#</th>
+                        <th className="p-2">Full Name</th>
+                        <th className="p-2">Email</th>
+                        <th className="p-2">Role</th>
+                        <th className="p-2">Status</th>
+                        <th className="p-2">Image URL</th>
+                        <th className="p-2">Validation / Result</th>
+                        <th className="p-2 text-center">Import?</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewRows.map((r) => (
+                        <tr key={r.idx} className="border-t">
+                          <td className="p-2">{r.idx}</td>
+                          <td className="p-2">{r.full_name}</td>
+                          <td className="p-2">{r.email}</td>
+                          <td className="p-2">{r.role}</td>
+                          <td className="p-2">{r.status}</td>
+                          <td className="p-2 truncate max-w-[220px]">{r.image_url || '—'}</td>
+                          <td className="p-2">
+                            {r.message
+                              ? <span className={r.valid ? 'text-emerald-600' : 'text-rose-600'}>{r.message}</span>
+                              : <span className={r.valid ? 'text-emerald-600' : 'text-rose-600'}>{r.valid ? 'OK' : 'Invalid'}</span>
+                            }
+                          </td>
+                          <td className="p-2 text-center">
+                            <input
+                              type="checkbox"
+                              checked={!!r.toImport}
+                              disabled={!r.valid || importing}
+                              onChange={(e) => {
+                                const v = e.target.checked;
+                                setPreviewRows(prev => prev.map(x => x.idx === r.idx ? { ...x, toImport: v && x.valid } : x));
+                              }}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {bulkErr && (
+                <div className="flex items-start gap-2 text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-3">
+                  <AlertCircle className="mt-0.5 h-4 w-4" />
+                  <span className="text-sm">{bulkErr}</span>
+                </div>
+              )}
+              {bulkOk && (
+                <div className="flex items-start gap-2 text-emerald-700 bg-emerald-50 border-emerald-200 rounded-lg p-3">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4" />
+                  <span className="text-sm">{bulkOk}</span>
+                </div>
+              )}
+
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                {isFinite(planMax) ? (
+                  <>You can import up to <b>{Math.max(0, planMax - staffCount)}</b> more staff on the <b>{planHuman}</b> plan.</>
+                ) : (
+                  <>Your <b>{planHuman}</b> plan allows unlimited staff.</>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setBulkOpen(false)}
+                  className="px-4 py-2 rounded-lg border"
+                  disabled={importing}
+                >
+                  Close
+                </button>
+                <button
+                  onClick={doImport}
+                  disabled={importing || previewRows.length === 0 || previewRows.every(r => !r.toImport)}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-60"
+                >
+                  {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  {importing ? 'Importing…' : `Import ${previewRows.filter(r => r.toImport).length} row(s)`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }
 
+/* ================== Small components ================== */
 function InfoLine({ label, value }) {
   if (!value) return null;
   return (
     <div className="space-y-0.5">
       <div className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{label}</div>
       <div className="text-sm">{value}</div>
+    </div>
+  );
+}
+
+function PlanBanner({ planHuman, expiryISO, count, max }) {
+  const [show, setShow] = useState(true);
+  if (!show) return null;
+
+  const expired = (() => {
+    if (!expiryISO) return false;
+    const d = new Date(expiryISO);
+    return isFinite(d.getTime()) && d.getTime() < Date.now();
+  })();
+
+  const maxLabel = isFinite(max) ? String(max) : '∞';
+  return (
+    <div className={`mb-4 flex items-start gap-2 rounded-lg p-3 border ${expired ? 'text-rose-700 bg-rose-50 border-rose-200' : 'text-blue-700 bg-blue-50 border-blue-200'}`}>
+      <Info className="h-4 w-4 mt-0.5" />
+      <div className="text-sm">
+        <b>Plan:</b> {planHuman}
+        {expiryISO ? <> · <b>Expires:</b> {expiryISO}</> : null}
+        <> · <b>Staff:</b> {count}/{maxLabel}</>
+      </div>
+      <button onClick={() => setShow(false)} className="ml-auto p-1 rounded hover:bg-black/5">
+        <X className="h-4 w-4" />
+      </button>
     </div>
   );
 }

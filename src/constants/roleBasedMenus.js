@@ -1,14 +1,14 @@
-export const roleBasedMenus = {
+// src/constants/roleBasedMenus.js
+export const roleBasedMenus = Object.freeze({
   admin: [
     { label: "Dashboard", path: "/dashboard" },
     { label: "Communication", path: "/dashboard/communication" },
     { label: "Manage Staff", path: "/dashboard/manage-staff" },
     { label: "Manage Students", path: "/dashboard/manage-students" },
-    { label: "Attendance", path: "/dashboard/attendance" },
     {
       label: "Fees",
       children: [
-        { label: "Manage Fees", path: "/dashboard/manage-fees" }, // ✅ Added
+        { label: "Manage Fees", path: "/dashboard/manage-fees" },
         { label: "Fees Report", path: "/dashboard/fees-report" },
         { label: "Print Bill", path: "/dashboard/print-bill" },
       ],
@@ -16,6 +16,8 @@ export const roleBasedMenus = {
     {
       label: "Academics",
       children: [
+        { label: "Manage Academic Years", path: "/dashboard/academic-years" },
+        { label: "Manage Academic Terms", path: "/dashboard/academic-terms" },
         { label: "Manage Class Teacher", path: "/dashboard/class-teacher" },
         { label: "Manage Subjects", path: "/dashboard/manage-subjects" },
         { label: "Assign Subjects", path: "/dashboard/assign-subjects" },
@@ -26,6 +28,7 @@ export const roleBasedMenus = {
       label: "Examination",
       children: [
         { label: "Print Exam Report", path: "/dashboard/print-exam-report" },
+        { label: "Grading Scale Setup", path: "/dashboard/exams/scale" },
       ],
     },
     { label: "Settings", path: "/settings" },
@@ -38,9 +41,7 @@ export const roleBasedMenus = {
     { label: "Manage Students", path: "/dashboard/manage-students" },
     {
       label: "Attendance",
-      children: [
-        { label: "Attendance Report", path: "/dashboard/attendance-report" },
-      ],
+      children: [{ label: "Attendance Report", path: "/dashboard/attendance-report" }],
     },
     {
       label: "Examination",
@@ -52,10 +53,9 @@ export const roleBasedMenus = {
     { label: "Settings", path: "/settings" },
   ],
 
+  // Accountant: NO Communication, NO Manage Students
   accountant: [
     { label: "Dashboard", path: "/dashboard" },
-    { label: "Communication", path: "/dashboard/communication" },
-    { label: "Manage Students", path: "/dashboard/manage-students" },
     {
       label: "Fees",
       children: [
@@ -69,18 +69,10 @@ export const roleBasedMenus = {
 
   teacher: [
     { label: "Dashboard", path: "/dashboard" },
-    { label: "Communication", path: "/dashboard/communication" },
-    { label: "Manage Students", path: "/dashboard/manage-students" },
-    {
-      label: "Attendance",
-      children: [
-        { label: "Manage Attendance", path: "/dashboard/manage-attendance" },
-      ],
-    },
     {
       label: "Examination",
       children: [
-        { label: "Manage Exam Report", path: "/dashboard/manage-exam" },
+        { label: "Enter Scores", path: "/dashboard/exams/enter-scores" },
       ],
     },
     { label: "Settings", path: "/settings" },
@@ -93,14 +85,12 @@ export const roleBasedMenus = {
     { label: "Manage Students", path: "/dashboard/manage-students" },
     {
       label: "Attendance",
-      children: [
-        { label: "Attendance Report", path: "/dashboard/attendance-report" },
-      ],
+      children: [{ label: "Attendance Report", path: "/dashboard/attendance-report" }],
     },
     {
       label: "Fees",
       children: [
-        { label: "Manage Fees", path: "/dashboard/manage-fees" }, // ✅ Added
+        { label: "Manage Fees", path: "/dashboard/manage-fees" },
         { label: "Fees Report", path: "/dashboard/fees-report" },
         { label: "Print Bill", path: "/dashboard/print-bill" },
       ],
@@ -108,6 +98,8 @@ export const roleBasedMenus = {
     {
       label: "Academics",
       children: [
+        { label: "Manage Academic Years", path: "/dashboard/academic-years" },
+        { label: "Manage Academic Terms", path: "/dashboard/academic-terms" },
         { label: "Manage Class Teacher", path: "/dashboard/class-teacher" },
         { label: "Manage Subjects", path: "/dashboard/manage-subjects" },
         { label: "Assign Subjects", path: "/dashboard/assign-subjects" },
@@ -123,4 +115,9 @@ export const roleBasedMenus = {
     },
     { label: "Settings", path: "/settings" },
   ],
-};
+});
+
+export function getMenusForRole(role) {
+  const r = String(role || "").toLowerCase();
+  return Array.isArray(roleBasedMenus[r]) ? roleBasedMenus[r] : [];
+}

@@ -1,8 +1,9 @@
+// src/pages/CommunicationPage.js
 import React, { useEffect, useMemo, useState } from 'react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 import {
   Mail, MessageSquare, Send, Loader2, Users, Building2, Inbox,
-  CheckCircle2, UserCheck2, Shield
+  CheckCircle2, UserCheck2, Shield, AlertCircle
 } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 
@@ -11,6 +12,7 @@ const HOST = "https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oracleclo
 
 /* lookups */
 const ACADEMIC_CLASSES_API = `${HOST}/academic/get/classes/`;
+const SCHOOL_INFO_API      = `${HOST}/academic/get/school/`;
 
 /* directories (GET) */
 const STAFF_API    = `${HOST}/staff/get/staff/`;      // ?p_school_id=&p_role=
@@ -23,9 +25,9 @@ const COMMS_SENT_API        = `${HOST}/comms/dashboard/sent/`;    // GET ?p_scho
 /* transactional SMS (GET) */
 const SEND_SMS_API = `${HOST}/comms/send/sms/`; // GET p_contact, p_msg
 
-/* staff role labels & options */
-const ROLE_LABELS = { HT: 'HeadTeacher', AD: 'Admin', TE: 'Teacher', AC: 'Accountant' };
-const FIXED_ROLE_CODES = ['HT','AD','TE','AC'];
+/* staff role labels & options (Admin removed from LOV) */
+const ROLE_LABELS = { HT: 'HeadTeacher', TE: 'Teacher', AC: 'Accountant' };
+const FIXED_ROLE_CODES = ['HT','TE','AC'];
 
 /* ------------ helpers ------------ */
 const jtxt = async (u, init) => {
@@ -86,12 +88,7 @@ async function sendEmailViaApi(toCsv, subject, message, fromName) {
     const resp = await fetch('/api/send-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        to: chunk,            // array of emails
-        subject,
-        message,
-        fromName,             // server uses EMAIL_FROM address + this display name
-      }),
+      body: JSON.stringify({ to: chunk, subject, message, fromName }),
     });
 
     if (!resp.ok) {
@@ -103,6 +100,15 @@ async function sendEmailViaApi(toCsv, subject, message, fromName) {
   }
 }
 
+function isDateExpired(isoOrDateString) {
+  if (!isoOrDateString) return false;
+  const d = new Date(String(isoOrDateString));
+  if (Number.isNaN(d.getTime())) return false;
+  const today = new Date();
+  // compare at day precision
+  return d.getTime() < new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+}
+
 /* ------------ page ------------ */
 export default function CommunicationPage() {
   const { user } = useAuth() || {};
@@ -110,6 +116,33 @@ export default function CommunicationPage() {
   const staffId  = user?.staff_id ?? user?.id ?? 0;
   const schoolName =
     (user?.school?.name || user?.school_name || user?.schoolName || 'School Master Hub').toString().toUpperCase();
+
+  /* --- package + expiry gating --- */
+  const [pkgName, setPkgName] = useState("");
+  const [expiryRaw, setExpiryRaw] = useState("");
+  const [pkgLoaded, setPkgLoaded] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await jarr(SCHOOL_INFO_API);
+        const s = rows.find(r => String(r.school_id ?? r.SCHOOL_ID) === String(schoolId));
+        const p = (s?.package ?? s?.PACKAGE ?? "").toString();
+        const exp = s?.expiry ?? s?.EXPIRY ?? "";
+        setPkgName(p);
+        setExpiryRaw(exp);
+      } catch {
+        setPkgName(""); setExpiryRaw("");
+      } finally {
+        setPkgLoaded(true);
+      }
+    })();
+  }, [schoolId]);
+
+  const isPremium = String(pkgName).trim().toLowerCase() === "premium";
+  const isExpired = isDateExpired(expiryRaw);
+  const canUseSms = isPremium && !isExpired;
+  const canUseParentsDashboard = isPremium && !isExpired;
 
   /* tabs */
   const [activeTab, setActiveTab] = useState('staff'); // 'staff' | 'class' | 'parents'
@@ -156,9 +189,13 @@ export default function CommunicationPage() {
   const [staffSubject, setStaffSubject] = useState('');
   const [staffMessage, setStaffMessage] = useState('');
   const [staffVia, setStaffVia] = useState({ dashboard: true, email: false, sms: false });
-  const toggleStaffVia = (k) => setStaffVia(prev => ({ ...prev, [k]: !prev[k] }));
+  const toggleStaffVia = (k) => setStaffVia(prev => {
+    if (isExpired) return prev; // block toggle when expired
+    if (k === 'sms' && !canUseSms) return prev;
+    return ({ ...prev, [k]: !prev[k] });
+  });
 
-  const [staffRoles, setStaffRoles] = useState([]); // merged list
+  const [staffRoles, setStaffRoles] = useState([]); // merged list (Admin removed)
   const [staffRole, setStaffRole] = useState('');   // '' = all
 
   const [staffEmails, setStaffEmails] = useState('');
@@ -170,7 +207,8 @@ export default function CommunicationPage() {
         const rows = await jarr(`${STAFF_API}?p_school_id=${schoolId}`);
         const apiCodes = uniq(rows.map(r => (r.role ?? r.ROLE ?? '')).filter(Boolean));
         const merged = [...FIXED_ROLE_CODES, ...apiCodes.filter(c => !FIXED_ROLE_CODES.includes(c))];
-        setStaffRoles(merged);
+        const filtered = merged.filter(c => String(c).toUpperCase() !== 'AD');
+        setStaffRoles(filtered);
       } catch {
         setStaffRoles(FIXED_ROLE_CODES);
       }
@@ -199,12 +237,14 @@ export default function CommunicationPage() {
   const submitStaff = async (e) => {
     e.preventDefault();
     setErr(''); setOk('');
+    if (isExpired) { setErr('Plan expired. Please renew to send messages.'); return; }
     if (!staffSubject.trim() || !staffMessage.trim()) { setErr('Subject and Message are required.'); return; }
     if (!staffVia.dashboard && !staffVia.email && !staffVia.sms) { setErr('Select at least one channel.'); return; }
+    if (staffVia.sms && !canUseSms) { setErr('Upgrade to use SMS.'); return; }
 
     setSending(true);
     try {
-      // dashboard persist
+      // dashboard persist (allowed if not expired)
       if (staffVia.dashboard) {
         await jobj(COMMS_CREATE_DASH_API, {
           p_school_id: schoolId,
@@ -220,13 +260,11 @@ export default function CommunicationPage() {
         });
       }
 
-      // sms
-      if (staffVia.sms) {
+      if (staffVia.sms && canUseSms) {
         const numsCsv = (staffPhones || '').trim();
         if (numsCsv) await sendSmsBatch(numsCsv, staffMessage);
       }
 
-      // email via API
       if (staffVia.email) {
         const emailsCsv = (staffEmails || '').trim();
         if (emailsCsv) {
@@ -241,6 +279,7 @@ export default function CommunicationPage() {
 
       setOk('Message dispatched to Staff.');
       setStaffSubject(''); setStaffMessage('');
+      setStaffVia(v => ({ ...v, email: false, sms: false }));
       await loadSent();
     } catch (ex) {
       setErr(ex?.message || 'Failed to send.');
@@ -249,13 +288,15 @@ export default function CommunicationPage() {
     }
   };
 
-  /* ---------- CLASS TAB ---------- */
+  /* ---------- CLASS TAB (premium only) ---------- */
   const [classSubject, setClassSubject] = useState('');
   const [classMessage, setClassMessage] = useState('');
 
   const submitClass = async (e) => {
     e.preventDefault();
     setErr(''); setOk('');
+    if (isExpired) { setErr('Plan expired. Please renew to send messages.'); return; }
+    if (!canUseParentsDashboard) { setErr('Upgrade to use this feature.'); return; }
     if (!classId) { setErr('Choose a class.'); return; }
     if (!classSubject.trim() || !classMessage.trim()) { setErr('Subject and Message are required.'); return; }
 
@@ -282,12 +323,18 @@ export default function CommunicationPage() {
     }
   };
 
-  /* ---------- PARENTS TAB ---------- */
+  /* ---------- PARENTS TAB (premium only) ---------- */
   const [parentsScope, setParentsScope] = useState('ALL'); // 'ALL' | 'CLASS'
   const [parentsSubject, setParentsSubject] = useState('');
   const [parentsMessage, setParentsMessage] = useState('');
   const [parentsVia, setParentsVia] = useState({ dashboard: true, email: false, sms: false });
-  const toggleParentsVia = (k) => setParentsVia(prev => ({ ...prev, [k]: !prev[k] }));
+  const toggleParentsVia = (k) => setParentsVia(prev => {
+    if (isExpired) return prev; // block toggle when expired
+    if (!canUseParentsDashboard) return prev;
+    if (k === 'sms' && !canUseSms) return prev;
+    return ({ ...prev, [k]: !prev[k] });
+  });
+
   const parentsNeedsClass = useMemo(() => parentsScope === 'CLASS', [parentsScope]);
   const parentsTargetType = useMemo(
     () => (parentsScope === 'CLASS' ? 'CLASS_PARENTS' : 'ALL_PARENTS'),
@@ -329,9 +376,12 @@ export default function CommunicationPage() {
   const submitParents = async (e) => {
     e.preventDefault();
     setErr(''); setOk('');
+    if (isExpired) { setErr('Plan expired. Please renew to send messages.'); return; }
+    if (!canUseParentsDashboard) { setErr('Upgrade to use this feature.'); return; }
     if (!parentsSubject.trim() || !parentsMessage.trim()) { setErr('Subject and Message are required.'); return; }
     if (!parentsVia.dashboard && !parentsVia.email && !parentsVia.sms) { setErr('Select at least one channel.'); return; }
     if (parentsNeedsClass && !classId) { setErr('Choose a class.'); return; }
+    if (parentsVia.sms && !canUseSms) { setErr('Upgrade to use SMS.'); return; }
 
     setSending(true);
     try {
@@ -349,7 +399,7 @@ export default function CommunicationPage() {
         });
       }
 
-      if (parentsVia.sms) {
+      if (parentsVia.sms && canUseSms) {
         const numsCsv = (parentsPhones || '').trim();
         if (numsCsv) await sendSmsBatch(numsCsv, parentsMessage);
       }
@@ -367,6 +417,7 @@ export default function CommunicationPage() {
 
       setOk('Message dispatched to Parents.');
       setParentsSubject(''); setParentsMessage('');
+      setParentsVia(v => ({ ...v, email: false, sms: false }));
       await loadSent();
     } catch (ex) {
       setErr(ex?.message || 'Failed to send.');
@@ -377,17 +428,55 @@ export default function CommunicationPage() {
 
   return (
     <DashboardLayout title="Communication" subtitle="Staff, Class, and Parents messaging">
+      {/* Plan status banner */}
+      {pkgLoaded && (
+        <div className={`mb-4 rounded-lg border p-3 text-sm ${isExpired
+          ? 'bg-rose-50 border-rose-200 text-rose-700'
+          : 'bg-gray-50 border-gray-200 text-gray-700'
+        }`}>
+          <div className="flex items-center gap-2">
+            <AlertCircle className={`h-4 w-4 ${isExpired ? 'text-rose-600' : 'text-gray-500'}`} />
+            <span>
+              Plan: <strong>{pkgName || '—'}</strong>
+              {expiryRaw ? <> · Expires: <strong>{String(expiryRaw).slice(0,10)}</strong></> : null}
+              {isExpired && <> · <strong>Expired</strong></>}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="mb-4 flex gap-2">
-        <TabButton active={activeTab==='staff'}   onClick={()=>setActiveTab('staff')}   icon={<Shield className="w-4 h-4" />} label="Staff" />
-        <TabButton active={activeTab==='class'}   onClick={()=>setActiveTab('class')}   icon={<Building2 className="w-4 h-4" />} label="Class" />
-        <TabButton active={activeTab==='parents'} onClick={()=>setActiveTab('parents')} icon={<UserCheck2 className="w-4 h-4" />} label="Parents" />
+        <TabButton
+          active={activeTab==='staff'}
+          onClick={()=>!isExpired && setActiveTab('staff')}
+          icon={<Shield className="w-4 h-4" />}
+          label="Staff"
+          disabled={isExpired}
+          title={isExpired ? 'Plan expired' : ''}
+        />
+        <TabButton
+          active={activeTab==='class'}
+          onClick={()=> (canUseParentsDashboard ? setActiveTab('class') : null)}
+          icon={<Building2 className="w-4 h-4" />}
+          label="Class"
+          disabled={!canUseParentsDashboard}
+          title={!canUseParentsDashboard ? (isExpired ? 'Plan expired' : 'Upgrade to use this feature') : ''}
+        />
+        <TabButton
+          active={activeTab==='parents'}
+          onClick={()=> (canUseParentsDashboard ? setActiveTab('parents') : null)}
+          icon={<UserCheck2 className="w-4 h-4" />}
+          label="Parents"
+          disabled={!canUseParentsDashboard}
+          title={!canUseParentsDashboard ? (isExpired ? 'Plan expired' : 'Upgrade to use this feature') : ''}
+        />
       </div>
 
       {/* STAFF */}
       {activeTab==='staff' && (
-        <SectionCard title="Staff" subtitle="Send to Teachers/Staff via Dashboard, Email or SMS">
-          {/* Role filter */}
+        <SectionCard title="Staff" subtitle="Send to Teachers/Staff via Dashboard or Email">
+          {/* Role filter (Admin removed) */}
           <div className="grid gap-2 mb-3">
             <label className="text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
               <Users className="w-4 h-4" /> Staff Role
@@ -395,55 +484,59 @@ export default function CommunicationPage() {
             <select
               value={staffRole}
               onChange={(e)=>setStaffRole(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+              disabled={isExpired}
+              title={isExpired ? 'Plan expired' : ''}
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50"
             >
               <option value="">All Roles</option>
               {FIXED_ROLE_CODES.map(code => (
-                <option key={code} value={code}>
-                  {ROLE_LABELS[code] || code}
-                </option>
+                <option key={code} value={code}>{ROLE_LABELS[code] || code}</option>
               ))}
               {staffRoles
-                .filter(code => code && !FIXED_ROLE_CODES.includes(code))
+                .filter(code => code && !FIXED_ROLE_CODES.includes(code) && String(code).toUpperCase() !== 'AD')
                 .map(code => (
-                  <option key={code} value={code}>
-                    {ROLE_LABELS[code] || code}
-                  </option>
+                  <option key={code} value={code}>{ROLE_LABELS[code] || code}</option>
                 ))
               }
             </select>
-            <div className="text-xs text-gray-500">Role filter affects Email/SMS recipients. Dashboard post goes to all staff (optionally role-tagged if supported).</div>
           </div>
 
           <form onSubmit={submitStaff} className="space-y-4">
-            <TextInput label="Subject" value={staffSubject} onChange={setStaffSubject} />
-            <TextArea  label="Message" value={staffMessage} onChange={setStaffMessage} rows={5} />
+            <TextInput label="Subject" value={staffSubject} onChange={setStaffSubject} disabled={isExpired} />
+            <TextArea  label="Message" value={staffMessage} onChange={setStaffMessage} rows={5} disabled={isExpired} />
 
             <div className="flex flex-wrap gap-4 mt-2">
-              <ChannelCheck icon={<Inbox className="w-4 h-4" />} label="Dashboard" checked={staffVia.dashboard} onChange={()=>toggleStaffVia('dashboard')} />
-              <ChannelCheck icon={<Mail className="w-4 h-4" />} label="Email" checked={staffVia.email} onChange={()=>toggleStaffVia('email')} />
-              <ChannelCheck icon={<MessageSquare className="w-4 h-4" />} label="SMS" checked={staffVia.sms} onChange={()=>toggleStaffVia('sms')} />
+              <ChannelCheck icon={<Inbox className="w-4 h-4" />} label="Dashboard" checked={staffVia.dashboard} onChange={()=>toggleStaffVia('dashboard')} disabled={isExpired} title={isExpired ? 'Plan expired' : ''} />
+              <ChannelCheck icon={<Mail className="w-4 h-4" />} label="Email" checked={staffVia.email} onChange={()=>toggleStaffVia('email')} disabled={isExpired} title={isExpired ? 'Plan expired' : ''} />
+              <ChannelCheck icon={<MessageSquare className="w-4 h-4" />} label="SMS" checked={staffVia.sms} onChange={()=>toggleStaffVia('sms')} disabled={!canUseSms} title={!canUseSms ? (isExpired ? 'Plan expired' : 'Upgrade to use this feature') : ''} />
             </div>
 
-            {(staffVia.email || staffVia.sms) && (
+            {(staffVia.email || (staffVia.sms && canUseSms)) && (
               <div className="grid md:grid-cols-2 gap-4">
                 {staffVia.email && (
-                  <TextArea label="Email Recipients (comma separated)" value={staffEmails} onChange={setStaffEmails} rows={3} />
+                  <TextArea label="Email Recipients (comma separated)" value={staffEmails} onChange={setStaffEmails} rows={3} disabled={isExpired} />
                 )}
-                {staffVia.sms && (
-                  <TextArea label="Phone Recipients (comma separated)" value={staffPhones} onChange={setStaffPhones} rows={3} />
+                {staffVia.sms && canUseSms && (
+                  <TextArea label="Phone Recipients (comma separated)" value={staffPhones} onChange={setStaffPhones} rows={3} disabled={isExpired} />
                 )}
               </div>
             )}
 
-            <ActionRow sending={sending} err={err} ok={ok} />
+            <ActionRow
+              sending={sending}
+              err={err}
+              ok={ok}
+              disableAll={isExpired}
+              disabledTitle="Plan expired"
+              submitLabel="Send Message"
+            />
           </form>
         </SectionCard>
       )}
 
-      {/* CLASS */}
-      {activeTab==='class' && (
-        <SectionCard title="Class" subtitle="Send to Students’ Dashboards (Dashboard only)">
+      {/* CLASS (Premium only — UI guarded by disabled tab) */}
+      {activeTab==='class' && canUseParentsDashboard && (
+        <SectionCard title="Class" subtitle="Send to Students’ Dashboards (Premium)">
           <div className="grid gap-2 mb-2">
             <label className="text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
               <Building2 className="w-4 h-4" /> Class
@@ -451,7 +544,9 @@ export default function CommunicationPage() {
             <select
               value={classId ?? ''}
               onChange={(e)=>{ const v = e.target.value; setClassId(v==='ALL' ? 'ALL' : Number(v)); }}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+              disabled={isExpired}
+              title={isExpired ? 'Plan expired' : ''}
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50"
             >
               <option value="ALL">All Students</option>
               {classes.map(c => <option key={c.class_id} value={c.class_id}>{c.class_name}</option>)}
@@ -459,35 +554,44 @@ export default function CommunicationPage() {
           </div>
 
           <form onSubmit={submitClass} className="space-y-4">
-            <TextInput label="Subject" value={classSubject} onChange={setClassSubject} />
-            <TextArea  label="Message" value={classMessage} onChange={setClassMessage} rows={5} />
-            <div className="flex flex-wrap gap-4 mt-2">
-              <label className="inline-flex items-center space-x-2 text-sm text-gray-700 dark:text-gray-300 opacity-80">
+            <TextInput label="Subject" value={classSubject} onChange={setClassSubject} disabled={isExpired} />
+            <TextArea  label="Message" value={classMessage} onChange={setClassMessage} rows={5} disabled={isExpired} />
+            <div className="flex flex-wrap gap-4 mt-2 opacity-100">
+              <label className="inline-flex items-center space-x-2 text-sm text-gray-700 dark:text-gray-300">
                 <input type="checkbox" checked readOnly className="h-4 w-4 text-indigo-600 border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded" />
                 <span className="inline-flex items-center gap-1"><Inbox className="w-4 h-4" /> Dashboard (Students)</span>
               </label>
             </div>
-            <ActionRow sending={sending} err={err} ok={ok} />
+            <ActionRow
+              sending={sending}
+              err={err}
+              ok={ok}
+              disableAll={isExpired}
+              disabledTitle="Plan expired"
+              submitLabel="Send Message"
+            />
           </form>
         </SectionCard>
       )}
 
-      {/* PARENTS */}
-      {activeTab==='parents' && (
-        <SectionCard title="Parents" subtitle="Send to Parents via Dashboard, Email or SMS">
+      {/* PARENTS (Premium only — UI guarded by disabled tab) */}
+      {activeTab==='parents' && canUseParentsDashboard && (
+        <SectionCard title="Parents" subtitle="Send to Parents via Dashboard, Email or SMS (Premium)">
           <div className="grid gap-2 mb-2">
             <label className="text-sm text-gray-700 dark:text-gray-300">Scope</label>
             <select
               value={parentsScope}
               onChange={(e)=>setParentsScope(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+              disabled={isExpired}
+              title={isExpired ? 'Plan expired' : ''}
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50"
             >
               <option value="ALL">All Parents</option>
               <option value="CLASS">By Class</option>
             </select>
           </div>
 
-          {parentsNeedsClass && (
+          {parentsScope === 'CLASS' && (
             <div className="grid gap-2 mb-2">
               <label className="text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
                 <Building2 className="w-4 h-4" /> Class
@@ -495,7 +599,9 @@ export default function CommunicationPage() {
               <select
                 value={classId ?? ''}
                 onChange={(e)=>{ const v = e.target.value; setClassId(v==='ALL' ? 'ALL' : Number(v)); }}
-                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+                disabled={isExpired}
+                title={isExpired ? 'Plan expired' : ''}
+                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50"
               >
                 <option value="ALL">All Students</option>
                 {classes.map(c => <option key={c.class_id} value={c.class_id}>{c.class_name}</option>)}
@@ -504,27 +610,34 @@ export default function CommunicationPage() {
           )}
 
           <form onSubmit={submitParents} className="space-y-4">
-            <TextInput label="Subject" value={parentsSubject} onChange={setParentsSubject} />
-            <TextArea  label="Message" value={parentsMessage} onChange={setParentsMessage} rows={5} />
+            <TextInput label="Subject" value={parentsSubject} onChange={setParentsSubject} disabled={isExpired} />
+            <TextArea  label="Message" value={parentsMessage} onChange={setParentsMessage} rows={5} disabled={isExpired} />
 
             <div className="flex flex-wrap gap-4 mt-2">
-              <ChannelCheck icon={<Inbox className="w-4 h-4" />} label="Dashboard" checked={parentsVia.dashboard} onChange={()=>toggleParentsVia('dashboard')} />
-              <ChannelCheck icon={<Mail className="w-4 h-4" />} label="Email" checked={parentsVia.email} onChange={()=>toggleParentsVia('email')} />
-              <ChannelCheck icon={<MessageSquare className="w-4 h-4" />} label="SMS" checked={parentsVia.sms} onChange={()=>toggleParentsVia('sms')} />
+              <ChannelCheck icon={<Inbox className="w-4 h-4" />} label="Dashboard" checked={parentsVia.dashboard} onChange={()=>toggleParentsVia('dashboard')} disabled={isExpired} title={isExpired ? 'Plan expired' : ''} />
+              <ChannelCheck icon={<Mail className="w-4 h-4" />} label="Email" checked={parentsVia.email} onChange={()=>toggleParentsVia('email')} disabled={isExpired} title={isExpired ? 'Plan expired' : ''} />
+              <ChannelCheck icon={<MessageSquare className="w-4 h-4" />} label="SMS" checked={parentsVia.sms} onChange={()=>toggleParentsVia('sms')} disabled={!canUseSms} title={!canUseSms ? (isExpired ? 'Plan expired' : 'Upgrade to use this feature') : ''} />
             </div>
 
-            {(parentsVia.email || parentsVia.sms) && (
+            {(parentsVia.email || (parentsVia.sms && canUseSms)) && (
               <div className="grid md:grid-cols-2 gap-4">
                 {parentsVia.email && (
-                  <TextArea label="Parent Email Recipients (comma separated)" value={parentsEmails} onChange={setParentsEmails} rows={3} />
+                  <TextArea label="Parent Email Recipients (comma separated)" value={parentsEmails} onChange={setParentsEmails} rows={3} disabled={isExpired} />
                 )}
-                {parentsVia.sms && (
-                  <TextArea label="Parent Phone Recipients (comma separated)" value={parentsPhones} onChange={setParentsPhones} rows={3} />
+                {parentsVia.sms && canUseSms && (
+                  <TextArea label="Parent Phone Recipients (comma separated)" value={parentsPhones} onChange={setParentsPhones} rows={3} disabled={isExpired} />
                 )}
               </div>
             )}
 
-            <ActionRow sending={sending} err={err} ok={ok} />
+            <ActionRow
+              sending={sending}
+              err={err}
+              ok={ok}
+              disableAll={isExpired}
+              disabledTitle="Plan expired"
+              submitLabel="Send Message"
+            />
           </form>
         </SectionCard>
       )}
@@ -554,15 +667,25 @@ export default function CommunicationPage() {
 }
 
 /* ---------- small UI pieces ---------- */
-function TabButton({ active, onClick, icon, label }) {
+function TabButton({ active, onClick, icon, label, disabled=false, title="" }) {
   return (
     <button
-      onClick={onClick}
-      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm ${
-        active ? 'bg-gray-900 text-white border-gray-900' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
-      }`}
+      onClick={disabled ? undefined : onClick}
+      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm relative group ${
+        active
+          ? 'bg-gray-900 text-white border-gray-900'
+          : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
+      } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+      title={title}
     >
       {icon}{label}
+      {disabled && title && (
+        <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 top-full mt-1
+                         whitespace-nowrap text-xs px-2 py-1 rounded-md shadow
+                         bg-gray-900 text-white opacity-0 group-hover:opacity-100 transition">
+          {title}
+        </span>
+      )}
     </button>
   );
 }
@@ -575,7 +698,7 @@ function SectionCard({ title, subtitle, children }) {
     </div>
   );
 }
-function TextInput({ label, value, onChange }) {
+function TextInput({ label, value, onChange, disabled }) {
   return (
     <div>
       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{label}</label>
@@ -583,13 +706,15 @@ function TextInput({ label, value, onChange }) {
         type="text"
         value={value}
         onChange={(e)=>onChange(e.target.value)}
-        className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+        disabled={disabled}
+        title={disabled ? 'Plan expired' : ''}
+        className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50"
         required
       />
     </div>
   );
 }
-function TextArea({ label, value, onChange, rows=5 }) {
+function TextArea({ label, value, onChange, rows=5, disabled }) {
   return (
     <div>
       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{label}</label>
@@ -597,34 +722,50 @@ function TextArea({ label, value, onChange, rows=5 }) {
         value={value}
         onChange={(e)=>onChange(e.target.value)}
         rows={rows}
-        className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+        disabled={disabled}
+        title={disabled ? 'Plan expired' : ''}
+        className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50"
         required
       />
     </div>
   );
 }
-function ChannelCheck({ icon, label, checked, onChange }) {
+function ChannelCheck({ icon, label, checked, onChange, disabled=false, title="" }) {
   return (
-    <label className="inline-flex items-center space-x-2 text-sm text-gray-700 dark:text-gray-300">
+    <label className={`inline-flex items-center space-x-2 text-sm ${disabled ? 'opacity-60 cursor-not-allowed' : 'text-gray-700 dark:text-gray-300'} relative group`}>
       <input
         type="checkbox"
         checked={checked}
         onChange={onChange}
+        disabled={disabled}
+        title={title}
         className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded"
       />
       <span className="inline-flex items-center gap-1">{icon}{label}</span>
+      {disabled && title && (
+        <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 top-full mt-1
+                         whitespace-nowrap text-xs px-2 py-1 rounded-md shadow
+                         bg-gray-900 text-white opacity-0 group-hover:opacity-100 transition">
+          {title}
+        </span>
+      )}
     </label>
   );
 }
-function ActionRow({ sending, err, ok }) {
+function ActionRow({ sending, err, ok, disableAll=false, disabledTitle='Plan expired', submitLabel='Send Message' }) {
   return (
     <>
       {err && <div className="text-sm text-rose-600">{err}</div>}
       {ok && <div className="text-sm text-emerald-600 inline-flex items-center gap-1"><CheckCircle2 className="w-4 h-4" /> {ok}</div>}
       <div className="mt-2">
-        <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-md text-sm font-medium shadow inline-flex items-center gap-2">
+        <button
+          type="submit"
+          disabled={disableAll || sending}
+          title={disableAll ? disabledTitle : ''}
+          className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-md text-sm font-medium shadow inline-flex items-center gap-2 disabled:opacity-50"
+        >
           {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-          Send Message
+          {submitLabel}
         </button>
       </div>
     </>

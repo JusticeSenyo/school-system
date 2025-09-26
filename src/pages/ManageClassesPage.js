@@ -181,7 +181,6 @@ export default function ManageClassesPage() {
             <thead>
               <tr className="text-left text-gray-600 dark:text-gray-300 border-b dark:border-gray-700">
                 <th className="p-3">Class</th>
-                <th className="p-3">Created</th>
                 <th className="p-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -196,7 +195,6 @@ export default function ManageClassesPage() {
                 filtered.map(r => (
                   <tr key={r.id} className="border-b last:border-0 dark:border-gray-700">
                     <td className="p-3 font-medium">{r.name}</td>
-                    <td className="p-3">{r.createdAt ? new Date(r.createdAt).toLocaleString() : "-"}</td>
                     <td className="p-3">
                       <div className="flex justify-end gap-2">
                         <button className="px-2 py-1 border rounded-lg inline-flex items-center gap-1" onClick={() => setEditing({ id: r.id, name: r.name })}>

@@ -291,14 +291,16 @@ Thank you.`;
       {/* Sticky Filters */}
       <div className="sticky top-0 z-10 pb-3 bg-gradient-to-b from-white/70 to-transparent dark:from-gray-900/60 backdrop-blur-md mb-2">
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow p-4 border border-gray-100 dark:border-gray-700">
+          {/* Student picker full-width row */}
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
-            {/* Student LOV FIRST */}
-            <StudentLov
-              label="Student"
-              students={students}
-              value={selectedStudentId}
-              onPick={(id) => setSelectedStudentId(id)}
-            />
+            <div className="col-span-1 md:col-span-2 xl:col-span-6">
+              <StudentLov
+                label="Student"
+                students={students}
+                value={selectedStudentId}
+                onPick={(id) => setSelectedStudentId(id)}
+              />
+            </div>
 
             <LabeledSelect labelEl={<LabelWithIcon icon={<Building2 className="w-4 h-4" />} text="Class" />} value={classId ?? ""} onChange={(v)=>setClassId(Number(v))}>
               {classesLoading && <option>Loading…</option>}
@@ -313,8 +315,6 @@ Thank you.`;
             <LabeledSelect labelEl={<LabelWithIcon icon={<Inbox className="w-4 h-4" />} text="Academic Year" />} value={yearId ?? ""} onChange={(v)=>setYearId(Number(v))}>
               {years.map(y => <option key={y.id} value={y.id}>{y.name}</option>)}
             </LabeledSelect>
-
-            {/* Template removed – always Detailed */}
 
             {/* Include MoMo/Card instructions — show for all; disabled on BASIC */}
             <div className="flex items-end">
@@ -344,7 +344,7 @@ Thank you.`;
         </div>
       </div>
 
-      {/* Action buttons (visible on all plans; disabled on BASIC) */}
+      {/* Action buttons */}
       <div className="mb-4 flex flex-wrap gap-2">
         <button
           onClick={handlePrint}
@@ -361,7 +361,7 @@ Thank you.`;
           className={`inline-flex items-center gap-2 px-3 py-2 border rounded-lg ${(!hasStudent || IS_BASIC) ? "opacity-60 cursor-not-allowed" : ""}`}
         >
           <Copy className="h-4 w-4" /> Copy Payment Link
-          {IS_BASIC && <Lock className="w-4 h-4 ml-1" />}
+          {IS_BASIC && <Lock className="h-4 w-4 ml-1" />}
         </button>
 
         <button
@@ -374,7 +374,7 @@ Thank you.`;
           className={`inline-flex items-center gap-2 px-3 py-2 border rounded-lg ${(!hasStudent || !hasEmail || IS_BASIC) ? "opacity-60 cursor-not-allowed" : ""}`}
         >
           <Mail className="h-4 w-4" /> Email Bill
-          {IS_BASIC && <Lock className="w-4 h-4 ml-1" />}
+          {IS_BASIC && <Lock className="h-4 w-4 ml-1" />}
         </button>
 
         <button
@@ -384,7 +384,7 @@ Thank you.`;
           className={`inline-flex items-center gap-2 px-3 py-2 border rounded-lg ${(!hasStudent || IS_BASIC) ? "opacity-60 cursor-not-allowed" : ""}`}
         >
           <Send className="h-4 w-4" /> Send Reminder
-          {IS_BASIC && <Lock className="w-4 h-4 ml-1" />}
+          {IS_BASIC && <Lock className="h-4 w-4 ml-1" />}
         </button>
       </div>
 
@@ -445,7 +445,7 @@ Thank you.`;
         </label>
       </div>
 
-      {/* Reminder Modal (Std/Premium visible; Basic disabled via button) */}
+      {/* Reminder Modal */}
       {openReminder && (
         <ReminderModal
           onClose={()=>setOpenReminder(false)}
@@ -492,7 +492,6 @@ function BillDocument({ term, year, classNameLabel, student, items, totals, note
           <div className="text-sm text-gray-600 dark:text-gray-400">
             {term}, {year}
           </div>
-          {/* Explicitly show Class on the bill header area as requested */}
           {classNameLabel ? (
             <div className="text-sm text-gray-700 dark:text-gray-300 mt-1">Class: <span className="font-medium">{classNameLabel}</span></div>
           ) : null}
@@ -524,7 +523,6 @@ function BillDocument({ term, year, classNameLabel, student, items, totals, note
                 <td className="py-2">
                   <div className="font-medium">{it.category_name}</div>
                   <div className="text-xs text-gray-500 whitespace-pre-line">
-                    {/* Use description from fee catalogue; fallback keeps some context */}
                     {it.description?.trim() ? it.description : `${it.category_name} for ${term} ${year}`}
                   </div>
                 </td>
@@ -557,7 +555,7 @@ function BillDocument({ term, year, classNameLabel, student, items, totals, note
         </table>
       </div>
 
-      {/* Payment instructions — visible only if enabled (Std/Prem or toggled on) */}
+      {/* Payment instructions */}
       {includeMoMoBlock && (
         <div className="px-6 pb-6">
           <div className="rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/30 p-3 text-sm text-indigo-800 dark:text-indigo-100">
@@ -609,6 +607,12 @@ You can pay securely here: ${paymentUrl}
 Thank you.`
   );
 
+  // Lock body scroll while modal is open
+  useEffect(() => {
+    document.body.classList.add("overflow-hidden");
+    return () => document.body.classList.remove("overflow-hidden");
+  }, []);
+
   const sendEmail = () => {
     const href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
     window.location.href = href;
@@ -622,8 +626,13 @@ Thank you.`
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 p-3">
-      <div className="w-full max-w-2xl bg-white dark:bg-gray-900 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700">
+    // Perfectly centered, blurred, scrollable overlay
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="w-full max-w-2xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-700 my-4 max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between p-4 border-b dark:border-gray-700">
           <div className="flex items-center gap-2">
             <Send className="h-5 w-5" />
@@ -633,7 +642,9 @@ Thank you.`
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="p-4 grid gap-4">
+
+        {/* Content area: independent scroll */}
+        <div className="p-4 grid gap-4 overflow-y-auto flex-1 min-h-0">
           <div className="text-sm text-gray-600 dark:text-gray-300">
             {student?.full_name} (Index No.: {student?.index_no || "-"}) — {classNameLabel}
           </div>
@@ -651,6 +662,7 @@ Thank you.`
             <>
               <Input label="To (Email)" value={email} onChange={setEmail} placeholder="parent@example.com" />
               <Input label="Subject" value={subject} onChange={setSubject} />
+              {/* Message on its own line */}
               <label className="text-sm grid gap-1">
                 <span className="text-gray-700 dark:text-gray-300">Message</span>
                 <textarea rows={6} className="border rounded-lg px-3 py-2 bg-white dark:bg-gray-900" value={message} onChange={(e)=>setMessage(e.target.value)} />
@@ -732,6 +744,13 @@ function StudentLov({ label = "Student", students = [], value, onPick }) {
   const [open, setOpen] = React.useState(false);
   const [q, setQ] = React.useState("");
 
+  // Lock body scroll while student modal is open
+  useEffect(() => {
+    if (!open) return;
+    document.body.classList.add("overflow-hidden");
+    return () => document.body.classList.remove("overflow-hidden");
+  }, [open]);
+
   const selected = React.useMemo(
     () => students.find(s => String(s.student_id) === String(value)),
     [students, value]
@@ -750,7 +769,7 @@ function StudentLov({ label = "Student", students = [], value, onPick }) {
 
   return (
     <>
-      {/* Render like a select within filters card */}
+      {/* Render like a select within filters card (full-width row via parent col-span) */}
       <label className="text-sm grid gap-1">
         <span className="text-gray-700 dark:text-gray-300 flex items-center gap-2">
           <Search className="w-4 h-4" /> {label}
@@ -771,15 +790,21 @@ function StudentLov({ label = "Student", students = [], value, onPick }) {
       </label>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 p-3">
-          <div className="w-full max-w-2xl bg-white dark:bg-gray-900 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700">
+        // Perfectly centered, blurred, scrollable overlay
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-2xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-700 my-4 max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between p-4 border-b dark:border-gray-700">
               <div className="font-semibold">Choose Student</div>
-              <button onClick={() => setOpen(false)} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800">
+              <button onClick={() => setOpen(false)} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800" aria-label="Close">
                 <X className="h-5 w-5" />
               </button>
             </div>
 
+            {/* Search field (own line) */}
             <div className="p-4">
               <label className="text-sm grid gap-1">
                 <span className="text-gray-700 dark:text-gray-300">Search</span>
@@ -796,7 +821,8 @@ function StudentLov({ label = "Student", students = [], value, onPick }) {
               </label>
             </div>
 
-            <div className="max-h-80 overflow-auto px-2 pb-2">
+            {/* Results – grows & scrolls */}
+            <div className="px-2 pb-2 overflow-y-auto flex-1 min-h-0">
               {filtered.length === 0 ? (
                 <div className="px-4 py-6 text-center text-sm text-gray-500">No students found.</div>
               ) : (

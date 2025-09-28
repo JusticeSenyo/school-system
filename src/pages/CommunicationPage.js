@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 import {
   Mail, MessageSquare, Send, Loader2, Users, Building2, Inbox,
-  CheckCircle2, UserCheck2, Shield, AlertCircle
+  CheckCircle2, UserCheck2, Shield, AlertCircle, Info, X
 } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 
@@ -109,6 +109,16 @@ function isDateExpired(isoOrDateString) {
   return d.getTime() < new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
 }
 
+/* ---- Plan helpers to humanize plan like Manage Staff ---- */
+const PLAN_NAME_BY_CODE = (raw) => {
+  const v = String(raw ?? '').trim().toUpperCase();
+  if (v === '1' || v === 'BASIC') return 'BASIC';
+  if (v === '2' || v === 'STANDARD') return 'STANDARD';
+  if (v === '3' || v === 'PREMIUM' || v === 'PREMUIM') return 'PREMIUM';
+  return 'BASIC';
+};
+const HUMAN_PLAN = (code) => ({ BASIC: 'Basic', STANDARD: 'Standard', PREMIUM: 'Premium' }[code] || 'Basic');
+
 /* ------------ page ------------ */
 export default function CommunicationPage() {
   const { user } = useAuth() || {};
@@ -121,6 +131,7 @@ export default function CommunicationPage() {
   const [pkgName, setPkgName] = useState("");
   const [expiryRaw, setExpiryRaw] = useState("");
   const [pkgLoaded, setPkgLoaded] = useState(false);
+  const [showPlan, setShowPlan] = useState(true);
 
   useEffect(() => {
     (async () => {
@@ -139,8 +150,9 @@ export default function CommunicationPage() {
     })();
   }, [schoolId]);
 
-  const isPremium = String(pkgName).trim().toLowerCase() === "premium";
+  const planHuman = HUMAN_PLAN(PLAN_NAME_BY_CODE(pkgName));
   const isExpired = isDateExpired(expiryRaw);
+  const isPremium = String(pkgName).trim().toLowerCase() === "premium";
   const canUseSms = isPremium && !isExpired;
   const canUseParentsDashboard = isPremium && !isExpired;
 
@@ -428,20 +440,27 @@ export default function CommunicationPage() {
 
   return (
     <DashboardLayout title="Communication" subtitle="Staff, Class, and Parents messaging">
-      {/* Plan status banner */}
-      {pkgLoaded && (
-        <div className={`mb-4 rounded-lg border p-3 text-sm ${isExpired
-          ? 'bg-rose-50 border-rose-200 text-rose-700'
-          : 'bg-gray-50 border-gray-200 text-gray-700'
-        }`}>
-          <div className="flex items-center gap-2">
-            <AlertCircle className={`h-4 w-4 ${isExpired ? 'text-rose-600' : 'text-gray-500'}`} />
-            <span>
-              Plan: <strong>{pkgName || '—'}</strong>
-              {expiryRaw ? <> · Expires: <strong>{String(expiryRaw).slice(0,10)}</strong></> : null}
-              {isExpired && <> · <strong>Expired</strong></>}
-            </span>
+      {/* Plan banner (concise, like Manage Staff; basic date) */}
+      {pkgLoaded && showPlan && (
+        <div
+          className={`mb-4 flex items-start gap-2 rounded-lg p-3 border ${
+            isExpired ? 'text-rose-700 bg-rose-50 border-rose-200'
+                      : 'text-blue-700 bg-blue-50 border-blue-200'
+          }`}
+        >
+          <Info className="h-4 w-4 mt-0.5" />
+          <div className="text-sm">
+            <b>Plan:</b> {planHuman}
+            {expiryRaw ? <> · <b>Expires:</b> {String(expiryRaw).slice(0, 10)}</> : null}
           </div>
+          <button
+            onClick={() => setShowPlan(false)}
+            className="ml-auto p-1 rounded hover:bg-black/5"
+            aria-label="Dismiss plan banner"
+            type="button"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 
@@ -677,6 +696,7 @@ function TabButton({ active, onClick, icon, label, disabled=false, title="" }) {
           : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
       } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
       title={title}
+      type="button"
     >
       {icon}{label}
       {disabled && title && (

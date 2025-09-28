@@ -41,7 +41,7 @@ const roleLabelFrom = (raw) => {
   if (v === "AD" || v.includes("ADMIN")) return "Administrator";
   if (v === "HT" || v.includes("HEAD")) return "Head Teacher";
   if (v === "AC" || v.includes("ACCOUNT")) return "Accountant";
-  if (v === "T"  || v.includes("TEACH")) return "Teacher";
+  if (v === "TE"  || v.includes("TEACH")) return "Teacher";
   return raw || "—";
 };
 const isAdminFrom = (raw) => /(^|\b)(AD|ADMIN|ADMINISTRATOR)(\b|$)/i.test(String(raw || ""));

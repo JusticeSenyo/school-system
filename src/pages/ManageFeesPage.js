@@ -74,10 +74,10 @@ const getReceiptNo = async (schoolId) => {
     const rcpt = (j.receipt_no || j.RECEIPT_NO || j.receipt || j.RECEIPT || "").toString();
     if (rcpt) return rcpt;
   } catch (_) {
-    // ignore; we'll try other strategies below
+    // ignore
   }
 
-  // 2) Try to locate a JSON-looking substring within text/HTML
+  // 2) Try JSON-looking substring
   const firstBrace = raw.indexOf("{");
   const lastBrace = raw.lastIndexOf("}");
   if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
@@ -89,13 +89,28 @@ const getReceiptNo = async (schoolId) => {
     } catch (_) {}
   }
 
-  // 3) Last resort: pattern-match a receipt code in plain text/HTML
+  // 3) Pattern match
   const m = raw.match(/RCPT-[A-Za-z0-9-]+/);
   if (m && m[0]) return m[0];
 
-  // 4) Give a helpful error with a short excerpt
+  // 4) Helpful error
   const excerpt = raw.replace(/\s+/g, " ").slice(0, 180);
   throw new Error(`Receipt API returned invalid JSON: ${excerpt}${raw.length > 180 ? "…" : ""}`);
+};
+
+// --- Email helper (uses your /api/send-email endpoint) ---
+const sendEmail = async ({ to, subject, message, fromName = "School Master Hub" }) => {
+  const url = "/api/send-email";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ to: Array.isArray(to) ? to : [to], subject, message, fromName })
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.success !== true) {
+    throw new Error(json.error || `Email API error (HTTP ${res.status})`);
+  }
+  return json;
 };
 
 const Chip = ({ children, color="gray" }) => {
@@ -165,7 +180,7 @@ export default function ManageFeesPage() {
   const schoolId = user?.schoolId ?? user?.school_id ?? user?.school?.id ?? 1;
   const pkg = Number(user?.school?.package ?? user?.package ?? user?.plan ?? 2);
   const PLAN = pkg===1 ? "basic" : pkg===3 ? "premium" : "standard";
-  const IS_BASIC = pkg===1;
+  const IS_PREMIUM = pkg === 3;
   const CUR = user?.school?.currency ?? user?.currency ?? "GHS";
   const SCHOOL_NAME = user?.school?.name ?? user?.school_name ?? "Your School";
   const money = (n) => `${CUR} ${currency(n)}`;
@@ -182,6 +197,10 @@ export default function ManageFeesPage() {
 
   const [structures, setStructures] = useState([]); const [strLoading, setStrLoading] = useState(false);
   const [strErr, setStrErr] = useState(""); const [openStr, setOpenStr] = useState(false); const [editStr, setEditStr] = useState(null);
+
+  // NEW: track reminder sending per-student
+  const [sendingReminderId, setSendingReminderId] = useState(null);
+
 
   const [summary, setSummary] = useState({ total_billed:0, total_paid:0, balance:0, unpaid_count:0, count:0, partial_count:0, paid_count:0 });
   const [invLoading, setInvLoading] = useState(false); const [invErr, setInvErr] = useState(""); const [invoices, setInvoices] = useState([]); const [searchInv, setSearchInv] = useState("");
@@ -409,12 +428,15 @@ export default function ManageFeesPage() {
     } catch (e) { setToast({ type:"err", text:(e && e.message) || "Failed to generate invoices." }); }
   };
 
-  /* email (Std/Premium) */
+  /* email helpers */
   const studentInvoices = (sid) => invoices.filter(i => Number(i.student_id)===Number(sid));
   const studentEmail = (sid) => (studentInvoices(sid).find(i => i.contact_email)?.contact_email || "").trim();
   const studentPhone = (sid) => (studentInvoices(sid).find(i => i.contact_phone)?.contact_phone || "").trim();
 
-  const emailConsolidated = (sid, name) => {
+  const emailConsolidated = async (sid, name) => {
+    // Only Premium should ever call this
+    if (!IS_PREMIUM) return setToast({ type:"err", text:"Sending invoices is available on Premium." });
+
     const email = studentEmail(sid); if (!email) return setToast({ type:"err", text:"No contact email found." });
     const invs = studentInvoices(sid); if (!invs.length) return setToast({ type:"err", text:"No invoices in this selection." });
     const lines = invs.map(i => `• ${i.category_name || i.category_id}: ${money(i.amount)} | Paid: ${money(i.paid_total)} | Bal: ${money(i.balance)}${i.due_date ? ` | Due: ${i.due_date}` : ""}`).join("\n");
@@ -422,7 +444,7 @@ export default function ManageFeesPage() {
     const totalPaid   = invs.reduce((s,r)=>s+Number(r.paid_total||0),0);
     const totalBal    = invs.reduce((s,r)=>s+Number(r.balance||0),0);
     const subject = `Invoice for ${name} — ${clsName}, ${termName} ${yearName}`;
-    const body = `Dear Parent/Guardian,
+    const message = `Dear Parent/Guardian,
 
 Please find the invoice breakdown for ${name} (${clsName}, ${termName} ${yearName}):
 
@@ -435,42 +457,42 @@ Totals:
 
 To make payment, please use the approved channels and include the receipt number where applicable.
 Thank you.`;
-    const href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    if (typeof window !== "undefined") window.location.href = href;
-    setToast({ type:"ok", text:`Opening email to ${email}...` });
+
+    try {
+      await sendEmail({ to: email, subject, message });
+      setToast({ type:"ok", text:`Invoice emailed to ${email}.` });
+    } catch (e) {
+      setToast({ type:"err", text: e?.message || "Failed to send invoice email." });
+    }
   };
 
-  // NEW: Send Reminder (Balances tab). Email preferred; fallback to SMS intent.
-  const sendReminder = (sid, name) => {
+  // NEW: Send Reminder (balances tab) via SendGrid email API (general reminder)
+  const sendReminder = async (sid, name) => {
     const email = studentEmail(sid);
-    const phone = studentPhone(sid);
     const invs = studentInvoices(sid);
     const totalBal = invs.reduce((s,r)=> s + Number(((r.balance ?? (r.amount - r.paid_total)) ?? 0)), 0);
 
-    if (totalBal <= 0) return setToast({ type:"info", text: "This student does not owe any balance." });
-    if (!email && !phone) return setToast({ type:"err", text: "No contact email or phone on file." });
+    if (!email) return setToast({ type:"err", text: "No contact email on file." });
+    if (totalBal <= 0) return setToast({ type:"info", text:"This student is fully paid." });
 
-    const clsLbl = clsName;
-    const subject = `Fee Reminder — ${name} (${clsLbl}, ${termName} ${yearName})`;
-    const body =
-`Dear Parent/Guardian,
+    const subject = `Fee Reminder — ${name} (${clsName}, ${termName} ${yearName})`;
+    const message = [
+      "Dear Parent/Guardian,",
+      "",
+      `This is a friendly reminder to settle school fees for ${name} (${clsName}, ${termName} ${yearName}).`,
+      `\nOutstanding balance: ${money(totalBal)}`,
+      "",
+      "Kindly make payment via the approved channels at your earliest convenience.",
+      "If you have recently paid, please ignore this message.",
+      "",
+      "Thank you."
+    ].join("\n");
 
-This is a gentle reminder that there is an outstanding fee balance for ${name} (${clsLbl}, ${termName} ${yearName}).
-
-Outstanding balance: ${money(totalBal)}
-
-Kindly settle the balance at your earliest convenience using the approved channels. If you have recently paid, please ignore this reminder.
-
-Thank you.`;
-
-    if (email) {
-      const href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-      if (typeof window !== "undefined") window.location.href = href;
-      setToast({ type:"ok", text:`Opening email to ${email}...` });
-    } else if (phone) {
-      const href = `sms:${encodeURIComponent(phone)}?&body=${encodeURIComponent(body)}`;
-      if (typeof window !== "undefined") window.location.href = href;
-      setToast({ type:"ok", text:`Opening SMS to ${phone}...` });
+    try {
+      await sendEmail({ to: email, subject, message });
+      setToast({ type:"ok", text:`Reminder email sent to ${email}.` });
+    } catch (e) {
+      setToast({ type:"err", text: e?.message || "Failed to send reminder." });
     }
   };
 
@@ -486,12 +508,12 @@ Thank you.`;
     if (!stuInvoices.length) return setToast({ type:"err", text:"No unpaid invoices for this student." });
 
     const outstanding = stuInvoices.reduce((s,r)=>s+Number(((r.balance ?? (r.amount - r.paid_total)) ?? 0)),0);
-    if (amt > outstanding) return setToast({ type:"err", text:"Advanced payments are not permitted. Enter an amount up to the outstanding balance." });
+        if (amt > outstanding) return setToast({ type:"err", text:"Advanced payments are not permitted. Enter an amount up to the outstanding balance." });
 
     // Ensure a single (auto-generated) receipt number for the whole split
     let receiptToUse = (values.receipt_no || "").toString().trim();
     if (!receiptToUse) {
-      try { receiptToUse = await getReceiptNo(schoolId); } catch { /* silent */ }
+      try { receiptToUse = await getReceiptNo(schoolId); } catch { /* swallow */ }
     }
     receiptToUse = (receiptToUse || "").toUpperCase().replace(/\s+/g, "-").slice(0,50);
 
@@ -615,7 +637,8 @@ Thank you.`;
               {invAgg.length===0 && <EmptyRow cols={5} text="No invoices yet for this selection." />}
             </CardTable>
 
-            <CardTable title={`Students owing — ${clsName}, ${termName} ${yearName}`} cols={["Student","Billed","Paid","Balance","Status"]}>
+            {/* UPDATED: Students owing with View/Pay action */}
+            <CardTable title={`Students owing — ${clsName}, ${termName} ${yearName}`} cols={["Student","Billed","Paid","Balance","Status",""]}>
               {debtorsAgg.slice(0,10).map(r => (
                 <tr key={r.student_id} className="border-b last:border-0 dark:border-gray-700">
                   <td className="p-3 font-medium">
@@ -632,9 +655,16 @@ Thank you.`;
                   <td className="p-3">{money(r.paid_total)}</td>
                   <td className="p-3">{money(r.balance)}</td>
                   <td className="p-3"><StatusPill status={r.status} /></td>
+                  <td className="p-3">
+                    <div className="flex justify-end">
+                      <button className="px-2 py-1 border rounded-lg inline-flex items-center gap-1" onClick={()=>openPay(r.student_id, r.student_name)}>
+                        View / Pay <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
-              {debtorsAgg.length===0 && <EmptyRow cols={5} text="Everyone is fully paid 🎉" />}
+              {debtorsAgg.length===0 && <EmptyRow cols={6} text="Everyone is fully paid 🎉" />}
             </CardTable>
           </div>
         </>
@@ -733,7 +763,8 @@ Thank you.`;
           {invErr && <div className="mb-3"><Toast type="err" text={invErr} /></div>}
           <Table cols={["Student","Total Amount","Total Paid","Balance","Status",""]}>
             {invAgg.map(r => {
-              const email = studentEmail(r.student_id); const canSend = !IS_BASIC && !!email;
+              const email = studentEmail(r.student_id); 
+              const canSend = IS_PREMIUM && !!email;
               return (
                 <tr key={r.student_id} className="border-b last:border-0 dark:border-gray-700">
                   <td className="p-3 font-medium">
@@ -758,7 +789,7 @@ Thank you.`;
                       <button
                         className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 ${canSend ? "" : "opacity-60 cursor-not-allowed"}`}
                         onClick={()=>canSend && emailConsolidated(r.student_id, r.student_name || r.student_id)}
-                        disabled={!canSend} title={IS_BASIC ? "Available on Standard & Premium" : (email ? "Send invoice via email" : "No email on file")}
+                        disabled={!canSend} title={IS_PREMIUM ? (email ? "Send invoice via email" : "No email on file") : "Available on Premium"}
                       >
                         <Send className="w-4 h-4" /> Send Invoice
                       </button>
@@ -843,7 +874,7 @@ Thank you.`;
             {balancesRows.map(b => {
               const email = studentEmail(b.student_id);
               const phone = studentPhone(b.student_id);
-              const canRemind = b.balance > 0 && (!!email || !!phone);
+              const canRemind = b.balance > 0 && !!email; // email required for API
               return (
                 <tr key={b.student_id} className="border-b last:border-0 dark:border-gray-700">
                   <td className="p-3 font-medium">
@@ -866,13 +897,36 @@ Thank you.`;
                         View / Pay <Wallet className="w-4 h-4" />
                       </button>
                       <button
-                        className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 ${canRemind ? "" : "opacity-60 cursor-not-allowed"}`}
-                        disabled={!canRemind}
-                        onClick={()=>sendReminder(b.student_id, b.student_name)}
-                        title={b.balance<=0 ? "Student is fully paid" : (!!email || !!phone ? "Send a reminder" : "No contact available")}
-                      >
-                        <Send className="w-4 h-4" /> Send Reminder
-                      </button>
+  className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 ${
+    canRemind ? "" : "opacity-60 cursor-not-allowed"
+  }`}
+  disabled={!canRemind || sendingReminderId === b.student_id}
+  onClick={() => {
+    if (!canRemind) {
+      setToast({
+        type: "info",
+        text: b.balance <= 0 ? "This student is fully paid." : "No email on file for this student."
+      });
+      return;
+    }
+    // run and show spinner
+    setSendingReminderId(b.student_id);
+    sendReminder(b.student_id, b.student_name).finally(() => setSendingReminderId(null));
+  }}
+  title={
+    b.balance <= 0
+      ? "Student is fully paid"
+      : (email ? "Send a reminder" : "No email available")
+  }
+>
+  {sendingReminderId === b.student_id ? (
+    <Loader2 className="w-4 h-4 animate-spin" />
+  ) : (
+    <Send className="w-4 h-4" />
+  )}
+  {sendingReminderId === b.student_id ? "Sending…" : "Send Reminder"}
+</button>
+
                     </div>
                   </td>
                 </tr>
@@ -917,7 +971,7 @@ Thank you.`;
             setForm={setPayAnyForm}
             onCancel={()=>setOpenStudentPay(false)}
             onSave={()=>savePaymentForStudent()}
-            isBasic={IS_BASIC}
+            isPremium={IS_PREMIUM}
             emailSender={(sid, name)=>emailConsolidated(sid, name)}
           />
         </Modal>
@@ -1112,7 +1166,7 @@ function StructureForm({ initial, onCancel, onSave, categories, needCategoriesHi
 }
 
 /* ------------ student modals ------------ */
-function StudentPayModal({ cur, schoolId, student, invoices, form, setForm, onCancel, onSave, isBasic, emailSender }) {
+function StudentPayModal({ cur, schoolId, student, invoices, form, setForm, onCancel, onSave, isPremium, emailSender }) {
   const totalBilled = invoices.reduce((s,r)=>s+Number(r.amount||0),0);
   const totalPaid   = invoices.reduce((s,r)=>s+Number(r.paid_total||0),0);
   const outstanding = invoices.reduce((s,r)=> s + Number(((r.balance ?? (r.amount - r.paid_total)) ?? 0)), 0);
@@ -1234,7 +1288,7 @@ function StudentPayModal({ cur, schoolId, student, invoices, form, setForm, onCa
           </div>
 
           <div className="flex justify-end gap-2">
-            {!isBasic && hasBalance && (
+            {isPremium && hasBalance && (
               <button
                 className="px-3 py-2 border rounded-xl inline-flex items-center gap-2"
                 onClick={() => emailSender(student.student_id, student.full_name)}
@@ -1357,29 +1411,35 @@ function StudentPaymentsModal({ cur, schoolName, classNameLabel, termName, yearN
                 </td>
               </tr>
             )}
-          </tbody>
-          {groups.length>0 && (
-            <tfoot>
-              <tr className="border-t dark:border-gray-700 font-semibold">
-                <td className="p-3" colSpan={3}>Total</td>
-                <td className="p-3 text-right">
-                  {cur} {Number(total).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}
-                </td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
+            </tbody>
+            {groups.length>0 && (
+              <tfoot>
+                <tr className="border-t dark:border-gray-700 font-semibold">
+                  <td className="p-3" colSpan={3}>Total</td>
+                  <td className="p-3 text-right">
+                    {cur} {Number(total).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}
+                  </td>
+                </tr>
+              </tfoot>
+            )}
+                  </table>
       </div>
 
-      <div className="flex justify-end gap-2">
-        <button className="px-3 py-2 border rounded-xl inline-flex items-center gap-2" onClick={printGroups}>
+      <div className="flex justify-end gap-2 mt-3">
+        <button
+          className="px-3 py-2 border rounded-xl inline-flex items-center gap-2"
+          onClick={printGroups}
+          title="Print payment summary"
+        >
           <Printer className="h-4 w-4" /> Print
         </button>
-        <button className="px-3 py-2 border rounded-xl inline-flex items-center gap-2" onClick={onClose}>
+        <button
+          className="px-3 py-2 border rounded-xl inline-flex items-center gap-2"
+          onClick={onClose}
+        >
           <X className="h-4 w-4" /> Close
         </button>
       </div>
     </div>
   );
-}
-
+} 

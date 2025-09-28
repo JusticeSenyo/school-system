@@ -998,8 +998,14 @@ export default function ManageStudentsPage() {
   return (
     <DashboardLayout title="Manage Students" subtitle="View, filter, edit, and manage student records">
       {/* Plan banner */}
-      <PlanBanner planHuman={planHuman} expiryISO={expiryISO} count={studentCount} max={planMax} />
-
+      <PlanBanner
+  planHuman={planHuman}
+  expiryISO={expiryISO}
+  count={studentCount}
+  max={planMax}
+  label="Students"
+  storageKey="students-plan-banner"
+/>
       {/* Toolbar */}
       <div className="mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -1666,28 +1672,78 @@ function InfoLine({ label, value }) {
   );
 }
 
-function PlanBanner({ planHuman, expiryISO, count, max }) {
+export function PlanBanner({ planHuman, expiryISO, count, max, label = 'Records', storageKey = 'plan-banner' }) {
+  const [hidden, setHidden] = useState(false);
+
+  useEffect(() => {
+    try {
+      const v = sessionStorage.getItem(storageKey);
+      if (v === '1') setHidden(true);
+    } catch {}
+  }, [storageKey]);
+
+  if (hidden) return null;
+
   const expired = (() => {
     if (!expiryISO) return false;
     const d = new Date(expiryISO);
     return isFinite(d.getTime()) && d.getTime() < Date.now();
   })();
+
   const limited = isFinite(max);
   const remaining = limited ? Math.max(0, max - count) : Infinity;
 
+  const base = 'mb-4 rounded-xl border p-4 relative';
+  const lightClasses = expired
+    ? 'bg-red-50 border-red-200 text-red-800'
+    : 'bg-gray-50 border-gray-200 text-gray-800';
+  const darkClasses = expired
+    ? 'dark:bg-red-900/20 dark:border-red-900/40 dark:text-red-200'
+    : 'dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100';
+
   return (
-    <div className={`mb-4 rounded-xl border p-4 ${expired ? 'bg-red-50 border-red-200 text-red-800' : 'bg-gray-50 border-gray-200 text-gray-800'} dark:${expired ? 'bg-red-900/20 border-red-900/40 text-red-200' : 'bg-gray-800 border-gray-700 text-gray-100'}`}>
+    <div className={`${base} ${lightClasses} ${darkClasses}`}>
+      {/* Close (X) */}
+      <button
+        aria-label="Dismiss"
+        onClick={() => {
+          setHidden(true);
+          try { sessionStorage.setItem(storageKey, '1'); } catch {}
+        }}
+        className="absolute right-2 top-2 p-1 rounded hover:bg-black/5 dark:hover:bg-white/10"
+      >
+        <X className="h-4 w-4" />
+      </button>
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Info className="h-4 w-4" />
           <div className="text-sm">
             Plan: <strong>{planHuman}</strong>{' '}
-            {limited ? <>• Students: <strong>{count}</strong> / <strong>{max}</strong> (remaining <strong>{remaining}</strong>)</> : <>• Students: <strong>{count}</strong> / <strong>unlimited</strong></>}
-            {expiryISO ? <> • Expires: <strong>{new Date(expiryISO).toLocaleDateString()}</strong></> : null}
-            {expired ? <span className="ml-2 inline-flex px-2 py-0.5 rounded bg-red-100 text-red-800 text-xs">Expired</span> : null}
+            {limited ? (
+              <>
+                • {label}:{' '}
+                <strong>{count}</strong> / <strong>{max}</strong>{' '}
+                (remaining <strong>{remaining}</strong>)
+              </>
+            ) : (
+              <>
+                • {label}:{' '}
+                <strong>{count}</strong> / <strong>unlimited</strong>
+              </>
+            )}
+            {expiryISO ? (
+              <> • Expires: <strong>{new Date(expiryISO).toLocaleDateString()}</strong></>
+            ) : null}
+            {expired ? (
+              <span className="ml-2 inline-flex px-2 py-0.5 rounded bg-red-100 text-red-800 text-xs dark:bg-red-900/40 dark:text-red-200">
+                Expired
+              </span>
+            ) : null}
           </div>
         </div>
       </div>
     </div>
   );
 }
+

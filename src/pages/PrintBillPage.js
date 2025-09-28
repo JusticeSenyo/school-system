@@ -315,22 +315,6 @@ Thank you.`;
             <LabeledSelect labelEl={<LabelWithIcon icon={<Inbox className="w-4 h-4" />} text="Academic Year" />} value={yearId ?? ""} onChange={(v)=>setYearId(Number(v))}>
               {years.map(y => <option key={y.id} value={y.id}>{y.name}</option>)}
             </LabeledSelect>
-
-            {/* Include MoMo/Card instructions — show for all; disabled on BASIC */}
-            <div className="flex items-end">
-              <label className="text-sm flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={includeMoMoBlock && !IS_BASIC}
-                  disabled={IS_BASIC}
-                  onChange={(e) => setIncludeMoMoBlock(e.target.checked)}
-                />
-                <span className="text-gray-700 dark:text-gray-300 flex items-center gap-1">
-                  Include MoMo/Card instructions
-                  {IS_BASIC && <Lock className="w-3.5 h-3.5 text-gray-400" title="Upgrade to enable" />}
-                </span>
-              </label>
-            </div>
           </div>
 
           {/* Second row: Refresh */}

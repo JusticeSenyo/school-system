@@ -6,6 +6,10 @@ export const roleBasedMenus = Object.freeze({
     { label: "Manage Staff", path: "/dashboard/manage-staff" },
     { label: "Manage Students", path: "/dashboard/manage-students" },
     {
+      label: "Attendance",
+      children: [{ label: "Attendance Report", path: "/dashboard/attendance" }],
+    },
+    {
       label: "Fees",
       children: [
         { label: "Manage Fees", path: "/dashboard/manage-fees" },

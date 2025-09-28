@@ -5,7 +5,7 @@ import {
   PlusCircle, X, Mail, UserCircle2,
   Loader2, CheckCircle2, AlertCircle, RotateCcw, Pencil,
   Download, Search, KeyRound, Eye, Image as ImageIcon, Printer,
-  Upload, Info
+  Upload, Info, 
 } from 'lucide-react';
 import { getTempPassword } from '../lib/passwords';
 import * as XLSX from 'xlsx';
@@ -204,7 +204,6 @@ export default function ManageStaffPage() {
     let mounted = true;
     (async () => {
       try {
-        // Prefer API_BASE to remain consistent with first page
         const schoolInfoUrl = toUrl('academic/get/school/');
         const rows = await jarr(schoolInfoUrl, token ? { Authorization: `Bearer ${token}` } : {});
         const rec = (rows || []).find(r => String(r.school_id ?? r.SCHOOL_ID) === String(schoolId));
@@ -837,8 +836,15 @@ export default function ManageStaffPage() {
   /* ================== Render ================== */
   return (
     <DashboardLayout title="Manage Staff" subtitle="View, filter, edit, and manage staff records">
-      {/* Plan banner (added) */}
-      <PlanBanner planHuman={planHuman} expiryISO={expiryISO} count={staffCount} max={planMax} />
+      {/* Plan banner — simplified label with staff count */}
+      <PlanBanner
+        planHuman={planHuman}
+        expiryISO={expiryISO}
+        count={staffCount}
+        max={planMax}
+        label="Staff"
+        storageKey="staff-plan-banner"
+      />
 
       {/* Toolbar */}
       <div className="mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -866,6 +872,7 @@ export default function ManageStaffPage() {
             onClick={fetchStaff}
             className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100 text-sm rounded-md hover:bg-gray-200 dark:hover:bg-gray-700"
             title="Refresh staff list"
+            type="button"
           >
             <RotateCcw size={16} /> Refresh
           </button>
@@ -874,6 +881,7 @@ export default function ManageStaffPage() {
             onClick={exportToExcel}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm rounded-md hover:bg-emerald-700"
             title="Download Excel report of current table view"
+            type="button"
           >
             <Download size={16} /> Download Excel
           </button>
@@ -889,6 +897,7 @@ export default function ManageStaffPage() {
                 : 'Import staff from Excel'
             }
             className="flex items-center gap-2 px-4 py-2 bg-sky-600 text-white text-sm rounded-md hover:bg-sky-700 disabled:opacity-60"
+            type="button"
           >
             <Upload size={16} /> Bulk Import
           </button>
@@ -903,6 +912,7 @@ export default function ManageStaffPage() {
             : 'Add a new staff'
           }
           className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 text-sm disabled:opacity-60"
+          type="button"
         >
           <PlusCircle size={16} /> Add New Staff
         </button>
@@ -955,6 +965,7 @@ export default function ManageStaffPage() {
                       onClick={() => { setInfoStaff(staff); setIsInfoOpen(true); }}
                       className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800"
                       title="View details"
+                      type="button"
                     >
                       <Eye size={14} /> View
                     </button>
@@ -963,6 +974,7 @@ export default function ManageStaffPage() {
                       onClick={() => openEdit(staff)}
                       className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800"
                       title="Edit staff"
+                      type="button"
                     >
                       <Pencil size={14} /> Edit
                     </button>
@@ -972,6 +984,7 @@ export default function ManageStaffPage() {
                       disabled={resettingId === staff.id}
                       className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 disabled:opacity-60"
                       title="Reset password & email credentials"
+                      type="button"
                     >
                       {resettingId === staff.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound size={14} />}
                       {resettingId === staff.id ? 'Resetting…' : 'Reset & Send'}
@@ -998,7 +1011,7 @@ export default function ManageStaffPage() {
           <div className="relative z-10 w-full max-w-lg bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold">{dialogMode === 'add' ? 'Add Staff' : 'Edit Staff'}</h3>
-              <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" onClick={() => (submitting ? null : setIsOpen(false))}>
+              <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" onClick={() => (submitting ? null : setIsOpen(false))} type="button">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -1089,7 +1102,34 @@ export default function ManageStaffPage() {
                 </label>
               </div>
 
-             
+              {/* Password (add only) */}
+              {dialogMode === 'add' && (
+                <label className="grid gap-1">
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Temporary Password</span>
+                  <div className="flex gap-2">
+                    <input
+                      className="border rounded-lg px-3 py-2 bg-white dark:bg-gray-800 flex-1"
+                      value={form.password}
+                      onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRegenLoading(true);
+                        setTimeout(() => {
+                          setForm(f => ({ ...f, password: getTempPassword(12) }));
+                          setRegenLoading(false);
+                        }, 120);
+                      }}
+                      className="px-3 py-2 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-800 inline-flex items-center gap-2"
+                      disabled={regenLoading}
+                    >
+                      {regenLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                      Regenerate
+                    </button>
+                  </div>
+                </label>
+              )}
 
               {formError && (
                 <div className="flex items-start gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
@@ -1098,14 +1138,14 @@ export default function ManageStaffPage() {
                 </div>
               )}
               {formSuccess && (
-                <div className="flex items-start gap-2 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                <div className="flex items-start gap-2 text-emerald-700 bg-emerald-50 border-emerald-200 rounded-lg p-3">
                   <CheckCircle2 className="mt-0.5 h-4 w-4" />
                   <span className="text-sm">{formSuccess}</span>
                 </div>
               )}
 
               <div className="flex items-center justify-end gap-2 pt-2">
-                <button className="px-4 py-2 rounded-lg border" onClick={() => (submitting ? null : setIsOpen(false))} disabled={submitting}>
+                <button className="px-4 py-2 rounded-lg border" onClick={() => (submitting ? null : setIsOpen(false))} disabled={submitting} type="button">
                   Cancel
                 </button>
 
@@ -1114,6 +1154,7 @@ export default function ManageStaffPage() {
                     className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60"
                     onClick={submitAddStaff}
                     disabled={addDisabled}
+                    type="button"
                   >
                     {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlusCircle className="h-4 w-4" />}
                     {submitting ? 'Adding…' : 'Add Staff'}
@@ -1123,6 +1164,7 @@ export default function ManageStaffPage() {
                     className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60"
                     onClick={submitUpdateStaff}
                     disabled={editDisabled}
+                    type="button"
                   >
                     {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />}
                     {submitting ? 'Updating…' : 'Update Staff'}
@@ -1154,6 +1196,7 @@ export default function ManageStaffPage() {
                   onClick={() => window.print()}
                   className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800"
                   title="Print"
+                  type="button"
                 >
                   <Printer size={16} /> Print
                 </button>
@@ -1161,13 +1204,14 @@ export default function ManageStaffPage() {
                   onClick={() => setIsInfoOpen(false)}
                   className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
                   aria-label="Close"
+                  type="button"
                 >
                   <X size={18} />
                 </button>
               </div>
             </div>
 
-            <div className="px-6 py-5 max-h={[`70vh`]} overflow-y-auto">
+            <div className="px-6 py-5 max-h-[70vh] overflow-y-auto">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
                   <div className="flex items-center gap-2 mb-3">
@@ -1189,6 +1233,7 @@ export default function ManageStaffPage() {
               <button
                 onClick={() => setIsInfoOpen(false)}
                 className="px-4 py-2 rounded-md border bg-white hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800"
+                type="button"
               >
                 Close
               </button>
@@ -1204,7 +1249,7 @@ export default function ManageStaffPage() {
           <div className="relative z-10 w-full max-w-4xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold">Bulk Import Staff</h3>
-              <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" onClick={() => (bulkBusy || importing ? null : setBulkOpen(false))}>
+              <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" onClick={() => (bulkBusy || importing ? null : setBulkOpen(false))} type="button">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -1216,7 +1261,6 @@ export default function ManageStaffPage() {
                   <div><b>Format (columns):</b> <code>full_name</code>, <code>email</code>, <code>role</code>, <code>status</code> (optional), <code>image_url</code> (optional)</div>
                   <div className="mt-1">Role must be one of: <b>AD</b>, <b>HT</b>, <b>TE</b>, <b>AC</b>, <b>SO</b>.</div>
                   <div className="mt-1">IDs and <code>school_id</code> are not needed — they’re generated/attached automatically.</div>
-                  <div className="mt-1">Plan limits: <b>Basic (10)</b>, <b>Standard (100)</b>, <b>Premium (Unlimited)</b>. Rows above remaining capacity are blocked.</div>
                 </div>
               </div>
 
@@ -1224,6 +1268,7 @@ export default function ManageStaffPage() {
                 <button
                   onClick={downloadTemplate}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-800"
+                  type="button"
                 >
                   <Download className="h-4 w-4" /> Download Template
                 </button>
@@ -1311,6 +1356,7 @@ export default function ManageStaffPage() {
                   onClick={() => setBulkOpen(false)}
                   className="px-4 py-2 rounded-lg border"
                   disabled={importing}
+                  type="button"
                 >
                   Close
                 </button>
@@ -1318,6 +1364,7 @@ export default function ManageStaffPage() {
                   onClick={doImport}
                   disabled={importing || previewRows.length === 0 || previewRows.every(r => !r.toImport)}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-60"
+                  type="button"
                 >
                   {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                   {importing ? 'Importing…' : `Import ${previewRows.filter(r => r.toImport).length} row(s)`}
@@ -1342,9 +1389,22 @@ function InfoLine({ label, value }) {
   );
 }
 
-function PlanBanner({ planHuman, expiryISO, count, max }) {
-  const [show, setShow] = useState(true);
-  if (!show) return null;
+/**
+ * Plan banner — simplified to:
+ * Plan: <Plan> · Expires: YYYY-MM-DD · Staff: count/max
+ * (max shows as ∞ for unlimited)
+ */
+export function PlanBanner({ planHuman, expiryISO, count, max, label = 'Records', storageKey = 'plan-banner' }) {
+  const [hidden, setHidden] = useState(false);
+
+  useEffect(() => {
+    try {
+      const v = sessionStorage.getItem(storageKey);
+      if (v === '1') setHidden(true);
+    } catch {}
+  }, [storageKey]);
+
+  if (hidden) return null;
 
   const expired = (() => {
     if (!expiryISO) return false;
@@ -1352,18 +1412,62 @@ function PlanBanner({ planHuman, expiryISO, count, max }) {
     return isFinite(d.getTime()) && d.getTime() < Date.now();
   })();
 
-  const maxLabel = isFinite(max) ? String(max) : '∞';
+  const limited = isFinite(max);
+  const remaining = limited ? Math.max(0, max - count) : Infinity;
+
+  const base = 'mb-4 rounded-xl border p-4 relative';
+  const lightClasses = expired
+    ? 'bg-red-50 border-red-200 text-red-800'
+    : 'bg-gray-50 border-gray-200 text-gray-800';
+  const darkClasses = expired
+    ? 'dark:bg-red-900/20 dark:border-red-900/40 dark:text-red-200'
+    : 'dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100';
+
   return (
-    <div className={`mb-4 flex items-start gap-2 rounded-lg p-3 border ${expired ? 'text-rose-700 bg-rose-50 border-rose-200' : 'text-blue-700 bg-blue-50 border-blue-200'}`}>
-      <Info className="h-4 w-4 mt-0.5" />
-      <div className="text-sm">
-        <b>Plan:</b> {planHuman}
-        {expiryISO ? <> · <b>Expires:</b> {expiryISO}</> : null}
-        <> · <b>Staff:</b> {count}/{maxLabel}</>
-      </div>
-      <button onClick={() => setShow(false)} className="ml-auto p-1 rounded hover:bg-black/5">
+    <div className={`${base} ${lightClasses} ${darkClasses}`}>
+      {/* Close (X) */}
+      <button
+        aria-label="Dismiss"
+        onClick={() => {
+          setHidden(true);
+          try { sessionStorage.setItem(storageKey, '1'); } catch {}
+        }}
+        className="absolute right-2 top-2 p-1 rounded hover:bg.black/5 dark:hover:bg.white/10"
+        type="button"
+      >
         <X className="h-4 w-4" />
       </button>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Info className="h-4 w-4" />
+          <div className="text-sm">
+            Plan: <strong>{planHuman}</strong>{' '}
+            {limited ? (
+              <>
+                • {label}:{' '}
+                <strong>{count}</strong> / <strong>{max}</strong>{' '}
+                (remaining <strong>{remaining}</strong>)
+              </>
+            ) : (
+              <>
+                • {label}:{' '}
+                <strong>{count}</strong> / <strong>unlimited</strong>
+              </>
+            )}
+            {expiryISO ? (
+              <>
+                {' '}• Expires: <strong>{String(expiryISO).slice(0, 10)}</strong>
+              </>
+            ) : null}
+            {expired ? (
+              <span className="ml-2 inline-flex px-2 py-0.5 rounded bg-red-100 text-red-800 text-xs dark:bg-red-900/40 dark:text-red-200">
+                Expired
+              </span>
+            ) : null}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

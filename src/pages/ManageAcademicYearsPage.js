@@ -159,7 +159,7 @@ export default function ManageAcademicYearsPage() {
   }
 
   return (
-    <DashboardLayout title="Manage Academic Years" subtitle="Create and manage academic years">
+    <DashboardLayout title="Manage Academic Years" subtitle="">
       {/* Controls */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 border border-gray-100 dark:border-gray-700 mb-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -174,7 +174,7 @@ export default function ManageAcademicYearsPage() {
               />
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2 w-full">
             <button onClick={() => setOpenCreate(true)} className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg" disabled={!schoolId}>
               <Plus className="h-4 w-4" /> New Academic Year
             </button>
@@ -329,10 +329,10 @@ export default function ManageAcademicYearsPage() {
 
 function Modal({ title, onClose, children }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 p-3">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 p-3 ">
       <div className="w-full max-w-2xl bg-white dark:bg-gray-900 rounded-xl shadow-xl border border-gray-100 dark:border-gray-700">
-        <div className="flex items-center justify-between p-4 border-b dark:border-gray-700">
-          <h4 className="font-semibold">{title}</h4>
+        <div className="flex items-center justify-between p-4 border-b dark:border-gray-700 ">
+          <h4 className="font-semibold ">{title}</h4>
           <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800">
             <X className="h-5 w-5" />
           </button>

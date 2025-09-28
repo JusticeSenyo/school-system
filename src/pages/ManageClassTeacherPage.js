@@ -199,7 +199,7 @@ export default function ManageClassTutorPage() {
   }, [rows, q]);
 
   return (
-    <DashboardLayout title="Class–Tutor Assignments" subtitle="List, create, update and delete class tutor assignments">
+    <DashboardLayout title="Class–Tutor Assignments" subtitle="">
       {/* Controls */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 border border-gray-100 dark:border-gray-700 mb-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -214,7 +214,7 @@ export default function ManageClassTutorPage() {
               />
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row gap-2 w-full">
             <button onClick={loadAssignments} className="px-3 py-2 border rounded-lg inline-flex items-center gap-2">
               <RefreshCcw className="h-4 w-4" /> Refresh
             </button>

@@ -557,7 +557,7 @@ export default function ManageExamReportPage() {
   return (
     <DashboardLayout
       title="Manage Exam Report"
-      subtitle="Quick remarks, attendance & auto-computed positions"
+      subtitle=""
     >
       {/* Toolbar */}
       <div className="mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">

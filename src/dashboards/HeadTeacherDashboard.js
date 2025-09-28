@@ -109,7 +109,7 @@ export default function HeadTeacherDashboard() {
   return (
     <DashboardLayout
       title="HeadTeacher Dashboard"
-      subtitle="Academic oversight, approvals, and school performance at a glance"
+      // subtitle="Academic oversight, approvals, and school performance at a glance"
     >
       {/* Welcome Banner */}
       <div className="bg-gradient-to-r from-indigo-600 via-blue-600 to-purple-700 rounded-2xl p-4 sm:p-6 text-white mb-6 sm:mb-8">

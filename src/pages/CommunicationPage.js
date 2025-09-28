@@ -439,30 +439,30 @@ export default function CommunicationPage() {
   };
 
   return (
-    <DashboardLayout title="Communication" subtitle="Staff, Class, and Parents messaging">
-      {/* Plan banner (concise, like Manage Staff; basic date) */}
-      {pkgLoaded && showPlan && (
-        <div
-          className={`mb-4 flex items-start gap-2 rounded-lg p-3 border ${
-            isExpired ? 'text-rose-700 bg-rose-50 border-rose-200'
-                      : 'text-blue-700 bg-blue-50 border-blue-200'
-          }`}
-        >
-          <Info className="h-4 w-4 mt-0.5" />
-          <div className="text-sm">
-            <b>Plan:</b> {planHuman}
-            {expiryRaw ? <> · <b>Expires:</b> {String(expiryRaw).slice(0, 10)}</> : null}
-          </div>
-          <button
-            onClick={() => setShowPlan(false)}
-            className="ml-auto p-1 rounded hover:bg-black/5"
-            aria-label="Dismiss plan banner"
-            type="button"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
+<DashboardLayout title="Communication" subtitle="Staff, Class, and Parents messaging">
+  {/* Plan banner (concise, like Manage Staff; basic date) */}
+  {pkgLoaded && showPlan && (
+    <div
+      className={`mb-4 flex items-start gap-2 rounded-lg p-3 border ${
+        isExpired ? 'text-rose-700 bg-rose-50 border-rose-200'
+                  : 'text-blue-700 bg-blue-50 border-blue-200'
+      }`}
+    >
+      <Info className="h-4 w-4 mt-0.5" />
+      <div className="text-sm">
+        <b>Plan:</b> {planHuman}
+        {expiryRaw ? <> · <b>Expires:</b> {String(expiryRaw).slice(0, 10)}</> : null}
+      </div>
+      <button
+        onClick={() => setShowPlan(false)}
+        className="ml-auto p-1 rounded hover:bg-black/5"
+        aria-label="Dismiss plan banner"
+        type="button"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  )}
 
       {/* Tabs */}
       <div className="mb-4 flex gap-2">

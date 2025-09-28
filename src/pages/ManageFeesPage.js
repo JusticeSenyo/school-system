@@ -74,10 +74,10 @@ const getReceiptNo = async (schoolId) => {
     const rcpt = (j.receipt_no || j.RECEIPT_NO || j.receipt || j.RECEIPT || "").toString();
     if (rcpt) return rcpt;
   } catch (_) {
-    // ignore
+    // ignore; we'll try other strategies below
   }
 
-  // 2) Try JSON-looking substring
+  // 2) Try to locate a JSON-looking substring within text/HTML
   const firstBrace = raw.indexOf("{");
   const lastBrace = raw.lastIndexOf("}");
   if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
@@ -89,28 +89,13 @@ const getReceiptNo = async (schoolId) => {
     } catch (_) {}
   }
 
-  // 3) Pattern match
+  // 3) Last resort: pattern-match a receipt code in plain text/HTML
   const m = raw.match(/RCPT-[A-Za-z0-9-]+/);
   if (m && m[0]) return m[0];
 
-  // 4) Helpful error
+  // 4) Give a helpful error with a short excerpt
   const excerpt = raw.replace(/\s+/g, " ").slice(0, 180);
   throw new Error(`Receipt API returned invalid JSON: ${excerpt}${raw.length > 180 ? "…" : ""}`);
-};
-
-// --- Email helper (uses your /api/send-email endpoint) ---
-const sendEmail = async ({ to, subject, message, fromName = "School Master Hub" }) => {
-  const url = "/api/send-email";
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ to: Array.isArray(to) ? to : [to], subject, message, fromName })
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || json.success !== true) {
-    throw new Error(json.error || `Email API error (HTTP ${res.status})`);
-  }
-  return json;
 };
 
 const Chip = ({ children, color="gray" }) => {
@@ -125,8 +110,8 @@ const Chip = ({ children, color="gray" }) => {
 };
 const StatusPill = ({ status }) => {
   const s = String(status||"").toUpperCase();
-  if (s==="PAID") return <Chip color="green"><CheckCircle className="w-3 h-3" /> PAID</Chip>;
-  if (s==="PARTLY_PAID"||s==="PARTIAL") return <Chip color="amber"><Info className="w-3 h-3" /> PARTLY PAID</Chip>;
+  if (s==="PAID") return <Chip color="green"><CheckCircle className="w-3 h-3" /> </Chip>;
+  if (s==="PARTLY_PAID"||s==="PARTIAL") return <Chip color="amber"><Info className="w-3 h-3" /> </Chip>;
   if (s==="UNPAID") return <Chip color="red"><XCircle className="w-3 h-3" /> UNPAID</Chip>;
   return <Chip>{s||"N/A"}</Chip>;
 };
@@ -180,7 +165,7 @@ export default function ManageFeesPage() {
   const schoolId = user?.schoolId ?? user?.school_id ?? user?.school?.id ?? 1;
   const pkg = Number(user?.school?.package ?? user?.package ?? user?.plan ?? 2);
   const PLAN = pkg===1 ? "basic" : pkg===3 ? "premium" : "standard";
-  const IS_PREMIUM = pkg === 3;
+  const IS_BASIC = pkg===1;
   const CUR = user?.school?.currency ?? user?.currency ?? "GHS";
   const SCHOOL_NAME = user?.school?.name ?? user?.school_name ?? "Your School";
   const money = (n) => `${CUR} ${currency(n)}`;
@@ -197,10 +182,6 @@ export default function ManageFeesPage() {
 
   const [structures, setStructures] = useState([]); const [strLoading, setStrLoading] = useState(false);
   const [strErr, setStrErr] = useState(""); const [openStr, setOpenStr] = useState(false); const [editStr, setEditStr] = useState(null);
-
-  // NEW: track reminder sending per-student
-  const [sendingReminderId, setSendingReminderId] = useState(null);
-
 
   const [summary, setSummary] = useState({ total_billed:0, total_paid:0, balance:0, unpaid_count:0, count:0, partial_count:0, paid_count:0 });
   const [invLoading, setInvLoading] = useState(false); const [invErr, setInvErr] = useState(""); const [invoices, setInvoices] = useState([]); const [searchInv, setSearchInv] = useState("");
@@ -428,15 +409,12 @@ export default function ManageFeesPage() {
     } catch (e) { setToast({ type:"err", text:(e && e.message) || "Failed to generate invoices." }); }
   };
 
-  /* email helpers */
+  /* email (Std/Premium) */
   const studentInvoices = (sid) => invoices.filter(i => Number(i.student_id)===Number(sid));
   const studentEmail = (sid) => (studentInvoices(sid).find(i => i.contact_email)?.contact_email || "").trim();
   const studentPhone = (sid) => (studentInvoices(sid).find(i => i.contact_phone)?.contact_phone || "").trim();
 
-  const emailConsolidated = async (sid, name) => {
-    // Only Premium should ever call this
-    if (!IS_PREMIUM) return setToast({ type:"err", text:"Sending invoices is available on Premium." });
-
+  const emailConsolidated = (sid, name) => {
     const email = studentEmail(sid); if (!email) return setToast({ type:"err", text:"No contact email found." });
     const invs = studentInvoices(sid); if (!invs.length) return setToast({ type:"err", text:"No invoices in this selection." });
     const lines = invs.map(i => `• ${i.category_name || i.category_id}: ${money(i.amount)} | Paid: ${money(i.paid_total)} | Bal: ${money(i.balance)}${i.due_date ? ` | Due: ${i.due_date}` : ""}`).join("\n");
@@ -444,7 +422,7 @@ export default function ManageFeesPage() {
     const totalPaid   = invs.reduce((s,r)=>s+Number(r.paid_total||0),0);
     const totalBal    = invs.reduce((s,r)=>s+Number(r.balance||0),0);
     const subject = `Invoice for ${name} — ${clsName}, ${termName} ${yearName}`;
-    const message = `Dear Parent/Guardian,
+    const body = `Dear Parent/Guardian,
 
 Please find the invoice breakdown for ${name} (${clsName}, ${termName} ${yearName}):
 
@@ -457,42 +435,42 @@ Totals:
 
 To make payment, please use the approved channels and include the receipt number where applicable.
 Thank you.`;
-
-    try {
-      await sendEmail({ to: email, subject, message });
-      setToast({ type:"ok", text:`Invoice emailed to ${email}.` });
-    } catch (e) {
-      setToast({ type:"err", text: e?.message || "Failed to send invoice email." });
-    }
+    const href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    if (typeof window !== "undefined") window.location.href = href;
+    setToast({ type:"ok", text:`Opening email to ${email}...` });
   };
 
-  // NEW: Send Reminder (balances tab) via SendGrid email API (general reminder)
-  const sendReminder = async (sid, name) => {
+  // NEW: Send Reminder (Balances tab). Email preferred; fallback to SMS intent.
+  const sendReminder = (sid, name) => {
     const email = studentEmail(sid);
+    const phone = studentPhone(sid);
     const invs = studentInvoices(sid);
     const totalBal = invs.reduce((s,r)=> s + Number(((r.balance ?? (r.amount - r.paid_total)) ?? 0)), 0);
 
-    if (!email) return setToast({ type:"err", text: "No contact email on file." });
-    if (totalBal <= 0) return setToast({ type:"info", text:"This student is fully paid." });
+    if (totalBal <= 0) return setToast({ type:"info", text: "This student does not owe any balance." });
+    if (!email && !phone) return setToast({ type:"err", text: "No contact email or phone on file." });
 
-    const subject = `Fee Reminder — ${name} (${clsName}, ${termName} ${yearName})`;
-    const message = [
-      "Dear Parent/Guardian,",
-      "",
-      `This is a friendly reminder to settle school fees for ${name} (${clsName}, ${termName} ${yearName}).`,
-      `\nOutstanding balance: ${money(totalBal)}`,
-      "",
-      "Kindly make payment via the approved channels at your earliest convenience.",
-      "If you have recently paid, please ignore this message.",
-      "",
-      "Thank you."
-    ].join("\n");
+    const clsLbl = clsName;
+    const subject = `Fee Reminder — ${name} (${clsLbl}, ${termName} ${yearName})`;
+    const body =
+`Dear Parent/Guardian,
 
-    try {
-      await sendEmail({ to: email, subject, message });
-      setToast({ type:"ok", text:`Reminder email sent to ${email}.` });
-    } catch (e) {
-      setToast({ type:"err", text: e?.message || "Failed to send reminder." });
+This is a gentle reminder that there is an outstanding fee balance for ${name} (${clsLbl}, ${termName} ${yearName}).
+
+Outstanding balance: ${money(totalBal)}
+
+Kindly settle the balance at your earliest convenience using the approved channels. If you have recently paid, please ignore this reminder.
+
+Thank you.`;
+
+    if (email) {
+      const href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      if (typeof window !== "undefined") window.location.href = href;
+      setToast({ type:"ok", text:`Opening email to ${email}...` });
+    } else if (phone) {
+      const href = `sms:${encodeURIComponent(phone)}?&body=${encodeURIComponent(body)}`;
+      if (typeof window !== "undefined") window.location.href = href;
+      setToast({ type:"ok", text:`Opening SMS to ${phone}...` });
     }
   };
 
@@ -508,12 +486,12 @@ Thank you.`;
     if (!stuInvoices.length) return setToast({ type:"err", text:"No unpaid invoices for this student." });
 
     const outstanding = stuInvoices.reduce((s,r)=>s+Number(((r.balance ?? (r.amount - r.paid_total)) ?? 0)),0);
-        if (amt > outstanding) return setToast({ type:"err", text:"Advanced payments are not permitted. Enter an amount up to the outstanding balance." });
+    if (amt > outstanding) return setToast({ type:"err", text:"Advanced payments are not permitted. Enter an amount up to the outstanding balance." });
 
     // Ensure a single (auto-generated) receipt number for the whole split
     let receiptToUse = (values.receipt_no || "").toString().trim();
     if (!receiptToUse) {
-      try { receiptToUse = await getReceiptNo(schoolId); } catch { /* swallow */ }
+      try { receiptToUse = await getReceiptNo(schoolId); } catch { /* silent */ }
     }
     receiptToUse = (receiptToUse || "").toUpperCase().replace(/\s+/g, "-").slice(0,50);
 
@@ -568,11 +546,11 @@ Thank you.`;
 
   /* ------------ render ------------ */
   return (
-    <DashboardLayout title={`Fees (${PLAN.toUpperCase()})`} subtitle="Configure categories & structures, generate invoices, track balances, and record payments">
+    <DashboardLayout title={`Fees (${PLAN.toUpperCase()})`} subtitle="">
       {/* Filters */}
       <div className="sticky top-0 z-10 pb-3 bg-gradient-to-b from-white/70 to-transparent dark:from-gray-900/60 backdrop-blur-md mb-2">
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow p-4 border border-gray-100 dark:border-gray-700">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <LabeledSelect icon={<Building2 className="w-4 h-4" />} label="Class" value={classId ?? ""} onChange={v => setClassId(Number(v))}>
               {classesLoading && <option>Loading…</option>}
               {!classesLoading && classes.length===0 && <option value="">No classes</option>}
@@ -595,7 +573,7 @@ Thank you.`;
       </div>
 
       {/* Tabs */}
-      <div className="mb-3 flex flex-wrap gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 w-ful mb-2">
         <TabBtn onClick={()=>setTab("overview")}   active={tab==="overview"}   icon={<Layers className="w-4 h-4" />}>Overview</TabBtn>
         <TabBtn onClick={()=>setTab("categories")} active={tab==="categories"} icon={<Building2 className="w-4 h-4" />}>Categories</TabBtn>
         <TabBtn onClick={()=>setTab("structures")} active={tab==="structures"} icon={<CalendarDays className="w-4 h-4" />}>Structures</TabBtn>
@@ -615,7 +593,7 @@ Thank you.`;
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-            <CardTable title={`All students — ${clsName}, ${termName} ${yearName}`} cols={["Student","Total Amount","Total Paid","Balance","Status"]}>
+            <CardTable title={`All students — ${clsName}, ${termName} ${yearName}`} cols={["student","Total Amount","Total Paid","Balance","Status"]}>
               {invAgg.slice(0,10).map(r => (
                 <tr key={r.student_id} className="border-b last:border-0 dark:border-gray-700">
                   <td className="p-3 font-medium">
@@ -637,8 +615,7 @@ Thank you.`;
               {invAgg.length===0 && <EmptyRow cols={5} text="No invoices yet for this selection." />}
             </CardTable>
 
-            {/* UPDATED: Students owing with View/Pay action */}
-            <CardTable title={`Students owing — ${clsName}, ${termName} ${yearName}`} cols={["Student","Billed","Paid","Balance","Status",""]}>
+            <CardTable title={`Students owing — ${clsName}, ${termName} ${yearName}`} cols={["Student","Billed","Paid","Balance","Status"]}>
               {debtorsAgg.slice(0,10).map(r => (
                 <tr key={r.student_id} className="border-b last:border-0 dark:border-gray-700">
                   <td className="p-3 font-medium">
@@ -655,16 +632,9 @@ Thank you.`;
                   <td className="p-3">{money(r.paid_total)}</td>
                   <td className="p-3">{money(r.balance)}</td>
                   <td className="p-3"><StatusPill status={r.status} /></td>
-                  <td className="p-3">
-                    <div className="flex justify-end">
-                      <button className="px-2 py-1 border rounded-lg inline-flex items-center gap-1" onClick={()=>openPay(r.student_id, r.student_name)}>
-                        View / Pay <ChevronRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
                 </tr>
               ))}
-              {debtorsAgg.length===0 && <EmptyRow cols={6} text="Everyone is fully paid 🎉" />}
+              {debtorsAgg.length===0 && <EmptyRow cols={5} text="Everyone is fully paid 🎉" />}
             </CardTable>
           </div>
         </>
@@ -690,11 +660,17 @@ Thank you.`;
                 <td className="p-3">{c.description || "-"}</td>
                 <td className="p-3">
                   <div className="flex justify-end gap-2">
-                    <button className="px-2 py-1 border rounded-lg inline-flex items-center gap-1" onClick={()=>{setEditCat(c);setOpenCat(true);}}>
-                      <Edit3 className="h-4 w-4" /> Edit
+                    <button className="px-2 py-1 border rounded-lg inline-flex items-center gap-1 max-sm:hidden" onClick={()=>{setEditCat(c);setOpenCat(true);}}>
+                      <Edit3 className="h-4 w-4" />Edit
                     </button>
-                    <button className="px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1" onClick={()=>deleteCategory(c.category_id)}>
+                    <button className="px-2 py-1 border rounded-lg inline-flex items-center gap-1 sm:hidden" onClick={()=>{setEditCat(c);setOpenCat(true);}}>
+                      <Edit3 className="h-4 w-4" />
+                    </button>
+                    <button className="px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1 max-sm:hidden" onClick={()=>deleteCategory(c.category_id)}>
                       <Trash2 className="h-4 w-4" /> Delete
+                    </button>
+                    <button className="px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1 sm:hidden" onClick={()=>deleteCategory(c.category_id)}>
+                      <Trash2 className="h-4 w-4" /> 
                     </button>
                   </div>
                 </td>
@@ -725,11 +701,17 @@ Thank you.`;
                 <td className="p-3">{money(s.amount)}</td>
                 <td className="p-3">
                   <div className="flex justify-end gap-2">
-                    <button className="px-2 py-1 border rounded-lg inline-flex items-center gap-1" onClick={()=>{setEditStr(s);setOpenStr(true);}}>
+                    <button className="px-2 py-1 border rounded-lg inline-flex items-center gap-1 max-sm:hidden" onClick={()=>{setEditStr(s);setOpenStr(true);}}>
                       <Edit3 className="h-4 w-4" /> Edit
                     </button>
-                    <button className="px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1" disabled={!s.structure_id} onClick={()=>deleteStructure(s.structure_id)}>
+                    <button className="px-2 py-1 border rounded-lg inline-flex items-center gap-1 sm:hidden" onClick={()=>{setEditStr(s);setOpenStr(true);}}>
+                      <Edit3 className="h-4 w-4" /> 
+                    </button>
+                    <button className="px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1 max-sm:hidden" disabled={!s.structure_id} onClick={()=>deleteStructure(s.structure_id)}>
                       <Trash2 className="h-4 w-4" /> Delete
+                    </button>
+                    <button className="px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1 sm:hidden" disabled={!s.structure_id} onClick={()=>deleteStructure(s.structure_id)}>
+                      <Trash2 className="h-4 w-4" /> 
                     </button>
                   </div>
                 </td>
@@ -738,9 +720,9 @@ Thank you.`;
             {!strLoading && structures.length===0 && <EmptyRow cols={3} text="No structure lines yet. Click “Add / Update Line”."/>}
           </Table>
 
-          <div className="mt-4 flex items-center justify-between">
+          <div className="w-full">
             <div className="text-xs text-gray-500 px-3 py-2 rounded-xl border border-dashed dark:border-gray-700">Tip: After changes, generate invoices for {clsName}.</div>
-            <button onClick={generateInvoices} disabled={!schoolId||!classId} className="inline-flex items-center justify-center gap-2 bg-indigo-600 text-white px-3 py-2 rounded-xl disabled:opacity-60">
+            <button onClick={generateInvoices} disabled={!schoolId||!classId} className="inline-flex items-center justify-center gap-2 bg-indigo-600 text-white px-3 py-2 rounded-xl disabled:opacity-60 w-full">
               <Receipt className="w-4 h-4" /> Generate Invoices for {clsName}
             </button>
           </div>
@@ -750,71 +732,160 @@ Thank you.`;
       {/* Invoices (by student) */}
       {tab==="invoices" && (
         <Section title={`Invoices — ${clsName}, ${termName} ${yearName}`} right={
-          <div className="flex items-center gap-2">
-            <SearchBox value={searchInv} onChange={setSearchInv} placeholder="Search by student" />
-            <button className="inline-flex items-center gap-2 px-3 py-2 border rounded-xl" onClick={loadInvoices}>
-              {invLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} Refresh
-            </button>
-            <button className="inline-flex items-center gap-2 px-3 py-2 border rounded-xl" onClick={()=>csv(invAgg, `invoices_by_student_${clsName}_${termName}_${yearName}.csv`)}>
-              <FileDown className="w-4 h-4" /> Export
-            </button>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            {/* Left side: Title */}
+            <h3 className="font-semibold">Invoices</h3>
+
+            {/* Right side: Search + Buttons */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+              <SearchBox
+                value={searchInv}
+                onChange={setSearchInv}
+                placeholder="Search by student"
+              />
+
+              <div className="flex flex-row sm:flex-row gap-2">
+                <button
+                  className="inline-flex items-center justify-center gap-2 px-3 py-2 border rounded-xl"
+                  onClick={loadInvoices}
+                >
+                  {invLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  Refresh
+                </button>
+
+                <button
+                  className="inline-flex items-center justify-center gap-2 px-3 py-2 border rounded-xl"
+                  onClick={() =>
+                    csv(
+                      invAgg,
+                      `invoices_by_student_${clsName}_${termName}_${yearName}.csv`
+                    )
+                  }
+                >
+                  <FileDown className="w-4 h-4" /> Export
+                </button>
+              </div>
+            </div>
           </div>
+
         }>
           {invErr && <div className="mb-3"><Toast type="err" text={invErr} /></div>}
-          <Table cols={["Student","Total Amount","Total Paid","Balance","Status",""]}>
-            {invAgg.map(r => {
-              const email = studentEmail(r.student_id); 
-              const canSend = IS_PREMIUM && !!email;
-              return (
-                <tr key={r.student_id} className="border-b last:border-0 dark:border-gray-700">
-                  <td className="p-3 font-medium">
-                    <div className="flex flex-col">
-                      <span>{r.student_name || r.student_id}</span>
-                      <span className="text-xs text-gray-500">
-                        {(r.contact_email && r.contact_phone)
-                          ? `${r.contact_email} • ${r.contact_phone}`
-                          : (r.contact_email || r.contact_phone || <span className="text-amber-600">No contact</span>)}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="p-3">{money(r.amount)}</td>
-                  <td className="p-3">{money(r.paid_total)}</td>
-                  <td className="p-3">{money(r.balance)}</td>
-                  <td className="p-3"><StatusPill status={r.status} /></td>
-                  <td className="p-3">
-                    <div className="flex justify-end gap-2">
-                      <button className="px-2 py-1 border rounded-lg inline-flex items-center gap-1" onClick={()=>openPay(r.student_id, r.student_name || r.student_id)}>
-                        View / Pay <ChevronRight className="w-4 h-4" />
-                      </button>
-                      <button
-                        className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 ${canSend ? "" : "opacity-60 cursor-not-allowed"}`}
-                        onClick={()=>canSend && emailConsolidated(r.student_id, r.student_name || r.student_id)}
-                        disabled={!canSend} title={IS_PREMIUM ? (email ? "Send invoice via email" : "No email on file") : "Available on Premium"}
-                      >
-                        <Send className="w-4 h-4" /> Send Invoice
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-            {!invLoading && invAgg.length===0 && <EmptyRow cols={6} text={`No invoices. Try generating for ${clsName}.`} />}
-          </Table>
+          <div className="grid grid-cols-1 gap-3 xl:block">
+            <div className="w-full xl:overflow-x-auto">
+              <Table cols={["tet", "Total Amount", "Total Paid", "Balance", "Status", ""]}>
+                {invAgg.map(r => {
+                  const email = studentEmail(r.student_id);
+                  const canSend = !IS_BASIC && !!email;
+                  return (
+                    <tr
+                      key={r.student_id}
+                      className="border-b last:border-0 dark:border-gray-700"
+                    >
+                      <td className="p-3 font-medium">
+                        <div className="flex flex-col">
+                          <span>{r.student_name || r.student_id}</span>
+                          <span className="text-xs text-gray-500">
+                            {(r.contact_email && r.contact_phone)
+                              ? `${r.contact_email} • ${r.contact_phone}`
+                              : (r.contact_email ||
+                                r.contact_phone || (
+                                  <span className="text-amber-600">No contact</span>
+                                ))}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="p-3">{money(r.amount)}</td>
+                      <td className="p-3">{money(r.paid_total)}</td>
+                      <td className="p-3">{money(r.balance)}</td>
+                      <td className="p-3"><StatusPill status={r.status} /></td>
+                      <td className="p-3">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            className="px-2 py-1 border rounded-lg inline-flex items-center gap-1"
+                            onClick={() =>
+                              openPay(r.student_id, r.student_name || r.student_id)
+                            }
+                          >
+                            View / Pay <ChevronRight className="w-4 h-4" />
+                          </button>
+                          <button
+                            className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 ${canSend ? "" : "opacity-60 cursor-not-allowed"
+                              }`}
+                            onClick={() =>
+                              canSend &&
+                              emailConsolidated(r.student_id, r.student_name || r.student_id)
+                            }
+                            disabled={!canSend}
+                            title={
+                              IS_BASIC
+                                ? "Available on Standard & Premium"
+                                : email
+                                  ? "Send invoice via email"
+                                  : "No email on file"
+                            }
+                          >
+                            <Send className="w-4 h-4" /> Send Invoice
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!invLoading && invAgg.length === 0 && (
+                  <EmptyRow cols={6} text={`No invoices. Try generating for ${clsName}.`} />
+                )}
+              </Table>
+            </div>
+          </div>
+
         </Section>
       )}
 
       {/* Payments (by student) */}
       {tab==="payments" && (
         <Section title="Payments" right={
-          <div className="flex items-center gap-2">
-            <SearchBox value={searchPay} onChange={setSearchPay} placeholder="Search by student" />
-            <button className="inline-flex items-center gap-2 px-3 py-2 border rounded-xl" onClick={loadRecentPayments}>
-              {payLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} Refresh
-            </button>
-            <button className="inline-flex items-center gap-2 px-3 py-2 border rounded-xl" onClick={()=>csv(payAggFiltered, `payments_by_student_${clsName}_${termName}_${yearName}.csv`)}>
-              <FileDown className="w-4 h-4" /> Export
-            </button>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2 gap-2">
+            {/* Search on top for small screens */}
+            <div className="sm:flex-1">
+              <SearchBox
+                value={searchPay}
+                onChange={setSearchPay}
+                placeholder="Search by student"
+              />
+            </div>
+
+            {/* Buttons side by side */}
+            <div className="flex gap-2">
+              <button
+                className="inline-flex items-center gap-2 px-3 py-2 border rounded-xl"
+                onClick={loadRecentPayments}
+              >
+                {payLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4" />
+                )}
+                Refresh
+              </button>
+
+              <button
+                className="inline-flex items-center gap-2 px-3 py-2 border rounded-xl"
+                onClick={() =>
+                  csv(
+                    payAggFiltered,
+                    `payments_by_student_${clsName}_${termName}_${yearName}.csv`
+                  )
+                }
+              >
+                <FileDown className="w-4 h-4" /> Export
+              </button>
+            </div>
           </div>
+
         }>
           {payErr && <div className="mb-3"><Toast type="err" text={payErr} /></div>}
           <Table cols={["Student","Total Paid",""]}>
@@ -840,7 +911,7 @@ Thank you.`;
       {tab==="balances" && (
         <Section title={`Balances — ${clsName}, ${termName} ${yearName}`} right={
           <>
-            <div className="flex items-center gap-1 mr-2">
+            <div className="flex items-center gap-1 mr-2 ">
               <button
                 onClick={()=>setBalancesFilter("all")}
                 className={`px-2 py-1 rounded-lg border ${balancesFilter==="all" ? "bg-gray-900 text-white border-gray-900" : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700"}`}
@@ -860,7 +931,7 @@ Thank you.`;
             <button className="inline-flex items-center gap-2 px-3 py-2 border rounded-xl" onClick={()=>{loadInvoices();loadClassSummary();}}>
               <Download className="w-4 h-4" /> Refresh
             </button>
-            <button className="inline-flex items-center gap-2 px-3 py-2 border rounded-xl" onClick={()=>csv(balancesRows, `balances_${balancesFilter}_${clsName}_${termName}_${yearName}.csv`)}>
+            <button className="inline-flex items-center gap-2 px-3.5 py-2 border rounded-xl" onClick={()=>csv(balancesRows, `balances_${balancesFilter}_${clsName}_${termName}_${yearName}.csv`)}>
               <FileDown className="w-4 h-4" /> Export
             </button>
           </>
@@ -870,70 +941,67 @@ Thank you.`;
             <Chip color="green">Paid: {money(summary.total_paid)}</Chip>
             <Chip color="amber">Balance: {money(summary.balance)}</Chip>
           </div>
-          <Table cols={["Student","Billed","Paid","Balance","Status",""]}>
-            {balancesRows.map(b => {
-              const email = studentEmail(b.student_id);
-              const phone = studentPhone(b.student_id);
-              const canRemind = b.balance > 0 && !!email; // email required for API
-              return (
-                <tr key={b.student_id} className="border-b last:border-0 dark:border-gray-700">
-                  <td className="p-3 font-medium">
-                    <div className="flex flex-col">
-                      <span>{b.student_name}</span>
-                      <span className="text-xs text-gray-500">
-                        {(email && phone)
-                          ? `${email} • ${phone}`
-                          : (email || phone || <span className="text-amber-600">No contact</span>)}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="p-3">{money(b.amount)}</td>
-                  <td className="p-3">{money(b.paid_total)}</td>
-                  <td className="p-3">{money(b.balance)}</td>
-                  <td className="p-3"><StatusPill status={b.status} /></td>
-                  <td className="p-3">
-                    <div className="flex justify-end gap-2">
-                      <button className="px-2 py-1 border rounded-lg inline-flex items-center gap-1" onClick={()=>openPay(b.student_id, b.student_name)}>
-                        View / Pay <Wallet className="w-4 h-4" />
-                      </button>
-                      <button
-  className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 ${
-    canRemind ? "" : "opacity-60 cursor-not-allowed"
-  }`}
-  disabled={!canRemind || sendingReminderId === b.student_id}
-  onClick={() => {
-    if (!canRemind) {
-      setToast({
-        type: "info",
-        text: b.balance <= 0 ? "This student is fully paid." : "No email on file for this student."
-      });
-      return;
-    }
-    // run and show spinner
-    setSendingReminderId(b.student_id);
-    sendReminder(b.student_id, b.student_name).finally(() => setSendingReminderId(null));
-  }}
-  title={
-    b.balance <= 0
-      ? "Student is fully paid"
-      : (email ? "Send a reminder" : "No email available")
-  }
->
-  {sendingReminderId === b.student_id ? (
-    <Loader2 className="w-4 h-4 animate-spin" />
-  ) : (
-    <Send className="w-4 h-4" />
-  )}
-  {sendingReminderId === b.student_id ? "Sending…" : "Send Reminder"}
-</button>
+          <div className="grid grid-cols-1 gap-3 xl:block">
+            <div className="w-full xl:overflow-x-auto">
+              <Table cols={["Student", "Billed", "Paid", "Balance", "Status", ""]}>
+                {balancesRows.map(b => {
+                  const email = studentEmail(b.student_id);
+                  const phone = studentPhone(b.student_id);
+                  const canRemind = b.balance > 0 && (!!email || !!phone);
 
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-            {balancesRows.length===0 && <EmptyRow cols={6} text="No students match this filter." />}
-          </Table>
+                  return (
+                    <tr
+                      key={b.student_id}
+                      className="border-b last:border-0 dark:border-gray-700"
+                    >
+                      <td className="p-3 font-medium">
+                        <div className="flex flex-col">
+                          <span>{b.student_name}</span>
+                          <span className="text-xs text-gray-500">
+                            {(email && phone)
+                              ? `${email} • ${phone}`
+                              : (email || phone || (
+                                <span className="text-amber-600">No contact</span>
+                              ))}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="p-3">{money(b.amount)}</td>
+                      <td className="p-3">{money(b.paid_total)}</td>
+                      <td className="p-3">{money(b.balance)}</td>
+                      <td className="p-3"><StatusPill status={b.status} /></td>
+                      <td className="p-3">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            className="px-2 py-1 border rounded-lg inline-flex items-center gap-1"
+                            onClick={() => openPay(b.student_id, b.student_name)}
+                          >
+                            View / Pay <Wallet className="w-4 h-4" />
+                          </button>
+                          <button
+                            className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 ${canRemind ? "" : "opacity-60 cursor-not-allowed"}`}
+                            disabled={!canRemind}
+                            onClick={() => sendReminder(b.student_id, b.student_name)}
+                            title={b.balance <= 0
+                              ? "Student is fully paid"
+                              : (!!email || !!phone
+                                ? "Send a reminder"
+                                : "No contact available")}
+                          >
+                            <Send className="w-4 h-4" /> Send Reminder
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                {balancesRows.length === 0 &&
+                  <EmptyRow cols={6} text="No students match this filter." />}
+              </Table>
+            </div>
+          </div>
+
         </Section>
       )}
 
@@ -971,7 +1039,7 @@ Thank you.`;
             setForm={setPayAnyForm}
             onCancel={()=>setOpenStudentPay(false)}
             onSave={()=>savePaymentForStudent()}
-            isPremium={IS_PREMIUM}
+            isBasic={IS_BASIC}
             emailSender={(sid, name)=>emailConsolidated(sid, name)}
           />
         </Modal>
@@ -1063,9 +1131,9 @@ function Modal({ title, icon, onClose, children }) {
 function Section({ title, right, children }) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 p-4 mb-4">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
         <h3 className="font-semibold">{title}</h3>
-        <div className="flex items-center gap-2">{right}</div>
+        <div className="flex flex-wrap items-center gap-2">{right}</div>
       </div>
       {children}
     </div>
@@ -1166,7 +1234,7 @@ function StructureForm({ initial, onCancel, onSave, categories, needCategoriesHi
 }
 
 /* ------------ student modals ------------ */
-function StudentPayModal({ cur, schoolId, student, invoices, form, setForm, onCancel, onSave, isPremium, emailSender }) {
+function StudentPayModal({ cur, schoolId, student, invoices, form, setForm, onCancel, onSave, isBasic, emailSender }) {
   const totalBilled = invoices.reduce((s,r)=>s+Number(r.amount||0),0);
   const totalPaid   = invoices.reduce((s,r)=>s+Number(r.paid_total||0),0);
   const outstanding = invoices.reduce((s,r)=> s + Number(((r.balance ?? (r.amount - r.paid_total)) ?? 0)), 0);
@@ -1288,7 +1356,7 @@ function StudentPayModal({ cur, schoolId, student, invoices, form, setForm, onCa
           </div>
 
           <div className="flex justify-end gap-2">
-            {isPremium && hasBalance && (
+            {!isBasic && hasBalance && (
               <button
                 className="px-3 py-2 border rounded-xl inline-flex items-center gap-2"
                 onClick={() => emailSender(student.student_id, student.full_name)}
@@ -1411,35 +1479,29 @@ function StudentPaymentsModal({ cur, schoolName, classNameLabel, termName, yearN
                 </td>
               </tr>
             )}
-            </tbody>
-            {groups.length>0 && (
-              <tfoot>
-                <tr className="border-t dark:border-gray-700 font-semibold">
-                  <td className="p-3" colSpan={3}>Total</td>
-                  <td className="p-3 text-right">
-                    {cur} {Number(total).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}
-                  </td>
-                </tr>
-              </tfoot>
-            )}
-                  </table>
+          </tbody>
+          {groups.length>0 && (
+            <tfoot>
+              <tr className="border-t dark:border-gray-700 font-semibold">
+                <td className="p-3" colSpan={3}>Total</td>
+                <td className="p-3 text-right">
+                  {cur} {Number(total).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}
+                </td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
       </div>
 
-      <div className="flex justify-end gap-2 mt-3">
-        <button
-          className="px-3 py-2 border rounded-xl inline-flex items-center gap-2"
-          onClick={printGroups}
-          title="Print payment summary"
-        >
+      <div className="flex justify-end gap-2">
+        <button className="px-3 py-2 border rounded-xl inline-flex items-center gap-2" onClick={printGroups}>
           <Printer className="h-4 w-4" /> Print
         </button>
-        <button
-          className="px-3 py-2 border rounded-xl inline-flex items-center gap-2"
-          onClick={onClose}
-        >
+        <button className="px-3 py-2 border rounded-xl inline-flex items-center gap-2" onClick={onClose}>
           <X className="h-4 w-4" /> Close
         </button>
       </div>
     </div>
   );
-} 
+}
+

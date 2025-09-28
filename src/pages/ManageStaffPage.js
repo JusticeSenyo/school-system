@@ -5,14 +5,14 @@ import {
   PlusCircle, X, Mail, UserCircle2,
   Loader2, CheckCircle2, AlertCircle, RotateCcw, Pencil,
   Download, Search, KeyRound, Eye, Image as ImageIcon, Printer,
-  Upload, Info, 
+  Upload, Info
 } from 'lucide-react';
 import { getTempPassword } from '../lib/passwords';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../AuthContext';
 import { buildStaffKey, buildPublicUrl, putToOCI } from '../config/storage';
 
-/* ================== Constants kept from first page ================== */
+/* ================== Constants ================== */
 const ROLE_LABELS = { AD: 'Admin', HT: 'Head Teacher', TE: 'Teacher', AC: 'Accountant', SO: 'Owner' };
 const ROLE_OPTIONS = [
   { value: 'AD', label: 'Admin' },
@@ -39,7 +39,7 @@ const ADD_STAFF_ENDPOINT =
 const UPDATE_STAFF_ENDPOINT =
   'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/staff/update/staff/';
 
-/* ================== Plans / limits (from second page) ================== */
+/* ================== Plans / limits ================== */
 const PLAN_LIMITS = { BASIC: 10, STANDARD: 100, PREMIUM: Infinity };
 const PLAN_NAME_BY_CODE = (raw) => {
   const v = String(raw ?? '').trim().toUpperCase();
@@ -50,7 +50,7 @@ const PLAN_NAME_BY_CODE = (raw) => {
 };
 const HUMAN_PLAN = (code) => ({ BASIC: 'Basic', STANDARD: 'Standard', PREMIUM: 'Premium' }[code] || 'Basic');
 
-/* ================== Safe URL builder (first page) ================== */
+/* ================== Safe URL builder ================== */
 const useApiJoin = (API_BASE) => {
   const API_ROOT = (API_BASE || '').replace(/\/+$/, '') + '/';
   const toUrl = (path = '', params = {}) => {
@@ -67,7 +67,7 @@ const useApiJoin = (API_BASE) => {
   return { toUrl };
 };
 
-/* ================== Helpers (shared) ================== */
+/* ================== Helpers ================== */
 const initials = (name = '') =>
   name.split(' ').filter(Boolean).slice(0, 2).map(s => s[0]?.toUpperCase()).join('') || 'ST';
 
@@ -100,16 +100,7 @@ const jparse = async (r) => {
   try { return JSON.parse(t); } catch { return { _raw: t }; }
 };
 
-/* Build GET url from base + params (used for plan fetch only if needed) */
-const buildGet = (base, params) => {
-  const qp = new URLSearchParams();
-  Object.entries(params || {}).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== '') qp.set(k, String(v));
-  });
-  return `${base}?${qp.toString()}`;
-};
-
-/* ================== Next staff ID (first page, using toUrl) ================== */
+/* ================== Next staff ID ================== */
 async function fetchNextStaffId(toUrl, { token, schoolId } = {}) {
   const headers = { Accept: 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -124,6 +115,7 @@ async function fetchNextStaffId(toUrl, { token, schoolId } = {}) {
     try {
       const res = await fetch(url, { headers });
       const raw = await res.text();
+      // Some ORDS handlers echo "content-type" etc. Strip it.
       const body = raw.replace(/^content[- ]type\s*:\s*application\/json[^\n]*\n?/i, '').trim();
 
       const jsonSlice = body.match(/\{[\s\S]*\}/);
@@ -195,7 +187,7 @@ export default function ManageStaffPage() {
     user?.organisation ??
     '';
 
-  /* ---------- Plan & expiry (added from second page, using toUrl) ---------- */
+  /* ---------- Plan & expiry ---------- */
   const [planCode, setPlanCode] = useState('BASIC'); // BASIC|STANDARD|PREMIUM
   const [planHuman, setPlanHuman] = useState('Basic');
   const [expiryISO, setExpiryISO] = useState(null);
@@ -210,7 +202,7 @@ export default function ManageStaffPage() {
 
         const pkgRaw = rec?.package ?? rec?.PACKAGE ?? user?.package ?? user?.PACKAGE ?? user?.plan;
         const code = PLAN_NAME_BY_CODE(pkgRaw);
-        const exp  = rec?.expiry ?? rec?.EXPIRY ?? user?.expiry ?? user?.EXPIRY ?? null;
+        const exp = rec?.expiry ?? rec?.EXPIRY ?? user?.expiry ?? user?.EXPIRY ?? null;
         if (!mounted) return;
         setPlanCode(code);
         setPlanHuman(HUMAN_PLAN(code));
@@ -232,7 +224,7 @@ export default function ManageStaffPage() {
     return isFinite(d.getTime()) && d.getTime() < Date.now();
   }, [expiryISO]);
 
-  /* ---------- Staff list (kept from first page) ---------- */
+  /* ---------- Staff list ---------- */
   const [staffList, setStaffList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -255,7 +247,7 @@ export default function ManageStaffPage() {
 
       const text = await res.text();
       let data = null;
-      try { data = JSON.parse(text); } catch {}
+      try { data = JSON.parse(text); } catch { }
 
       if (!res.ok) throw new Error(data?.message || data?.error || `Failed: ${res.status}`);
 
@@ -327,7 +319,7 @@ export default function ManageStaffPage() {
   // reset password in table
   const [resettingId, setResettingId] = useState(null);
 
-  // BULK IMPORT (added)
+  // BULK IMPORT
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkBusy] = useState(false);
   const [bulkErr, setBulkErr] = useState('');
@@ -352,10 +344,10 @@ export default function ManageStaffPage() {
     return list;
   }, [staffList, filter, searchQuery]);
 
-  /* ---------- Utilities kept from first page ---------- */
+  /* ---------- Utilities ---------- */
   const generateTempPassword = () => getTempPassword(12);
 
-  const sendWelcomeEmail = async ({ full_name, email, roleLabel, tempPassword, schoolName, replyTo, bcc, subject }) => {
+  const sendWelcomeEmail = async ({ full_name, email, roleLabel, tempPassword, schoolName, replyTo, subject }) => {
     try {
       const endpoint = `${EMAIL_API_BASE}/api/send-postmark`;
       const res = await fetch(endpoint, {
@@ -368,7 +360,6 @@ export default function ManageStaffPage() {
           tempPassword,
           schoolName,
           replyTo,
-          bcc,
           subject,
         }),
       });
@@ -399,7 +390,7 @@ export default function ManageStaffPage() {
     return '';
   };
 
-  /* ---------- Update (kept from first page; robust) ---------- */
+  /* ---------- Update (robust) ---------- */
   const updateStaffRobust = async (payload) => {
     const mustParams = {
       p_user_id: String(payload.userId),
@@ -424,18 +415,18 @@ export default function ManageStaffPage() {
         body: encodeForm(mustParams),
       });
       const t = await r.text();
-      let j = null; try { j = JSON.parse(t); } catch {}
+      let j = null; try { j = JSON.parse(t); } catch { }
       if (r.ok && (j == null || j?.success !== false)) return true;
-    } catch {}
+    } catch { }
 
     // 2) GET with query params
     try {
       const getUrl = toUrl(UPDATE_STAFF_ENDPOINT, mustParams);
       const r = await fetch(getUrl, { method: 'GET' });
       const t = await r.text();
-      let j = null; try { j = JSON.parse(t); } catch {}
+      let j = null; try { j = JSON.parse(t); } catch { }
       if (r.ok && (j == null || j?.success !== false)) return true;
-    } catch {}
+    } catch { }
 
     // 3) POST JSON fallback
     const r = await fetch(UPDATE_STAFF_ENDPOINT, {
@@ -444,7 +435,7 @@ export default function ManageStaffPage() {
       body: JSON.stringify(mustParams),
     });
     const t = await r.text();
-    let j = null; try { j = JSON.parse(t); } catch {}
+    let j = null; try { j = JSON.parse(t); } catch { }
     if (r.ok && (j == null || j?.success !== false)) return true;
     throw new Error((j?.error || t || `HTTP ${r.status}`).slice(0, 800));
   };
@@ -458,7 +449,7 @@ export default function ManageStaffPage() {
     setDialogMode('add');
     setIsOpen(true);
     try {
-      const pwd    = await generateTempPassword();
+      const pwd = await generateTempPassword();
       const nextId = await fetchNextStaffId(toUrl, { token, schoolId });
       if (!nextId) throw new Error('Could not fetch next staff ID');
       setPendingUserId(nextId);
@@ -490,7 +481,7 @@ export default function ManageStaffPage() {
     setPhotoPreview(f ? URL.createObjectURL(f) : '');
   };
 
-  /* ---------- ADD (GET with headers; keep first page’s absolute endpoint) ---------- */
+  /* ---------- ADD ---------- */
   const submitAddStaff = async () => {
     setFormError(''); setFormSuccess('');
     const err = validateForm();
@@ -529,7 +520,7 @@ export default function ManageStaffPage() {
 
       const res = await fetch(addUrl, { method: 'GET', headers: { Accept: 'application/json' }, cache: 'no-store' });
       let data = null; let raw = '';
-      try { raw = await res.text(); data = JSON.parse(raw); } catch {}
+      try { raw = await res.text(); data = JSON.parse(raw); } catch { }
 
       if (!res.ok || data?.success === false) {
         const serverMsg = (data?.error || raw || '').slice(0, 600) || `HTTP ${res.status}`;
@@ -584,7 +575,7 @@ export default function ManageStaffPage() {
     }
   };
 
-  /* ---------- UPDATE (keep first page flow; may overwrite image) ---------- */
+  /* ---------- UPDATE ---------- */
   const submitUpdateStaff = async () => {
     setFormError(''); setFormSuccess('');
     const err = validateForm();
@@ -627,7 +618,7 @@ export default function ManageStaffPage() {
     }
   };
 
-  /* ---------- Reset password (kept) ---------- */
+  /* ---------- Reset password ---------- */
   const resetPasswordForUser = async (userIdParam, newPassword) => {
     const url = toUrl(RESET_PWD_PATH, {
       p_user_id: String(userIdParam),
@@ -676,7 +667,7 @@ export default function ManageStaffPage() {
     }
   };
 
-  /* ---------- Export Excel (kept) ---------- */
+  /* ---------- Export Excel ---------- */
   const exportToExcel = () => {
     try {
       const rows = filtered.map((s, idx) => ({
@@ -699,7 +690,7 @@ export default function ManageStaffPage() {
     }
   };
 
-  /* ================== BULK IMPORT (added) ================== */
+  /* ================== BULK IMPORT ================== */
   const openBulk = () => {
     if (planExpired) { setBulkErr('Plan expired — renew to use this feature'); setBulkOpen(true); return; }
     if (isFinite(planMax) && remaining <= 0) { setBulkErr(`Reached ${planHuman} plan staff limit`); setBulkOpen(true); return; }
@@ -714,7 +705,7 @@ export default function ManageStaffPage() {
       { full_name: 'Ama Boateng', email: 'ama@school.edu', role: 'TE', status: 'ACTIVE', image_url: '' },
       { full_name: 'Kofi Mensah', email: 'kofi@school.edu', role: 'HT', status: 'ACTIVE', image_url: '' },
     ];
-    const ws = XLSX.utils.json_to_sheet(rows, { header: ['full_name','email','role','status','image_url'] });
+    const ws = XLSX.utils.json_to_sheet(rows, { header: ['full_name', 'email', 'role', 'status', 'image_url'] });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Template');
     XLSX.writeFile(wb, 'staff_import_template.xlsx');
@@ -734,9 +725,9 @@ export default function ManageStaffPage() {
 
       const cleaned = rows.map((r, i) => {
         const full_name = String(r.full_name || r.FULL_NAME || '').trim();
-        const email     = String(r.email || r.EMAIL || '').trim().toLowerCase();
-        const role      = String(r.role || r.ROLE || '').trim().toUpperCase();
-        const status    = String(r.status || r.STATUS || 'ACTIVE').trim().toUpperCase();
+        const email = String(r.email || r.EMAIL || '').trim().toLowerCase();
+        const role = String(r.role || r.ROLE || '').trim().toUpperCase();
+        const status = String(r.status || r.STATUS || 'ACTIVE').trim().toUpperCase();
         const image_url = String(r.image_url || r.IMAGE_URL || '').trim();
 
         let valid = true;
@@ -744,9 +735,9 @@ export default function ManageStaffPage() {
 
         if (!full_name) { valid = false; message = 'full_name is required'; }
         else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { valid = false; message = 'email is invalid'; }
-        else if (!['AD','HT','TE','AC','SO'].includes(role)) { valid = false; message = 'role must be AD/HT/TE/AC/SO'; }
+        else if (!['AD', 'HT', 'TE', 'AC', 'SO'].includes(role)) { valid = false; message = 'role must be AD/HT/TE/AC/SO'; }
 
-        return { idx: i+1, full_name, email, role, status, image_url, valid, message, toImport: valid };
+        return { idx: i + 1, full_name, email, role, status, image_url, valid, message, toImport: valid };
       });
 
       const capacity = isFinite(planMax) ? Math.max(0, planMax - staffCount) : Infinity;
@@ -830,7 +821,7 @@ export default function ManageStaffPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [isOpen, submitting, form, dialogMode]);
 
-  const addDisabled  = submitting || !!validateForm() || !pendingUserId || planExpired || (isFinite(planMax) && remaining <= 0);
+  const addDisabled = submitting || !!validateForm() || !pendingUserId || planExpired || (isFinite(planMax) && remaining <= 0);
   const editDisabled = submitting || !!validateForm();
 
   /* ================== Render ================== */
@@ -855,7 +846,7 @@ export default function ManageStaffPage() {
             className="px-4 py-2 rounded-md text-sm border bg-white dark:bg-gray-900"
           >
             <option value="">All Roles</option>
-            {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.label}>{r.label}</option>)}
+            {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
 
           <div className="relative">
@@ -864,7 +855,7 @@ export default function ManageStaffPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by name or email…"
-              className="pl-9 pr-3 py-2 w-64 rounded-md text-sm border bg-white dark:bg-gray-900"
+              className="w-full pl-9 pr-3 py-2 rounded-md text-sm border bg-white dark:bg-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             />
           </div>
 
@@ -918,67 +909,73 @@ export default function ManageStaffPage() {
         </button>
       </div>
 
-      {/* Status */}
-      {loading && <div className="mb-4 text-sm text-gray-600">Loading staff…</div>}
+      {/* Status Messages */}
+      {loading && (
+        <div className="mb-4 flex items-center gap-2 text-sm text-gray-600">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading staff…
+        </div>
+      )}
       {loadError && (
         <div className="mb-4 flex items-start gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
-          <AlertCircle className="mt-0.5 h-4 w-4" />
+          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
           <span className="text-sm">{loadError}</span>
         </div>
       )}
 
-      {/* Table */}
-      <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm">
+      {/* Desktop Table View */}
+      <div className="hidden lg:block overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm">
         <table className="min-w-full text-sm">
-          <thead className="bg-indigo-100 dark:bg-gray-800">
+          <thead className="bg-indigo-50 dark:bg-gray-800">
             <tr>
-              <th className="px-4 py-3 text-left">Staff</th>
-              <th className="px-4 py-3 text-left">Role</th>
-              <th className="px-4 py-3 text-left">Email</th>
-              <th className="px-4 py-3 text-left">Status</th>
-              <th className="px-4 py-3 text-left">Actions</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-900 dark:text-gray-100">Staff</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-900 dark:text-gray-100">Role</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-900 dark:text-gray-100">Email</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-900 dark:text-gray-100">Status</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-900 dark:text-gray-100">Actions</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
             {filtered.map((staff) => (
-              <tr key={staff.id} className="border-t hover:bg-gray-50 dark:hover:bg-gray-800">
-                <td className="px-4 py-2">
-                  <div className="flex items-center gap-2">
-                    <Avatar urls={staff.photo_urls} name={staff.name} />
-                    <span>{staff.name}</span>
+              <tr key={staff.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <Avatar urls={staff.photo_urls} name={staff.name} size={40} />
+                    <div className="min-w-0">
+                      <div className="font-medium text-gray-900 dark:text-gray-100 truncate">{staff.name}</div>
+                      <div className="text-xs text-gray-500 truncate">{staff.email}</div>
+                    </div>
                   </div>
                 </td>
-                <td className="px-4 py-2">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
+                <td className="px-4 py-3">
+                  <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
                     {ROLE_LABELS[staff.role] || staff.role}
                   </span>
                 </td>
-                <td className="px-4 py-2">{staff.email}</td>
-                <td className="px-4 py-2">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+                <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{staff.email}</td>
+                <td className="px-4 py-3">
+                  <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
                     {staff.status}
                   </span>
                 </td>
-                <td className="px-4 py-2">
+                <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => { setInfoStaff(staff); setIsInfoOpen(true); }}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800"
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800 text-xs"
                       title="View details"
                       type="button"
                     >
-                      <Eye size={14} /> View
+                      <Eye size={12} /> View
                     </button>
-
                     <button
                       onClick={() => openEdit(staff)}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800"
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800 text-xs"
                       title="Edit staff"
                       type="button"
                     >
-                      <Pencil size={14} /> Edit
+                      <Pencil size={12} /> Edit
                     </button>
-
                     <button
                       onClick={() => resetAndSend(staff)}
                       disabled={resettingId === staff.id}
@@ -986,8 +983,8 @@ export default function ManageStaffPage() {
                       title="Reset password & email credentials"
                       type="button"
                     >
-                      {resettingId === staff.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound size={14} />}
-                      {resettingId === staff.id ? 'Resetting…' : 'Reset & Send'}
+                      {resettingId === staff.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <KeyRound size={12} />}
+                      Reset & send
                     </button>
                   </div>
                 </td>
@@ -996,7 +993,10 @@ export default function ManageStaffPage() {
             {!loading && filtered.length === 0 && !loadError && (
               <tr>
                 <td colSpan={5} className="px-4 py-10 text-center text-gray-500">
-                  No staff found for your filters/search.
+                  <div className="flex flex-col items-center gap-2">
+                    <UserCircle2 className="h-12 w-12 text-gray-400" />
+                    <p>No staff found for your filters/search.</p>
+                  </div>
                 </td>
               </tr>
             )}
@@ -1004,164 +1004,257 @@ export default function ManageStaffPage() {
         </table>
       </div>
 
-      {/* Add / Edit Modal */}
-      {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50" onClick={() => (submitting ? null : setIsOpen(false))} />
-          <div className="relative z-10 w-full max-w-lg bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">{dialogMode === 'add' ? 'Add Staff' : 'Edit Staff'}</h3>
-              <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" onClick={() => (submitting ? null : setIsOpen(false))} type="button">
-                <X className="h-5 w-5" />
-              </button>
+      {/* Mobile Card View */}
+      <div className="lg:hidden space-y-3">
+        {filtered.map((staff) => (
+          <div key={staff.id} className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-4">
+            <div className="flex items-start gap-3 mb-3">
+              <Avatar urls={staff.photo_urls} name={staff.name} size={48} />
+              <div className="flex-1 min-w-0">
+                <h3 className="font-medium text-gray-900 dark:text-gray-100 truncate">{staff.name}</h3>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
+                    {ROLE_LABELS[staff.role] || staff.role}
+                  </span>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+                    {staff.status}
+                  </span>
+                </div>
+                <div className="text-xs text-gray-500 truncate mt-1">{staff.email}</div>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-4">
-              {/* Photo */}
-              <div>
-                <span className="text-sm text-gray-700 dark:text-gray-300">Photo</span>
-                <div className="mt-2 flex items-center gap-3">
-                  <Avatar
-                    urls={[
-                      ...(photoPreview ? [photoPreview] : []),
-                      ...(form.image_url ? [form.image_url] : []),
-                    ]}
-                    name={form.full_name}
-                    size={56}
-                  />
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={onPickImage}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="px-3 py-2 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-800 inline-flex items-center gap-2"
-                  >
-                    <ImageIcon className="h-4 w-4" />
-                    {dialogMode === 'add' ? 'Upload Image' : 'Change Image'}
-                  </button>
-                </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => { setInfoStaff(staff); setIsInfoOpen(true); }}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800 text-sm"
+                type="button"
+                title="View details"
+              >
+                <Eye size={14} /> View
+              </button>
+              <button
+                onClick={() => openEdit(staff)}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800 text-sm"
+                type="button"
+                title="Edit staff"
+              >
+                <Pencil size={14} /> Edit
+              </button>
+              <button
+                onClick={() => resetAndSend(staff)}
+                disabled={resettingId === staff.id}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-md border text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 disabled:opacity-60 text-sm"
+                type="button"
+                title="Reset password & email credentials"
+              >
+                {resettingId === staff.id ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <KeyRound size={14} />
+                )}
+                Reset
+              </button>
+            </div>
+          </div>
+        ))}
+
+        {!loading && filtered.length === 0 && !loadError && (
+          <div className="text-center py-12">
+            <UserCircle2 className="mx-auto h-16 w-16 text-gray-400 mb-4" />
+            <p className="text-gray-500 text-lg">No staff found</p>
+            <p className="text-gray-400 text-sm">Try adjusting your search or filters</p>
+          </div>
+        )}
+      </div>
+
+      {/* Responsive Add/Edit Dialog */}
+      {isOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex min-h-full items-end justify-center p-0 sm:items-center sm:p-4">
+            <div className="fixed inset-0 bg-black/50 transition-opacity" onClick={() => (submitting ? null : setIsOpen(false))} />
+            <div className="relative w-full transform rounded-t-2xl sm:rounded-2xl bg-white dark:bg-gray-900 shadow-2xl transition-all sm:max-w-lg sm:border border-gray-200 dark:border-gray-700">
+              {/* Header */}
+              <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-200 dark:border-gray-700">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  {dialogMode === 'add' ? 'Add Staff Member' : 'Edit Staff Member'}
+                </h3>
+                <button
+                  className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+                  onClick={() => (submitting ? null : setIsOpen(false))}
+                >
+                  <X className="h-5 w-5" />
+                </button>
               </div>
 
-              <label className="grid gap-1">
-                <span className="text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
-                  <UserCircle2 className="h-4 w-4" /> Full Name
-                </span>
-                <input
-                  className="border rounded-lg px-3 py-2 bg-white dark:bg-gray-800"
-                  value={form.full_name}
-                  onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))}
-                  placeholder="e.g. Ama Boateng"
-                />
-              </label>
-
-              <label className="grid gap-1">
-                <span className="text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
-                  <Mail className="h-4 w-4" /> Email
-                </span>
-                <input
-                  type="email"
-                  className="border rounded-lg px-3 py-2 bg-white dark:bg-gray-800"
-                  value={form.email}
-                  onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                  placeholder="name@school.edu"
-                />
-              </label>
-
-              {/* Role + Status */}
-              <div className="grid grid-cols-2 gap-4">
-                <label className="grid gap-1">
-                  <span className="text-sm text-gray-700 dark:text-gray-300">Role</span>
-                  <select
-                    className="border rounded-lg px-3 py-2 bg-white dark:bg-gray-800"
-                    value={form.role}
-                    onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
-                    title="AD = Administrator, HT = Head Teacher, TE = Teacher, AC = Accountant, SO = Owner"
-                  >
-                    {ROLE_OPTIONS.map((r) => (
-                      <option key={r.value} value={r.value}>{r.label}</option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="grid gap-1">
-                  <span className="text-sm text-gray-700 dark:text-gray-300">Status</span>
-                  <select
-                    className="border rounded-lg px-3 py-2 bg-white dark:bg-gray-800"
-                    value={form.status}
-                    onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
-                  >
-                    <option value="ACTIVE">ACTIVE</option>
-                    <option value="INACTIVE">INACTIVE</option>
-                    <option value="SUSPENDED">SUSPENDED</option>
-                  </select>
-                </label>
-              </div>
-
-              {/* Password (add only) */}
-              {dialogMode === 'add' && (
-                <label className="grid gap-1">
-                  <span className="text-sm text-gray-700 dark:text-gray-300">Temporary Password</span>
-                  <div className="flex gap-2">
-                    <input
-                      className="border rounded-lg px-3 py-2 bg-white dark:bg-gray-800 flex-1"
-                      value={form.password}
-                      onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setRegenLoading(true);
-                        setTimeout(() => {
-                          setForm(f => ({ ...f, password: getTempPassword(12) }));
-                          setRegenLoading(false);
-                        }, 120);
-                      }}
-                      className="px-3 py-2 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-800 inline-flex items-center gap-2"
-                      disabled={regenLoading}
-                    >
-                      {regenLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-                      Regenerate
-                    </button>
+              {/* Form Content */}
+              <div className="p-4 sm:p-6 max-h-[calc(100vh-8rem)] sm:max-h-[70vh] overflow-y-auto">
+                <div className="space-y-4 sm:space-y-5">
+                  {/* Photo Upload */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Profile Photo
+                    </label>
+                    <div className="flex items-center gap-4">
+                      <Avatar
+                        urls={[
+                          ...(photoPreview ? [photoPreview] : []),
+                          ...(form.image_url ? [form.image_url] : []),
+                        ]}
+                        name={form.full_name}
+                        size={64}
+                      />
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={onPickImage}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm"
+                      >
+                        <ImageIcon className="h-4 w-4" />
+                        {dialogMode === 'add' ? 'Upload Photo' : 'Change Photo'}
+                      </button>
+                    </div>
                   </div>
-                </label>
-              )}
 
-              {formError && (
-                <div className="flex items-start gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
-                  <AlertCircle className="mt-0.5 h-4 w-4" />
-                  <span className="text-sm">{formError}</span>
-                </div>
-              )}
-              {formSuccess && (
-                <div className="flex items-start gap-2 text-emerald-700 bg-emerald-50 border-emerald-200 rounded-lg p-3">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4" />
-                  <span className="text-sm">{formSuccess}</span>
-                </div>
-              )}
+                  {/* Form Fields */}
+                  <div className="grid grid-cols-1 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        <UserCircle2 className="inline h-4 w-4 mr-1" />
+                        Full Name
+                      </label>
+                      <input
+                        className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        value={form.full_name}
+                        onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))}
+                        placeholder="e.g. Ama Boateng"
+                      />
+                    </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button className="px-4 py-2 rounded-lg border" onClick={() => (submitting ? null : setIsOpen(false))} disabled={submitting} type="button">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        <Mail className="inline h-4 w-4 mr-1" />
+                        Email Address
+                      </label>
+                      <input
+                        type="email"
+                        className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        value={form.email}
+                        onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                        placeholder="name@school.edu"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Role
+                        </label>
+                        <select
+                          className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                          value={form.role}
+                          onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
+                        >
+                          {ROLE_OPTIONS.map((r) => (
+                            <option key={r.value} value={r.value}>{r.label}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Status
+                        </label>
+                        <select
+                          className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                          value={form.status}
+                          onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+                        >
+                          <option value="ACTIVE">ACTIVE</option>
+                          <option value="INACTIVE">INACTIVE</option>
+                          <option value="SUSPENDED">SUSPENDED</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Password (add only) */}
+                    {dialogMode === 'add' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Temporary Password
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                            value={form.password}
+                            onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRegenLoading(true);
+                              setTimeout(() => {
+                                setForm(f => ({ ...f, password: getTempPassword(12) }));
+                                setRegenLoading(false);
+                              }, 120);
+                            }}
+                            className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 inline-flex items-center gap-2"
+                            disabled={regenLoading}
+                          >
+                            {regenLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                            Regenerate
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Error/Success Messages */}
+                    {formError && (
+                      <div className="flex items-start gap-2 p-3 text-red-700 bg-red-50 border border-red-200 rounded-lg">
+                        <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                        <span className="text-sm">{formError}</span>
+                      </div>
+                    )}
+                    {formSuccess && (
+                      <div className="flex items-start gap-2 p-3 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                        <span className="text-sm">{formSuccess}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer Actions */}
+              <div className="flex flex-col sm:flex-row gap-3 p-4 sm:p-6 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  className="w-full sm:w-auto px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
+                  onClick={() => (submitting ? null : setIsOpen(false))}
+                  disabled={submitting}
+                  type="button"
+                >
                   Cancel
                 </button>
 
                 {dialogMode === 'add' ? (
                   <button
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60"
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed"
                     onClick={submitAddStaff}
                     disabled={addDisabled}
                     type="button"
                   >
                     {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlusCircle className="h-4 w-4" />}
-                    {submitting ? 'Adding…' : 'Add Staff'}
+                    {submitting ? 'Adding Staff…' : 'Add Staff Member'}
                   </button>
                 ) : (
                   <button
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60"
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed"
                     onClick={submitUpdateStaff}
                     disabled={editDisabled}
                     type="button"
@@ -1176,73 +1269,75 @@ export default function ManageStaffPage() {
         </div>
       )}
 
-      {/* Info Dialog */}
+      {/* Responsive Info Dialog */}
       {isInfoOpen && infoStaff && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-3xl rounded-2xl bg-white dark:bg-gray-900 shadow-2xl border border-gray-200 dark:border-gray-700">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
-              <div className="flex items-center gap-3">
-                <Avatar urls={infoStaff.photo_urls} name={infoStaff.name} size={120} />
-                <div>
-                  <div className="text-lg font-semibold">{infoStaff.name}</div>
-                  <div className="text-xs text-gray-500">{ROLE_LABELS[infoStaff.role] || infoStaff.role}</div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-1 rounded-md text-xs bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
-                  {infoStaff.status}
-                </span>
-                <button
-                  onClick={() => window.print()}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800"
-                  title="Print"
-                  type="button"
-                >
-                  <Printer size={16} /> Print
-                </button>
-                <button
-                  onClick={() => setIsInfoOpen(false)}
-                  className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
-                  aria-label="Close"
-                  type="button"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-            </div>
-
-            <div className="px-6 py-5 max-h-[70vh] overflow-y-auto">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <UserCircle2 className="h-4 w-4 text-indigo-600" />
-                    <h4 className="text-sm font-semibold">Profile</h4>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <InfoLine label="Name" value={infoStaff.name} />
-                    <InfoLine label="Role" value={ROLE_LABELS[infoStaff.role] || infoStaff.role} />
-                    <InfoLine label="Email" value={infoStaff.email} />
-                    <InfoLine label="Status" value={infoStaff.status} />
-                    <InfoLine label="Created At" value={infoStaff.created_at} />
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex min-h-full items-end justify-center p-0 sm:items-center sm:p-4">
+            <div className="fixed inset-0 bg-black/40 transition-opacity" onClick={() => setIsInfoOpen(false)} />
+            <div className="relative w-full transform rounded-t-2xl sm:rounded-2xl bg-white dark:bg-gray-900 shadow-2xl transition-all sm:max-w-2xl lg:max-w-3xl sm:border border-gray-200 dark:border-gray-700 max-h-full sm:max-h-[90vh]">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 sm:p-6 border-b border-gray-200 dark:border-gray-800">
+                <div className="flex items-center gap-4">
+                  <Avatar urls={infoStaff.photo_urls} name={infoStaff.name} size={80} />
+                  <div>
+                    <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{infoStaff.name}</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{ROLE_LABELS[infoStaff.role] || infoStaff.role}</p>
                   </div>
                 </div>
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+                    {infoStaff.status}
+                  </span>
+                  <button
+                    onClick={() => window.print()}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800 text-sm"
+                    title="Print"
+                  >
+                    <Printer size={16} />
+                    <span className="hidden sm:inline">Print</span>
+                  </button>
+                  <button
+                    onClick={() => setIsInfoOpen(false)}
+                    className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
+                    aria-label="Close"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
               </div>
-            </div>
-
-            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-end">
-              <button
-                onClick={() => setIsInfoOpen(false)}
-                className="px-4 py-2 rounded-md border bg-white hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800"
-                type="button"
-              >
-                Close
-              </button>
+              {/* Content */}
+              <div className="px-6 py-5 max-h-[70vh] overflow-y-auto">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <UserCircle2 className="h-4 w-4 text-indigo-600" />
+                      <h4 className="text-sm font-semibold">Profile</h4>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                      <InfoLine label="Full Name" value={infoStaff.name} />
+                      <InfoLine label="Role" value={ROLE_LABELS[infoStaff.role] || infoStaff.role} />
+                      <InfoLine label="Email" value={infoStaff.email} />
+                      <InfoLine label="Status" value={infoStaff.status} />
+                      <InfoLine label="Created At" value={infoStaff.created_at} />
+                    </div>
+                  </div>
+                </div>
+                {/* Footer */}
+                <div className="p-4 sm:p-6 border-t border-gray-200 dark:border-gray-800">
+                  <button
+                    onClick={() => setIsInfoOpen(false)}
+                    className="w-full sm:w-auto px-6 py-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Bulk Import Modal (added) */}
+      {/* Bulk Import Modal */}
       {bulkOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/50" onClick={() => (bulkBusy || importing ? null : setBulkOpen(false))} />
@@ -1378,7 +1473,6 @@ export default function ManageStaffPage() {
   );
 }
 
-/* ================== Small components ================== */
 function InfoLine({ label, value }) {
   if (!value) return null;
   return (
@@ -1432,7 +1526,7 @@ export function PlanBanner({ planHuman, expiryISO, count, max, label = 'Records'
           setHidden(true);
           try { sessionStorage.setItem(storageKey, '1'); } catch {}
         }}
-        className="absolute right-2 top-2 p-1 rounded hover:bg.black/5 dark:hover:bg.white/10"
+        className="absolute right-2 top-2 p-1 rounded hover:bg-black/5 dark:hover:bg-white/10"
         type="button"
       >
         <X className="h-4 w-4" />

@@ -204,7 +204,7 @@ export default function ExamScaleSetupPage() {
   };
 
   return (
-    <DashboardLayout title="Grading Scale Setup" subtitle="Define grade bands per class">
+    <DashboardLayout title="Grading Scale Setup" subtitle="">
       <div className="grid lg:grid-cols-3 gap-4">
         {/* LEFT: Form */}
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 p-4">

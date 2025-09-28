@@ -151,7 +151,7 @@ const AttendancePage = () => {
   };
 
   return (
-    <DashboardLayout title="Attendance Report" subtitle="Track daily attendance by class">
+    <DashboardLayout title="Attendance Report" subtitle="">
       {/* Toolbar */}
       <div className="mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-2">

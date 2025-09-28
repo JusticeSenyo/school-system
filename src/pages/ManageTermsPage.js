@@ -156,7 +156,7 @@ export default function ManageTermsPage() {
   }
 
   return (
-    <DashboardLayout title="Manage Academic Terms" subtitle="Create and manage academic terms">
+    <DashboardLayout title="Manage Academic Terms" subtitle="">
       {/* Controls */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 border border-gray-100 dark:border-gray-700 mb-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -169,7 +169,7 @@ export default function ManageTermsPage() {
               placeholder="Search term"
             />
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2 w-full">
             <button onClick={() => setOpenCreate(true)} className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg" disabled={!schoolId}>
               <Plus className="h-4 w-4" /> New Term
             </button>

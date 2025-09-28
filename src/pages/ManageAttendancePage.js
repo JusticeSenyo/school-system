@@ -303,7 +303,7 @@ const ManageAttendancePage = () => {
   const excelDisabled = loading || marked.length === 0;
 
   return (
-    <DashboardLayout title="Manage Attendance" subtitle="Class teacher daily attendance">
+    <DashboardLayout title="Manage Attendance" subtitle="">
       {/* Top Bar */}
       <div className="mb-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
         {/* Class (class-teacher-only LOV) */}

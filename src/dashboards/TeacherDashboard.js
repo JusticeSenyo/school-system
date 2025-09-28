@@ -64,7 +64,9 @@ const activity = [
 
 const TeacherDashboard = () => {
   return (
-    <DashboardLayout title="Teacher Dashboard" subtitle="Your teaching activities and insights">
+    <DashboardLayout title="Teacher Dashboard"
+    //  subtitle="Your teaching activities and insights"
+     >
       <div className="bg-gradient-to-r from-indigo-600 to-purple-700 rounded-2xl p-6 text-white mb-8">
         <h2 className="text-2xl font-bold mb-2">Welcome to the Teacher Dashboard 👩‍🏫</h2>
         <p className="text-indigo-100">Track your assigned classes, manage student progress, and update grades.</p>

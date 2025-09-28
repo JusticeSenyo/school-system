@@ -360,7 +360,7 @@ export default function AttendanceReportPage() {
   return (
     <DashboardLayout
       title="Attendance Report"
-      subtitle="Analyze attendance patterns and spot issues early"
+      subtitle=""
     >
       {/* Filters */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 p-4 mb-6">

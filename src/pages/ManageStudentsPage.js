@@ -5,7 +5,7 @@ import {
   PlusCircle, X, Mail, UserCircle2,
   Loader2, CheckCircle2, AlertCircle, RefreshCcw as RotateCcw, Pencil,
   Download, Search, KeyRound, Eye, Image as ImageIcon, Printer,
-  Hash, Users, Phone, Upload, Info
+  Hash, Users, Phone, Upload, Info, GraduationCap,Filter
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../AuthContext';
@@ -112,7 +112,7 @@ const Avatar = ({ urls = [], name, size = 80, rounded = 'rounded-full' }) => {
       <img
         src={src}
         alt={name || 'photo'}
-        className={`${rounded} object-cover`}
+        className={`${rounded} object-cover flex-shrink-0`}
         style={{ width: size, height: size }}
         onError={() => setIdx(idx + 1)}
       />
@@ -120,7 +120,7 @@ const Avatar = ({ urls = [], name, size = 80, rounded = 'rounded-full' }) => {
   }
   return (
     <div
-      className={`${rounded} bg-indigo-100 text-indigo-700 flex items-center justify-center`}
+      className={`${rounded} bg-indigo-100 text-indigo-700 flex items-center justify-center flex-shrink-0`}
       style={{ width: size, height: size, fontSize: Math.max(10, size / 2.6) }}
       aria-label="avatar"
       title={name || 'Student'}
@@ -224,6 +224,10 @@ export default function ManageStudentsPage() {
   const [classesErr, setClassesErr] = useState('');
   const [filterClass, setFilterClass] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // mobile
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
+
 
   // Dialogs
   const [isOpen, setIsOpen] = useState(false);
@@ -996,9 +1000,9 @@ export default function ManageStudentsPage() {
 
   /* ================== Render ================== */
   return (
-    <DashboardLayout title="Manage Students" subtitle="View, filter, edit, and manage student records">
-      {/* Plan banner */}
-      <PlanBanner
+    <DashboardLayout title="Manage Students" subtitle="">
+{/* Plan banner */}
+<PlanBanner
   planHuman={planHuman}
   expiryISO={expiryISO}
   count={studentCount}
@@ -1006,148 +1010,225 @@ export default function ManageStudentsPage() {
   label="Students"
   storageKey="students-plan-banner"
 />
-      {/* Toolbar */}
-      <div className="mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Class filter */}
-          <select
-            value={filterClass}
-            onChange={(e) => setFilterClass(e.target.value)}
-            className="px-4 py-2 rounded-md text-sm border bg-white dark:bg-gray-900"
-          >
-            <option value="">All Classes</option>
-            {classes.map((c) => (
-              <option key={String(c.class_id ?? '')} value={String(c.class_id ?? '')}>
-                {c.class_name}
-              </option>
-            ))}
-          </select>
 
-          <div className="relative">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-            <input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search name, email, class, status… (e.g., status:active class:Grade 2 gender:f)"
-              className="pl-9 pr-3 py-2 w-64 rounded-md text-sm border bg-white dark:bg-gray-900"
-            />
-          </div>
+{/* Toolbar */}
+<div className="mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+  <div className="flex flex-wrap items-center gap-2">
+    {/* Class filter */}
+    <select
+      value={filterClass}
+      onChange={(e) => setFilterClass(e.target.value)}
+      className="px-4 py-2 rounded-md text-sm border bg-white dark:bg-gray-900"
+    >
+      <option value="">All Classes</option>
+      {classes.map((c) => (
+        <option key={String(c.class_id ?? '')} value={String(c.class_id ?? '')}>
+          {c.class_name}
+        </option>
+      ))}
+    </select>
 
+    <div className="relative">
+      <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+      <input
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        placeholder="Search name, email, class… (e.g., status:active class:Grade 2 gender:f)"
+        className="w-full pl-9 pr-3 py-2 rounded-md text-sm border bg-white dark:bg-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+      />
+    </div>
+
+          {/* Add Button - Full width on mobile */}
           <button
-            onClick={fetchStudents}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100 text-sm rounded-md hover:bg-gray-200 dark:hover:bg-gray-700"
-            title="Refresh list"
+            onClick={openAdd}
+            className="flex items-center justify-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 text-sm font-medium whitespace-nowrap"
           >
-            <RotateCcw size={16} /> Refresh
-          </button>
-
-          <button
-            onClick={exportToExcel}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm rounded-md hover:bg-emerald-700"
-            title="Download Excel report of current table view"
-          >
-            <Download size={16} /> Download Excel
-          </button>
-
-          <button
-            onClick={openBulk}
-            disabled={planExpired || (isFinite(planMax) && remaining <= 0)}
-            title={
-              planExpired
-                ? 'Plan expired — renew to use this feature'
-                : (isFinite(planMax) && remaining <= 0)
-                ? `Reached ${planHuman} plan student limit`
-                : 'Import students from Excel'
-            }
-            className="flex items-center gap-2 px-4 py-2 bg-sky-600 text-white text-sm rounded-md hover:bg-sky-700 disabled:opacity-60"
-          >
-            <Upload size={16} /> Bulk Import
+            <PlusCircle size={16} />
+            <span className="sm:inline">Add New Student</span>
           </button>
         </div>
 
-        <button
-          onClick={openAdd}
-          disabled={planExpired || (isFinite(planMax) && remaining <= 0)}
-          title={
-            planExpired ? 'Plan expired — renew to add students'
-            : (isFinite(planMax) && remaining <= 0) ? `Reached ${planHuman} plan student limit`
-            : 'Add a new student'
-          }
-          className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 text-sm disabled:opacity-60"
-        >
-          <PlusCircle size={16} /> Add New Student
-        </button>
+        {/* Second Row: Filters and Actions */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          {/* Left Side: Filter Controls */}
+          <div className="flex flex-col xs:flex-row gap-2 xs:items-center">
+            {/* Mobile Filter Toggle */}
+            <button
+              onClick={() => setShowMobileFilters(!showMobileFilters)}
+              className="sm:hidden flex items-center gap-2 px-3 py-2 text-sm border rounded-md bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
+            >
+              <Filter size={16} />
+              Filters
+              {(filterClass || searchQuery) && (
+                <span className="ml-1 px-1.5 py-0.5 text-xs bg-indigo-100 text-indigo-800 rounded">
+                  {[filterClass, searchQuery].filter(Boolean).length}
+                </span>
+              )}
+            </button>
+
+            {/* Desktop Filter Controls */}
+            <div className="hidden sm:flex items-center gap-2 flex-wrap">
+              <select
+                value={filterClass}
+                onChange={(e) => setFilterClass(e.target.value)}
+                className="px-3 py-2 rounded-md text-sm border bg-white dark:bg-gray-900 min-w-0"
+              >
+                <option value="">All Classes</option>
+                {classes.map((c) => (
+                  <option key={String(c.class_id ?? '')} value={String(c.class_id ?? '')}>
+                    {c.class_name}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                onClick={fetchStudents}
+                className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100 text-sm rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 whitespace-nowrap"
+                title="Refresh student list"
+              >
+                <RotateCcw size={16} />
+                <span className="hidden lg:inline">Refresh</span>
+              </button>
+
+              <button
+                onClick={openBulk}
+                disabled={planExpired || (isFinite(planMax) && remaining <= 0)}
+                title={
+                  planExpired
+                    ? 'Plan expired — renew to use this feature'
+                    : (isFinite(planMax) && remaining <= 0)
+                      ? `Reached ${planHuman} plan student limit`
+                      : 'Import students from Excel'
+                }
+                className="flex items-center gap-2 px-4 py-2 bg-sky-600 text-white text-sm rounded-md hover:bg-sky-700 disabled:opacity-60"
+              >
+                <Upload size={16} /> Bulk Import
+              </button>
+            </div>
+
+            {/* Mobile Filter Panel */}
+            {showMobileFilters && (
+              <div className="sm:hidden mt-2 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border">
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Class Filter</label>
+                    <select
+                      value={filterClass}
+                      onChange={(e) => setFilterClass(e.target.value)}
+                      className="w-full px-3 py-2 rounded-md text-sm border bg-white dark:bg-gray-900"
+                    >
+                      <option value="">All Classes</option>
+                      {classes.map((c) => (
+                        <option key={String(c.class_id ?? '')} value={String(c.class_id ?? '')}>
+                          {c.class_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    onClick={fetchStudents}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100 text-sm rounded-md hover:bg-gray-200 dark:hover:bg-gray-700"
+                  >
+                    <RotateCcw size={16} /> Refresh Student List
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right Side: Action Buttons */}
+          <div className="flex flex-col xs:flex-row gap-2">
+            <button
+              onClick={exportToExcel}
+              className="flex items-center justify-center gap-2 px-3 py-2 bg-emerald-600 text-white text-sm rounded-md hover:bg-emerald-700 whitespace-nowrap"
+              title="Download Excel report"
+            >
+              <Download size={16} />
+              <span className="xs:hidden lg:inline">Download Excel</span>
+              <span className="hidden xs:inline lg:hidden">Excel</span>
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Status */}
-      {loading && <div className="mb-4 text-sm text-gray-600">Loading students…</div>}
+      {/* Status Messages */}
+      {loading && (
+        <div className="mb-4 flex items-center gap-2 text-sm text-gray-600">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading students…
+        </div>
+      )}
       {loadError && (
         <div className="mb-4 flex items-start gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
-          <AlertCircle className="mt-0.5 h-4 w-4" />
+          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
           <span className="text-sm">{loadError}</span>
         </div>
       )}
       {classesErr && (
         <div className="mb-4 flex items-start gap-2 text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-          <AlertCircle className="mt-0.5 h-4 w-4" />
+          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
           <span className="text-sm">{classesErr}</span>
         </div>
       )}
 
-      {/* Table */}
-      <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm">
-        <table className="min-w-full text-sm">
-          <thead className="bg-indigo-100 dark:bg-gray-800">
+
+      {/* Responsive Student Display */}
+      {/* Desktop Table View */}
+      <div className="hidden lg:block overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm">
+        <table className="w-full min-w-max text-sm">
+          <thead className="bg-indigo-50 dark:bg-gray-800">
             <tr>
-              <th className="px-4 py-3 text-left">Student</th>
-              <th className="px-4 py-3 text-left">Class</th>
-              <th className="px-4 py-3 text-left">Email</th>
-              <th className="px-4 py-3 text-left">Status</th>
-              <th className="px-4 py-3 text-left">Actions</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-900 dark:text-gray-100">Student</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-900 dark:text-gray-100">Class</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-900 dark:text-gray-100">Email</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-900 dark:text-gray-100">Status</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-900 dark:text-gray-100">Actions</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
             {filtered.map((s) => (
-              <tr key={s.id} className="border-t hover:bg-gray-50 dark:hover:bg-gray-800">
+              <tr key={s.id} className=" hover:bg-gray-50 dark:hover:bg-gray-800">
                 <td className="px-4 py-2">
-                  <div className="flex items-center gap-2">
-                    <Avatar urls={s.photo_urls} name={s.full_name} />
-                    <span>{s.full_name}</span>
+                  <div className="flex items-center gap-3">
+                    <Avatar urls={s.photo_urls} name={s.full_name} size={40} />
+                    <div className="min-w-0">
+                      <div className="font-medium text-gray-900 dark:text-gray-100 truncate">{s.full_name}</div>
+                      <div className="text-xs text-gray-500 truncate">{s.email}</div>
+                    </div>
                   </div>
                 </td>
-                <td className="px-4 py-2">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
+                <td className="px-4 py-3">
+                  <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
                     {getClassName(s.class_id)}
                   </span>
                 </td>
-                <td className="px-4 py-2">{s.email}</td>
-                <td className="px-4 py-2">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+                <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{s.email}</td>
+                <td className="px-4 py-3">
+                  <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
                     {s.status}
                   </span>
                 </td>
-                <td className="px-4 py-2">
+                <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => { setInfoStudent(s); setIsInfoOpen(true); }}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800"
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800 text-xs"
                       title="View details"
                     >
-                      <Eye size={14} /> View
+                      <Eye size={12} /> View
                     </button>
-
                     <button
                       onClick={() => openEdit(s)}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800"
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800 text-xs"
                       title="Edit student"
                     >
-                      <Pencil size={14} /> Edit
+                      <Pencil size={12} /> Edit
                     </button>
 
                     <button
                       onClick={() => premiumOnly ? null : resetAndSend(s)}
                       disabled={premiumOnly || resettingId === s.id}
-                      className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-md border ${premiumOnly ? 'opacity-60 cursor-not-allowed' : 'text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'}`}
+                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border ${premiumOnly ? 'opacity-60 cursor-not-allowed' : 'text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'}`}
                       title={premiumOnly ? 'Premium plan required for Reset & Send' : 'Reset password & email credentials'}
                     >
                       {resettingId === s.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound size={14} />}
@@ -1165,12 +1246,89 @@ export default function ManageStudentsPage() {
             {!loading && filtered.length === 0 && !loadError && (
               <tr>
                 <td colSpan={5} className="px-4 py-10 text-center text-gray-500">
-                  No students found for your filters/search.
+                  <div className="flex flex-col items-center gap-2">
+                    <GraduationCap className="h-12 w-12 text-gray-400" />
+                    <p>No students found for your filters/search.</p>
+                  </div>
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* Mobile Card View */}
+      <div className="lg:hidden space-y-3">
+        {filtered.map((s) => (
+          <div key={s.id} className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-4">
+            <div className="flex items-start gap-3 mb-3">
+              <Avatar urls={s.photo_urls} name={s.full_name} size={48} />
+              <div className="flex-1 min-w-0">
+                <h3 className="font-medium text-gray-900 dark:text-gray-100 truncate">{s.full_name}</h3>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
+                    {getClassName(s.class_id)}
+                  </span>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+                    {s.status}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2 mb-4">
+              {s.email && (
+                <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                  <Mail className="h-4 w-4 flex-shrink-0" />
+                  <span className="truncate">{s.email}</span>
+                </div>
+              )}
+              {s.admission_no && (
+                <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                  <Hash className="h-4 w-4 flex-shrink-0" />
+                  <span>Admission: {s.admission_no}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => { setInfoStudent(s); setIsInfoOpen(true); }}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800 text-sm flex-1 justify-center sm:flex-none"
+              >
+                <Eye size={14} /> View
+              </button>
+              <button
+                onClick={() => openEdit(s)}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800 text-sm flex-1 justify-center sm:flex-none"
+              >
+                <Pencil size={14} /> Edit
+              </button>
+              <button
+                onClick={() => premiumOnly ? null : resetAndSend(s)}
+                disabled={premiumOnly || resettingId === s.id}
+                className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border ${premiumOnly ? 'opacity-60 cursor-not-allowed' : 'text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'}`}
+                title={premiumOnly ? 'Premium plan required for Reset & Send' : 'Reset password & email credentials'}
+              >
+                {resettingId === s.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound size={14} />}
+                {resettingId === s.id ? 'Resetting…' : 'Reset & Send'}
+              </button>
+              {premiumOnly && (
+                <div className="mt-1 flex items-center gap-1 text-xs text-gray-500">
+                  <Info className="h-3 w-3" /> Reset &amp; Send is a Premium feature
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {!loading && filtered.length === 0 && !loadError && (
+          <div className="text-center py-12">
+            <GraduationCap className="mx-auto h-16 w-16 text-gray-400 mb-4" />
+            <p className="text-gray-500 text-lg">No students found</p>
+            <p className="text-gray-400 text-sm">Try adjusting your search or filters</p>
+          </div>
+        )}
       </div>
 
       {/* Add / Edit Dialog */}
@@ -1179,7 +1337,7 @@ export default function ManageStudentsPage() {
           <div className="absolute inset-0 bg-black/50" onClick={() => (submitting ? null : setIsOpen(false))} />
           <div className="relative z-10 h-full overflow-y-auto">
             <div className="flex min-h-full items-center justify-center p-4">
-              <div className="w-full max-w-2xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col max-h-[90vh]">
+              <div className="w-full max-w-2xl mx-auto bg-white dark:bg-gray-900 rounded-2xll shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col max-h-[90vh]">
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
                   <h3 className="text-lg font-semibold">{dialogMode === 'add' ? 'Add Student' : 'Edit Student'}</h3>
                   <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" onClick={() => (submitting ? null : setIsOpen(false))}>
@@ -1193,7 +1351,7 @@ export default function ManageStudentsPage() {
                     <div>
                       <span className="text-sm text-gray-700 dark:text-gray-300">Photo</span>
                       <div className="mt-2 flex items-center gap-3">
-                        <Avatar urls={[...(photoPreview ? [photoPreview] : [])]} name={form.full_name} size={56} />
+                        <Avatar urls={[...(photoPreview ? [photoPreview] : [])]} name={form.full_name} size={40} />
                         <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onPickImage} />
                         <button type="button" onClick={() => fileInputRef.current?.click()} className="px-3 py-2 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-800 inline-flex items-center gap-2">
                           <ImageIcon className="h-4 w-4" />
@@ -1421,7 +1579,7 @@ export default function ManageStudentsPage() {
           <div className="w-full max-w-3xl rounded-2xl bg-white dark:bg-gray-900 shadow-2xl border border-gray-200 dark:border-gray-700 max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
               <div className="flex items-center gap-3">
-                <Avatar urls={infoStudent.photo_urls} name={infoStudent.full_name} size={120} />
+                <Avatar urls={infoStudent.photo_urls} name={infoStudent.full_name} size={80} />
                 <div>
                   <div className="text-lg font-semibold">{infoStudent.full_name}</div>
                   <div className="text-xs text-gray-500">{getClassName(infoStudent.class_id)}</div>

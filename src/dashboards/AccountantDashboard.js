@@ -63,7 +63,9 @@ const activity = [
 
 const AccountantDashboard = () => {
   return (
-    <DashboardLayout title="Finance Dashboard" subtitle="Manage school finances, invoices, and fee reports">
+    <DashboardLayout title="Finance Dashboard"
+    //  subtitle="Manage school finances, invoices, and fee reports"
+     >
       <div className="bg-gradient-to-r from-green-500 via-blue-600 to-indigo-700 rounded-2xl p-6 text-white mb-8">
         <h2 className="text-2xl font-bold mb-2">Welcome to the Accountant Dashboard 💼</h2>
         <p className="text-white/80">Track fees, manage payments, and monitor financial insights of your school.</p>

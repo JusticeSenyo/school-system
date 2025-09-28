@@ -287,7 +287,7 @@ Thank you.`;
   };
 
   return (
-    <DashboardLayout title="Print Bill" subtitle="Generate and print/send student bills">
+    <DashboardLayout title="Print Bill" subtitle="">
       {/* Sticky Filters */}
       <div className="sticky top-0 z-10 pb-3 bg-gradient-to-b from-white/70 to-transparent dark:from-gray-900/60 backdrop-blur-md mb-2">
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow p-4 border border-gray-100 dark:border-gray-700">

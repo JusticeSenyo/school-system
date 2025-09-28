@@ -411,7 +411,7 @@ export default function PrintExamReportPage() {
   return (
     <DashboardLayout
       title="Print Exam Report"
-      subtitle="Generate and print a student's exam report"
+      subtitle=""
     >
       {/* Filters */}
       <div className="sticky top-0 z-10 pb-3 bg-gradient-to-b from-white/70 to-transparent dark:from-gray-900/60 backdrop-blur-md mb-3">
@@ -463,7 +463,7 @@ export default function PrintExamReportPage() {
               ))}
             </LabeledSelect>
 
-            <div className="hidden md:flex items-end">
+            <div className=" md:flex items-end">
               <button
                 onClick={handlePrint}
                 className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg w-full md:w-auto"

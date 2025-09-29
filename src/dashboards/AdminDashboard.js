@@ -392,7 +392,10 @@ const AdminDashboard = () => {
   }, [role]);
 
   return (
-<DashboardLayout title="School Dashboard" subtitle="Overview of your school's performance and activities">
+    <DashboardLayout
+      title="School Dashboard"
+      // subtitle="Overview of your school's performance and activities"
+    >
       {/* Welcome */}
       <div className="bg-gradient-to-r from-purple-600 via-blue-600 to-indigo-700 rounded-2xl p-4 sm:p-6 text-white mb-6 sm:mb-8">
         <h2 className="text-xl sm:text-2xl font-bold mb-1">Welcome to the Admin Dashboard 🎓</h2>

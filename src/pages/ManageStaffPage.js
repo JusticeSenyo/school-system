@@ -5,14 +5,14 @@ import {
   PlusCircle, X, Mail, UserCircle2,
   Loader2, CheckCircle2, AlertCircle, RotateCcw, Pencil,
   Download, Search, KeyRound, Eye, Image as ImageIcon, Printer,
-  Upload, Info
+  Upload, Info, Filter
 } from 'lucide-react';
 import { getTempPassword } from '../lib/passwords';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../AuthContext';
 import { buildStaffKey, buildPublicUrl, putToOCI } from '../config/storage';
 
-/* ================== Constants ================== */
+/* ================== Constants kept from first page ================== */
 const ROLE_LABELS = { AD: 'Admin', HT: 'Head Teacher', TE: 'Teacher', AC: 'Accountant', SO: 'Owner' };
 const ROLE_OPTIONS = [
   { value: 'AD', label: 'Admin' },
@@ -39,7 +39,7 @@ const ADD_STAFF_ENDPOINT =
 const UPDATE_STAFF_ENDPOINT =
   'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/staff/update/staff/';
 
-/* ================== Plans / limits ================== */
+/* ================== Plans / limits (from second page) ================== */
 const PLAN_LIMITS = { BASIC: 10, STANDARD: 100, PREMIUM: Infinity };
 const PLAN_NAME_BY_CODE = (raw) => {
   const v = String(raw ?? '').trim().toUpperCase();
@@ -50,7 +50,7 @@ const PLAN_NAME_BY_CODE = (raw) => {
 };
 const HUMAN_PLAN = (code) => ({ BASIC: 'Basic', STANDARD: 'Standard', PREMIUM: 'Premium' }[code] || 'Basic');
 
-/* ================== Safe URL builder ================== */
+/* ================== Safe URL builder (first page) ================== */
 const useApiJoin = (API_BASE) => {
   const API_ROOT = (API_BASE || '').replace(/\/+$/, '') + '/';
   const toUrl = (path = '', params = {}) => {
@@ -67,7 +67,7 @@ const useApiJoin = (API_BASE) => {
   return { toUrl };
 };
 
-/* ================== Helpers ================== */
+/* ================== Helpers (shared) ================== */
 const initials = (name = '') =>
   name.split(' ').filter(Boolean).slice(0, 2).map(s => s[0]?.toUpperCase()).join('') || 'ST';
 
@@ -100,7 +100,16 @@ const jparse = async (r) => {
   try { return JSON.parse(t); } catch { return { _raw: t }; }
 };
 
-/* ================== Next staff ID ================== */
+/* Build GET url from base + params (used for plan fetch only if needed) */
+const buildGet = (base, params) => {
+  const qp = new URLSearchParams();
+  Object.entries(params || {}).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') qp.set(k, String(v));
+  });
+  return `${base}?${qp.toString()}`;
+};
+
+/* ================== Next staff ID (first page, using toUrl) ================== */
 async function fetchNextStaffId(toUrl, { token, schoolId } = {}) {
   const headers = { Accept: 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -115,7 +124,6 @@ async function fetchNextStaffId(toUrl, { token, schoolId } = {}) {
     try {
       const res = await fetch(url, { headers });
       const raw = await res.text();
-      // Some ORDS handlers echo "content-type" etc. Strip it.
       const body = raw.replace(/^content[- ]type\s*:\s*application\/json[^\n]*\n?/i, '').trim();
 
       const jsonSlice = body.match(/\{[\s\S]*\}/);
@@ -187,7 +195,7 @@ export default function ManageStaffPage() {
     user?.organisation ??
     '';
 
-  /* ---------- Plan & expiry ---------- */
+  /* ---------- Plan & expiry (added from second page, using toUrl) ---------- */
   const [planCode, setPlanCode] = useState('BASIC'); // BASIC|STANDARD|PREMIUM
   const [planHuman, setPlanHuman] = useState('Basic');
   const [expiryISO, setExpiryISO] = useState(null);
@@ -224,7 +232,7 @@ export default function ManageStaffPage() {
     return isFinite(d.getTime()) && d.getTime() < Date.now();
   }, [expiryISO]);
 
-  /* ---------- Staff list ---------- */
+  /* ---------- Staff list (kept from first page) ---------- */
   const [staffList, setStaffList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -311,6 +319,13 @@ export default function ManageStaffPage() {
   const [regenLoading, setRegenLoading] = useState(false);
   const [pendingUserId, setPendingUserId] = useState(null);
 
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const [filters, setFilters] = useState('');
+
+
+
+
+
   // image
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState('');
@@ -319,7 +334,7 @@ export default function ManageStaffPage() {
   // reset password in table
   const [resettingId, setResettingId] = useState(null);
 
-  // BULK IMPORT
+  // BULK IMPORT (added)
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkBusy] = useState(false);
   const [bulkErr, setBulkErr] = useState('');
@@ -344,10 +359,10 @@ export default function ManageStaffPage() {
     return list;
   }, [staffList, filter, searchQuery]);
 
-  /* ---------- Utilities ---------- */
+  /* ---------- Utilities kept from first page ---------- */
   const generateTempPassword = () => getTempPassword(12);
 
-  const sendWelcomeEmail = async ({ full_name, email, roleLabel, tempPassword, schoolName, replyTo, subject }) => {
+  const sendWelcomeEmail = async ({ full_name, email, roleLabel, tempPassword, schoolName, replyTo, bcc, subject }) => {
     try {
       const endpoint = `${EMAIL_API_BASE}/api/send-postmark`;
       const res = await fetch(endpoint, {
@@ -360,6 +375,7 @@ export default function ManageStaffPage() {
           tempPassword,
           schoolName,
           replyTo,
+          bcc,
           subject,
         }),
       });
@@ -390,7 +406,7 @@ export default function ManageStaffPage() {
     return '';
   };
 
-  /* ---------- Update (robust) ---------- */
+  /* ---------- Update (kept from first page; robust) ---------- */
   const updateStaffRobust = async (payload) => {
     const mustParams = {
       p_user_id: String(payload.userId),
@@ -481,7 +497,7 @@ export default function ManageStaffPage() {
     setPhotoPreview(f ? URL.createObjectURL(f) : '');
   };
 
-  /* ---------- ADD ---------- */
+  /* ---------- ADD (GET with headers; keep first page’s absolute endpoint) ---------- */
   const submitAddStaff = async () => {
     setFormError(''); setFormSuccess('');
     const err = validateForm();
@@ -575,7 +591,7 @@ export default function ManageStaffPage() {
     }
   };
 
-  /* ---------- UPDATE ---------- */
+  /* ---------- UPDATE (keep first page flow; may overwrite image) ---------- */
   const submitUpdateStaff = async () => {
     setFormError(''); setFormSuccess('');
     const err = validateForm();
@@ -618,7 +634,7 @@ export default function ManageStaffPage() {
     }
   };
 
-  /* ---------- Reset password ---------- */
+  /* ---------- Reset password (kept) ---------- */
   const resetPasswordForUser = async (userIdParam, newPassword) => {
     const url = toUrl(RESET_PWD_PATH, {
       p_user_id: String(userIdParam),
@@ -667,7 +683,7 @@ export default function ManageStaffPage() {
     }
   };
 
-  /* ---------- Export Excel ---------- */
+  /* ---------- Export Excel (kept) ---------- */
   const exportToExcel = () => {
     try {
       const rows = filtered.map((s, idx) => ({
@@ -690,7 +706,7 @@ export default function ManageStaffPage() {
     }
   };
 
-  /* ================== BULK IMPORT ================== */
+  /* ================== BULK IMPORT (added) ================== */
   const openBulk = () => {
     if (planExpired) { setBulkErr('Plan expired — renew to use this feature'); setBulkOpen(true); return; }
     if (isFinite(planMax) && remaining <= 0) { setBulkErr(`Reached ${planHuman} plan staff limit`); setBulkOpen(true); return; }
@@ -826,31 +842,16 @@ export default function ManageStaffPage() {
 
   /* ================== Render ================== */
   return (
-    <DashboardLayout title="Manage Staff" subtitle="View, filter, edit, and manage staff records">
-      {/* Plan banner — simplified label with staff count */}
-      <PlanBanner
-        planHuman={planHuman}
-        expiryISO={expiryISO}
-        count={staffCount}
-        max={planMax}
-        label="Staff"
-        storageKey="staff-plan-banner"
-      />
-
-      {/* Toolbar */}
-      <div className="mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="px-4 py-2 rounded-md text-sm border bg-white dark:bg-gray-900"
-          >
-            <option value="">All Roles</option>
-            {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-          </select>
-
-          <div className="relative">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+    <DashboardLayout title="Manage Staff" subtitle="">
+      {/* Plan banner (added) */}
+      <PlanBanner planHuman={planHuman} expiryISO={expiryISO} count={staffCount} max={planMax} />
+      {/* Mobile-First Responsive Toolbar */}
+      <div className="mb-6 space-y-4">
+        {/* Top Row: Search and Add Button */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          {/* Search Bar - Full width on mobile, grows on desktop */}
+          <div className="relative flex-1 min-w-0">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400 pointer-events-none" />
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -859,54 +860,109 @@ export default function ManageStaffPage() {
             />
           </div>
 
+          {/* Add Button - Full width on mobile */}
           <button
-            onClick={fetchStaff}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100 text-sm rounded-md hover:bg-gray-200 dark:hover:bg-gray-700"
-            title="Refresh staff list"
-            type="button"
+            onClick={openAdd}
+            className="flex items-center justify-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 text-sm font-medium whitespace-nowrap"
           >
-            <RotateCcw size={16} /> Refresh
-          </button>
-
-          <button
-            onClick={exportToExcel}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm rounded-md hover:bg-emerald-700"
-            title="Download Excel report of current table view"
-            type="button"
-          >
-            <Download size={16} /> Download Excel
-          </button>
-
-          <button
-            onClick={openBulk}
-            disabled={planExpired || (isFinite(planMax) && remaining <= 0)}
-            title={
-              planExpired
-                ? 'Plan expired — renew to use this feature'
-                : (isFinite(planMax) && remaining <= 0)
-                ? `Reached ${planHuman} plan staff limit`
-                : 'Import staff from Excel'
-            }
-            className="flex items-center gap-2 px-4 py-2 bg-sky-600 text-white text-sm rounded-md hover:bg-sky-700 disabled:opacity-60"
-            type="button"
-          >
-            <Upload size={16} /> Bulk Import
+            <PlusCircle size={16} />
+            <span className="sm:inline">Add New Staff</span>
           </button>
         </div>
 
-        <button
-          onClick={openAdd}
-          disabled={planExpired || (isFinite(planMax) && remaining <= 0)}
-          title={
-            planExpired ? 'Plan expired — renew to add staff'
-            : (isFinite(planMax) && remaining <= 0) ? `Reached ${planHuman} plan staff limit`
-            : 'Add a new staff'
-          }
-          className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 text-sm disabled:opacity-60"
-          type="button"
-        >
-          <PlusCircle size={16} /> Add New Staff
-        </button>
+        {/* Second Row: Filters and Actions */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          {/* Left Side: Filter Controls */}
+          <div className="flex flex-col xs:flex-row gap-2 xs:items-center">
+            {/* Mobile Filter Toggle */}
+            <button
+              onClick={() => setShowMobileFilters(!showMobileFilters)}
+              className="sm:hidden flex items-center gap-2 px-3 py-2 text-sm border rounded-md bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
+            >
+              <Filter size={16} />
+              Filters
+              {(filters || searchQuery) && (
+                <span className="ml-1 px-1.5 py-0.5 text-xs bg-indigo-100 text-indigo-800 rounded">
+                  {[filters, searchQuery].filters(Boolean).length}
+                </span>
+              )}
+            </button>
+
+            {/* Desktop Filter Controls */}
+            <div className="hidden sm:flex items-center gap-2 flex-wrap">
+              <select
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                className="px-3 py-2 rounded-md text-sm border bg-white dark:bg-gray-900 min-w-0"
+              >
+                <option value="">All Roles</option>
+                {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.label}>{r.label}</option>)}
+              </select>
+
+              <button
+                onClick={fetchStaff}
+                className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100 text-sm rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 whitespace-nowrap"
+                title="Refresh staff list"
+              >
+                <RotateCcw size={16} />
+                <span className="hidden lg:inline">Refresh</span>
+              </button>
+
+              <button
+                onClick={openBulk}
+                disabled={planExpired || (isFinite(planMax) && remaining <= 0)}
+                title={
+                  planExpired
+                    ? 'Plan expired — renew to use this feature'
+                    : (isFinite(planMax) && remaining <= 0)
+                      ? `Reached ${planHuman} plan staff limit`
+                      : 'Import staff from Excel'
+                }
+                className="flex items-center gap-2 px-4 py-2 bg-sky-600 text-white text-sm rounded-md hover:bg-sky-700 disabled:opacity-60"
+              >
+                <Upload size={16} /> Bulk Import
+              </button>
+            </div>
+
+            {/* Mobile Filter Panel */}
+            {showMobileFilters && (
+              <div className="sm:hidden mt-2 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border">
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Role Filter</label>
+                    <select
+                      value={filters}
+                      onChange={(e) => setFilters(e.target.value)}
+                      className="w-full px-3 py-2 rounded-md text-sm border bg-white dark:bg-gray-900"
+                    >
+                      <option value="">All Roles</option>
+                      {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.label}>{r.label}</option>)}
+                    </select>
+                  </div>
+                  <button
+                    onClick={fetchStaff}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100 text-sm rounded-md hover:bg-gray-200 dark:hover:bg-gray-700"
+                  >
+                    <RotateCcw size={16} /> Refresh Staff List
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right Side: Action Buttons */}
+          <div className="flex flex-col xs:flex-row gap-2">
+            <button
+              onClick={exportToExcel}
+              className="flex items-center justify-center gap-2 px-3 py-2 bg-emerald-600 text-white text-sm rounded-md hover:bg-emerald-700 whitespace-nowrap"
+              title="Download Excel report"
+            >
+              <Download size={16} />
+              <span className="xs:hidden lg:inline">Download Excel</span>
+              <span className="hidden xs:inline lg:hidden">Excel</span>
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Status Messages */}
@@ -923,6 +979,7 @@ export default function ManageStaffPage() {
         </div>
       )}
 
+      {/* Responsive Staff Display */}
       {/* Desktop Table View */}
       <div className="hidden lg:block overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm">
         <table className="min-w-full text-sm">
@@ -979,9 +1036,8 @@ export default function ManageStaffPage() {
                     <button
                       onClick={() => resetAndSend(staff)}
                       disabled={resettingId === staff.id}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 disabled:opacity-60"
-                      title="Reset password & email credentials"
-                      type="button"
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md border text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 disabled:opacity-60 text-xs"
+                      title="Reset password"
                     >
                       {resettingId === staff.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <KeyRound size={12} />}
                       Reset & send
@@ -1020,39 +1076,35 @@ export default function ManageStaffPage() {
                     {staff.status}
                   </span>
                 </div>
-                <div className="text-xs text-gray-500 truncate mt-1">{staff.email}</div>
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="space-y-2 mb-4">
+              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                <Mail className="h-4 w-4 flex-shrink-0" />
+                <span className="truncate">{staff.email}</span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => { setInfoStaff(staff); setIsInfoOpen(true); }}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800 text-sm"
-                type="button"
-                title="View details"
+                className="flex items-center gap-1 px-3 py-1.5 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800 text-sm flex-1 justify-center sm:flex-none"
               >
                 <Eye size={14} /> View
               </button>
               <button
                 onClick={() => openEdit(staff)}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800 text-sm"
-                type="button"
-                title="Edit staff"
+                className="flex items-center gap-1 px-3 py-1.5 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800 text-sm flex-1 justify-center sm:flex-none"
               >
                 <Pencil size={14} /> Edit
               </button>
               <button
                 onClick={() => resetAndSend(staff)}
                 disabled={resettingId === staff.id}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-md border text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 disabled:opacity-60 text-sm"
-                type="button"
-                title="Reset password & email credentials"
+                className="flex items-center gap-1 px-3 py-1.5 rounded-md border text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 disabled:opacity-60 text-sm flex-1 justify-center sm:flex-none"
               >
-                {resettingId === staff.id ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <KeyRound size={14} />
-                )}
+                {resettingId === staff.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound size={14} />}
                 Reset
               </button>
             </div>
@@ -1182,52 +1234,21 @@ export default function ManageStaffPage() {
                         </select>
                       </div>
                     </div>
-
-                    {/* Password (add only) */}
-                    {dialogMode === 'add' && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Temporary Password
-                        </label>
-                        <div className="flex gap-2">
-                          <input
-                            className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                            value={form.password}
-                            onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setRegenLoading(true);
-                              setTimeout(() => {
-                                setForm(f => ({ ...f, password: getTempPassword(12) }));
-                                setRegenLoading(false);
-                              }, 120);
-                            }}
-                            className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 inline-flex items-center gap-2"
-                            disabled={regenLoading}
-                          >
-                            {regenLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-                            Regenerate
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Error/Success Messages */}
-                    {formError && (
-                      <div className="flex items-start gap-2 p-3 text-red-700 bg-red-50 border border-red-200 rounded-lg">
-                        <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-                        <span className="text-sm">{formError}</span>
-                      </div>
-                    )}
-                    {formSuccess && (
-                      <div className="flex items-start gap-2 p-3 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg">
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0" />
-                        <span className="text-sm">{formSuccess}</span>
-                      </div>
-                    )}
                   </div>
+
+                  {/* Error/Success Messages */}
+                  {formError && (
+                    <div className="flex items-start gap-2 p-3 text-red-700 bg-red-50 border border-red-200 rounded-lg">
+                      <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                      <span className="text-sm">{formError}</span>
+                    </div>
+                  )}
+                  {formSuccess && (
+                    <div className="flex items-start gap-2 p-3 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                      <span className="text-sm">{formSuccess}</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1237,7 +1258,6 @@ export default function ManageStaffPage() {
                   className="w-full sm:w-auto px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
                   onClick={() => (submitting ? null : setIsOpen(false))}
                   disabled={submitting}
-                  type="button"
                 >
                   Cancel
                 </button>
@@ -1305,39 +1325,39 @@ export default function ManageStaffPage() {
                   </button>
                 </div>
               </div>
+
               {/* Content */}
-              <div className="px-6 py-5 max-h-[70vh] overflow-y-auto">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <UserCircle2 className="h-4 w-4 text-indigo-600" />
-                      <h4 className="text-sm font-semibold">Profile</h4>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-                      <InfoLine label="Full Name" value={infoStaff.name} />
-                      <InfoLine label="Role" value={ROLE_LABELS[infoStaff.role] || infoStaff.role} />
-                      <InfoLine label="Email" value={infoStaff.email} />
-                      <InfoLine label="Status" value={infoStaff.status} />
-                      <InfoLine label="Created At" value={infoStaff.created_at} />
-                    </div>
+              <div className="p-4 sm:p-6 overflow-y-auto max-h-[60vh] sm:max-h-[50vh]">
+                <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4 sm:p-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <UserCircle2 className="h-5 w-5 text-indigo-600" />
+                    <h4 className="font-semibold text-gray-900 dark:text-gray-100">Profile Information</h4>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                    <InfoLine label="Full Name" value={infoStaff.name} />
+                    <InfoLine label="Role" value={ROLE_LABELS[infoStaff.role] || infoStaff.role} />
+                    <InfoLine label="Email" value={infoStaff.email} />
+                    <InfoLine label="Status" value={infoStaff.status} />
+                    <InfoLine label="Created At" value={infoStaff.created_at} />
                   </div>
                 </div>
-                {/* Footer */}
-                <div className="p-4 sm:p-6 border-t border-gray-200 dark:border-gray-800">
-                  <button
-                    onClick={() => setIsInfoOpen(false)}
-                    className="w-full sm:w-auto px-6 py-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
-                  >
-                    Close
-                  </button>
-                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 sm:p-6 border-t border-gray-200 dark:border-gray-800">
+                <button
+                  onClick={() => setIsInfoOpen(false)}
+                  className="w-full sm:w-auto px-6 py-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
+                >
+                  Close
+                </button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Bulk Import Modal */}
+      {/* Bulk Import Modal (added) */}
       {bulkOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/50" onClick={() => (bulkBusy || importing ? null : setBulkOpen(false))} />
@@ -1526,7 +1546,7 @@ export function PlanBanner({ planHuman, expiryISO, count, max, label = 'Records'
           setHidden(true);
           try { sessionStorage.setItem(storageKey, '1'); } catch {}
         }}
-        className="absolute right-2 top-2 p-1 rounded hover:bg-black/5 dark:hover:bg-white/10"
+        className="absolute right-2 top-2 p-1 rounded hover:bg.black/5 dark:hover:bg.white/10"
         type="button"
       >
         <X className="h-4 w-4" />

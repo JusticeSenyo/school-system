@@ -439,30 +439,31 @@ export default function CommunicationPage() {
   };
 
   return (
-<DashboardLayout title="Communication" subtitle="Staff, Class, and Parents messaging">
-  {/* Plan banner (concise, like Manage Staff; basic date) */}
-  {pkgLoaded && showPlan && (
-    <div
-      className={`mb-4 flex items-start gap-2 rounded-lg p-3 border ${
-        isExpired ? 'text-rose-700 bg-rose-50 border-rose-200'
-                  : 'text-blue-700 bg-blue-50 border-blue-200'
-      }`}
-    >
-      <Info className="h-4 w-4 mt-0.5" />
-      <div className="text-sm">
-        <b>Plan:</b> {planHuman}
-        {expiryRaw ? <> · <b>Expires:</b> {String(expiryRaw).slice(0, 10)}</> : null}
-      </div>
-      <button
-        onClick={() => setShowPlan(false)}
-        className="ml-auto p-1 rounded hover:bg-black/5"
-        aria-label="Dismiss plan banner"
-        type="button"
-      >
-        <X className="h-4 w-4" />
-      </button>
-    </div>
-  )}
+    <DashboardLayout title="Communication" subtitle="">
+      {/* Plan status banner */}
+      {pkgLoaded && (
+        <div className={`mb-4 rounded-lg border p-3 text-sm ${isExpired
+          ? 'bg-rose-50 border-rose-200 text-rose-700'
+          : 'bg-gray-50 border-gray-200 text-gray-700'
+        }`}>
+          <div className="flex items-center gap-2">
+            <AlertCircle className={`h-4 w-4 ${isExpired ? 'text-rose-600' : 'text-gray-500'}`} />
+            <span>
+              Plan: <strong>{pkgName || '—'}</strong>
+              {expiryRaw ? <> · Expires: <strong>{String(expiryRaw).slice(0,10)}</strong></> : null}
+              {isExpired && <> · <strong>Expired</strong></>}
+            </span>
+          </div>
+          <button
+            onClick={() => setShowPlan(false)}
+            className="ml-auto p-1 rounded hover:bg-black/5"
+            aria-label="Dismiss plan banner"
+            type="button"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="mb-4 flex gap-2">

@@ -1001,42 +1001,23 @@ export default function ManageStudentsPage() {
   /* ================== Render ================== */
   return (
     <DashboardLayout title="Manage Students" subtitle="">
-{/* Plan banner */}
-<PlanBanner
-  planHuman={planHuman}
-  expiryISO={expiryISO}
-  count={studentCount}
-  max={planMax}
-  label="Students"
-  storageKey="students-plan-banner"
-/>
+      {/* Plan banner */}
+      <PlanBanner planHuman={planHuman} expiryISO={expiryISO} count={studentCount} max={planMax} />
 
-{/* Toolbar */}
-<div className="mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-  <div className="flex flex-wrap items-center gap-2">
-    {/* Class filter */}
-    <select
-      value={filterClass}
-      onChange={(e) => setFilterClass(e.target.value)}
-      className="px-4 py-2 rounded-md text-sm border bg-white dark:bg-gray-900"
-    >
-      <option value="">All Classes</option>
-      {classes.map((c) => (
-        <option key={String(c.class_id ?? '')} value={String(c.class_id ?? '')}>
-          {c.class_name}
-        </option>
-      ))}
-    </select>
-
-    <div className="relative">
-      <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-      <input
-        value={searchQuery}
-        onChange={(e) => setSearchQuery(e.target.value)}
-        placeholder="Search name, email, class… (e.g., status:active class:Grade 2 gender:f)"
-        className="w-full pl-9 pr-3 py-2 rounded-md text-sm border bg-white dark:bg-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-      />
-    </div>
+      {/* Mobile-First Responsive Toolbar */}
+      <div className="mb-6 space-y-4">
+        {/* Top Row: Search and Add Button */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          {/* Search Bar - Full width on mobile, grows on desktop */}
+          <div className="relative flex-1 min-w-0">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400 pointer-events-none" />
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search name, email, class… (e.g., status:active class:Grade 2 gender:f)"
+              className="w-full pl-9 pr-3 py-2 rounded-md text-sm border bg-white dark:bg-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
+          </div>
 
           {/* Add Button - Full width on mobile */}
           <button

@@ -449,7 +449,7 @@ export default function CommunicationPage() {
           <div className="flex items-center gap-2">
             <AlertCircle className={`h-4 w-4 ${isExpired ? 'text-rose-600' : 'text-gray-500'}`} />
             <span>
-              Plan: <strong>{pkgName || '—'}</strong>
+              Plan: <strong>{planHuman || '—'}</strong>
               {expiryRaw ? <> · Expires: <strong>{String(expiryRaw).slice(0,10)}</strong></> : null}
               {isExpired && <> · <strong>Expired</strong></>}
             </span>

@@ -64,7 +64,6 @@ const normalizeRole = (role) => {
   return r;
 };
 
-// Prettify Academics submenu labels if you keep the older names
 const prettyAcademicLabel = (raw) => {
   switch (raw) {
     case "Manage Classes": return "Classes";
@@ -74,7 +73,6 @@ const prettyAcademicLabel = (raw) => {
   }
 };
 
-// Make a *defensive* copy and ensure Terms/Academic Years are present
 function useMenusAugmentedByAcademics(baseMenus) {
   const safe = Array.isArray(baseMenus) ? baseMenus : [];
   const menus = safe.map(it =>
@@ -108,9 +106,8 @@ const Sidebar = ({ isCollapsed, onExpand, role: roleProp, menus: menusProp }) =>
     [roleProp, user?.userType]
   );
 
-  // ---- Accountant presence check (to gate ONLY "Manage Fees" for Admin) ----
   const schoolId = user?.schoolId ?? user?.school_id ?? user?.school?.id ?? "";
-  const [hasAccountant, setHasAccountant] = useState(null); // null = loading, true/false = decided
+  const [hasAccountant, setHasAccountant] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -118,16 +115,13 @@ const Sidebar = ({ isCollapsed, onExpand, role: roleProp, menus: menusProp }) =>
 
     (async () => {
       try {
-        // Filter right on the API by role = 'AC' (accountant); fallback to scanning if API ignores it.
         const url = `https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/staff/get/staff/?p_school_id=${encodeURIComponent(schoolId)}&p_role=AC`;
         const r = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" });
         const t = (await r.text()).trim();
         let list = [];
         if (t) {
-          try {
-            const d = JSON.parse(t);
-            list = Array.isArray(d) ? d : (Array.isArray(d.items) ? d.items : []);
-          } catch { list = []; }
+          try { list = JSON.parse(t); } catch { list = []; }
+          if (!Array.isArray(list)) list = Array.isArray(list.items) ? list.items : [];
         }
 
         let exists = false;
@@ -138,34 +132,23 @@ const Sidebar = ({ isCollapsed, onExpand, role: roleProp, menus: menusProp }) =>
         }
 
         if (isMounted) setHasAccountant(exists);
-      } catch {
-        // On error, default to "exists" to keep the item disabled & avoid flicker
-        if (isMounted) setHasAccountant(true);
-      }
+      } catch { if (isMounted) setHasAccountant(true); }
     })();
 
     return () => { isMounted = false; };
   }, [schoolId]);
 
-  // Base menus (from props or global)
   const baseMenusRaw = Array.isArray(menusProp)
     ? menusProp
     : Array.isArray(roleBasedMenus[role])
-    ? roleBasedMenus[role]
-    : [];
+      ? roleBasedMenus[role]
+      : [];
 
-  // Dynamic filtering for TEACHERS:
-  // - Regular teacher: show only "Enter Scores" (already the case in roleBasedMenus.teacher)
-  // - Class teacher: add "Manage Attendance" + "Manage Exam Report" under Examination
   const baseMenus = useMemo(() => {
     if (role !== "teacher") return baseMenusRaw;
 
-    if (!isClassTeacher) {
-      // leave as-is (only Enter Scores)
-      return baseMenusRaw;
-    }
+    if (!isClassTeacher) return baseMenusRaw;
 
-    // Inject CT-only items into the Examination group if not present
     const cloned = baseMenusRaw.map(m => (m.children ? { ...m, children: [...m.children] } : { ...m }));
     const exIdx = cloned.findIndex(m => m.label === "Examination" && Array.isArray(m.children));
     if (exIdx >= 0) {
@@ -174,9 +157,7 @@ const Sidebar = ({ isCollapsed, onExpand, role: roleProp, menus: menusProp }) =>
         { label: "Manage Attendance", path: "/dashboard/manage-attendance" },
         { label: "Manage Exam Report", path: "/dashboard/manage-exam" },
       ];
-      need.forEach(n => {
-        if (!ex.some(e => e.path === n.path)) ex.push(n);
-      });
+      need.forEach(n => { if (!ex.some(e => e.path === n.path)) ex.push(n); });
       cloned[exIdx].children = ex;
     }
     return cloned;
@@ -184,7 +165,6 @@ const Sidebar = ({ isCollapsed, onExpand, role: roleProp, menus: menusProp }) =>
 
   const menus = useMenusAugmentedByAcademics(baseMenus);
 
-  // Auto-expand group that contains current route
   const groupWithActive = useMemo(() => {
     const idx = menus.findIndex(
       m => Array.isArray(m.children) && m.children.some(c => c.path && location.pathname.startsWith(c.path))
@@ -194,17 +174,13 @@ const Sidebar = ({ isCollapsed, onExpand, role: roleProp, menus: menusProp }) =>
 
   const [open, setOpen] = useState(() => (groupWithActive ? { [groupWithActive]: true } : {}));
   const toggle = (label) => setOpen(prev => ({ ...prev, [label]: !prev[label] }));
-  const ensureExpanded = () => {
-    if (isCollapsed && typeof onExpand === "function") onExpand();
-  };
+  const ensureExpanded = () => { if (isCollapsed && typeof onExpand === "function") onExpand(); };
 
-  // Logout redirect
   const handleLogout = async () => {
     try { await Promise.resolve(logout?.()); }
     finally {
       const schoolId = user?.schoolId ?? user?.school_id ?? user?.school?.id ?? "";
-      const url = `http://app.schoolmasterhub.net/login/?p_school_id=${encodeURIComponent(schoolId || "")}`;
-      window.location.href = url;
+      window.location.href = `http://app.schoolmasterhub.net/login/?p_school_id=${encodeURIComponent(schoolId || "")}`;
     }
   };
 
@@ -213,26 +189,19 @@ const Sidebar = ({ isCollapsed, onExpand, role: roleProp, menus: menusProp }) =>
 
   return (
     <aside
-      className={`bg-white dark:bg-gray-800 border-r dark:border-gray-700 p-4 transition-all duration-300 ${
-        isCollapsed ? "w-20" : "w-64"
-      } min-h-screen flex flex-col`}
+      className={`bg-white dark:bg-gray-800 border-r dark:border-gray-700 p-4 transition-all duration-300
+        ${isCollapsed ? "w-20" : "w-64"} min-h-screen flex flex-col`}
     >
       {/* Logo / Title */}
       {!isCollapsed ? (
         <div className="flex items-center justify-center mb-6">
-          <h1
-            className="text-xl font-bold text-indigo-600 dark:text-white truncate max-w-full tracking-wide"
-            title={displaySchoolName}
-          >
+          <h1 className="text-xl font-bold text-indigo-600 dark:text-white truncate max-w-full tracking-wide" title={displaySchoolName}>
             {displaySchoolName}
           </h1>
         </div>
       ) : (
         <div className="flex items-center justify-center mb-6">
-          <div
-            className="h-9 w-9 rounded-lg bg-indigo-600 text-white grid place-items-center font-semibold"
-            title={displaySchoolName}
-          >
+          <div className="h-9 w-9 rounded-lg bg-indigo-600 text-white grid place-items-center font-semibold" title={displaySchoolName}>
             {displaySchoolName.slice(0, 2)}
           </div>
         </div>
@@ -246,44 +215,34 @@ const Sidebar = ({ isCollapsed, onExpand, role: roleProp, menus: menusProp }) =>
               <div key={item.label}>
                 <button
                   onClick={() => {
-                    if (isCollapsed) {
-                      ensureExpanded();
-                      setOpen(prev => ({ ...prev, [item.label]: true }));
-                    } else {
-                      toggle(item.label);
-                    }
+                    if (isCollapsed) { ensureExpanded(); setOpen(prev => ({ ...prev, [item.label]: true })); }
+                    else toggle(item.label);
                   }}
                   title={isCollapsed ? item.label : ""}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-left transition font-medium ${
-                    item.children.some((child) => location.pathname.startsWith(child.path))
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-left transition font-medium ${item.children.some((child) => location.pathname.startsWith(child.path))
                       ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-white"
                       : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  }`}
+                    }`}
                   aria-expanded={!!open[item.label]}
                 >
                   <div className="flex items-center space-x-2">
                     {iconFor(item.label)}
                     {!isCollapsed && <span>{item.label}</span>}
                   </div>
-                  {!isCollapsed &&
-                    (open[item.label] ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}
+                  {!isCollapsed && (open[item.label] ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}
                 </button>
 
                 {open[item.label] &&
                   item.children.map((child) => {
-                    const label = item.label === "Academics"
-                      ? prettyAcademicLabel(child.label)
-                      : child.label;
+                    const label = item.label === "Academics" ? prettyAcademicLabel(child.label) : child.label;
 
-                    // Restrict JUST "Manage Fees" for Admin if an Accountant exists (or still loading)
                     const restrictManageFees =
                       role === "admin" &&
-                      (hasAccountant !== false) && // true or null (loading) => restrict
+                      (hasAccountant !== false) &&
                       item.label === "Fees" &&
                       label === "Manage Fees";
 
                     if (restrictManageFees) {
-                      // Disabled row with hover hint; no navigation, no flicker
                       return (
                         <div
                           key={child.path || label}
@@ -294,7 +253,6 @@ const Sidebar = ({ isCollapsed, onExpand, role: roleProp, menus: menusProp }) =>
                         >
                           {iconFor(label)}
                           {!isCollapsed && <span>{label}</span>}
-                          {/* Simple tooltip */}
                           <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2
                                             whitespace-nowrap text-xs px-2 py-1 rounded-md shadow
                                             bg-gray-900 text-white opacity-0 group-hover:opacity-100 transition">
@@ -304,18 +262,16 @@ const Sidebar = ({ isCollapsed, onExpand, role: roleProp, menus: menusProp }) =>
                       );
                     }
 
-                    // Normal, clickable link for every other child
                     return (
                       <Link
                         key={child.path || label}
                         to={child.path}
                         onClick={ensureExpanded}
                         title={isCollapsed ? label : ""}
-                        className={`flex items-center space-x-2 ml-8 px-3 py-1.5 text-sm rounded-md transition ${
-                          location.pathname === child.path
+                        className={`flex items-center space-x-2 ml-8 px-3 py-1.5 text-sm rounded-md transition ${location.pathname === child.path
                             ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-800 dark:text-white"
                             : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
-                        }`}
+                          }`}
                       >
                         {iconFor(label)}
                         {!isCollapsed && <span>{label}</span>}
@@ -329,11 +285,10 @@ const Sidebar = ({ isCollapsed, onExpand, role: roleProp, menus: menusProp }) =>
                 to={item.path}
                 onClick={ensureExpanded}
                 title={isCollapsed ? item.label : ""}
-                className={`flex items-center space-x-2 px-3 py-2 rounded-md font-medium transition ${
-                  location.pathname === item.path
+                className={`flex items-center space-x-2 px-3 py-2 rounded-md font-medium transition ${location.pathname === item.path
                     ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-white"
                     : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                }`}
+                  }`}
               >
                 {iconFor(item.label)}
                 {!isCollapsed && <span>{item.label}</span>}
@@ -348,7 +303,7 @@ const Sidebar = ({ isCollapsed, onExpand, role: roleProp, menus: menusProp }) =>
       </nav>
 
       {/* Logout */}
-      <div className="mt-auto pt-4 border-top border-gray-200 dark:border-gray-700">
+      <div className="mt-auto pt-4 border-t border-gray-200 dark:border-gray-700">
         <button
           onClick={handleLogout}
           title="Logout"

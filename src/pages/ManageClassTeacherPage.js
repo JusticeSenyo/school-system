@@ -252,13 +252,25 @@ export default function ManageClassTutorPage() {
                     <td className="p-3">
                       <div className="flex justify-end gap-2">
                         <button
-                          className="px-2 py-1 border rounded-lg inline-flex items-center gap-1"
+                          className="px-2 py-1 border rounded-lg inline-flex items-center gap-1 sm:hidden"
+                          onClick={() => setEditing({ id: r.id, classId: r.classId, userId: r.userId })}
+                        >
+                          <Edit3 className="h-4 w-4" /> 
+                        </button>
+                        <button
+                          className="px-2 py-1 border rounded-lg inline-flex items-center gap-1 max-sm:hidden"
                           onClick={() => setEditing({ id: r.id, classId: r.classId, userId: r.userId })}
                         >
                           <Edit3 className="h-4 w-4" /> Edit
                         </button>
                         <button
-                          className="px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1"
+                          className="px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1 sm:hidden"
+                          onClick={() => setDeletingId(r.id)}
+                        >
+                          <Trash2 className="h-4 w-4" /> 
+                        </button>
+                        <button
+                          className="px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1 max-sm:hidden"
                           onClick={() => setDeletingId(r.id)}
                         >
                           <Trash2 className="h-4 w-4" /> Remove

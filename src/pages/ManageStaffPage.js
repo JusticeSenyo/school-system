@@ -1374,7 +1374,10 @@ export default function ManageStaffPage() {
                 <Info className="h-4 w-4 mt-0.5" />
                 <div>
                   <div><b>Format (columns):</b> <code>full_name</code>, <code>email</code>, <code>role</code>, <code>status</code> (optional), <code>image_url</code> (optional)</div>
-                  <div className="mt-1">Role must be one of: <b>AD</b>, <b>HT</b>, <b>TE</b>, <b>AC</b>, <b>SO</b>.</div>
+                  <div className="mt-1">
+              <b>Role must be one of:</b>
+              <span className="ml-2"><b>AD</b> - Administrator, <b>HT</b> - Headteacher, <b>TE</b> - Teacher, <b>AC</b> - Accountant</span>
+            </div>
                   <div className="mt-1">IDs and <code>school_id</code> are not needed — they’re generated/attached automatically.</div>
                 </div>
               </div>

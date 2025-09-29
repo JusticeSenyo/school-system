@@ -189,7 +189,7 @@ export default function ManageAcademicYearsPage() {
       {/* Table */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-100 dark:border-gray-700">
         <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
+          <table className="min-w-full sm:text-sm max-sm:text-[12px]">
             <thead>
               <tr className="text-left text-gray-600 dark:text-gray-300 border-b dark:border-gray-700">
                 <th className="p-3">Academic Year</th>
@@ -220,13 +220,25 @@ export default function ManageAcademicYearsPage() {
                     <td className="p-3">
                       <div className="flex justify-end gap-2">
                         <button
-                          className="px-2 py-1 border rounded-lg inline-flex items-center gap-1"
+                          className="px-2 py-1 border rounded-lg inline-flex items-center gap-1 sm:hidden"
+                          onClick={() => setEditing({ id: r.id, name: r.name, status: r.status })}
+                        >
+                          <Edit3 className="h-4 w-4" /> 
+                        </button>
+                        <button
+                          className="px-2 py-1 border rounded-lg inline-flex items-center gap-1 max-sm:hidden"
                           onClick={() => setEditing({ id: r.id, name: r.name, status: r.status })}
                         >
                           <Edit3 className="h-4 w-4" /> Edit
                         </button>
                         <button
-                          className="px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1"
+                          className="px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1 sm:hidden"
+                          onClick={() => setDeletingId(r.id)}
+                        >
+                          <Trash2 className="h-4 w-4" /> 
+                        </button>
+                        <button
+                          className="px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1 max-sm:hidden"
                           onClick={() => setDeletingId(r.id)}
                         >
                           <Trash2 className="h-4 w-4" /> Delete

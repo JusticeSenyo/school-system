@@ -192,6 +192,22 @@ export default function ManageFeesPage() {
   const [openStudentPayments, setOpenStudentPayments] = useState(false); const [studentForPayments, setStudentForPayments] = useState(null);
   const [toast, setToast] = useState(null);
 
+  // email sending state (which student id is being sent now)
+  const [sendingMailFor, setSendingMailFor] = useState(null);
+
+  const sendEmailApi = async ({ to, subject, message, fromName }) => {
+    const r = await fetch("/api/send-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: Array.isArray(to) ? to : [to], subject, message, fromName }),
+    });
+    const j = await r.json().catch(()=>({}));
+    if (!r.ok || j?.success === false) {
+      throw new Error(j?.error || `Email send failed (${r.status})`);
+    }
+    return j; // { success: true, sent, dev? }
+  };
+
   // NEW: balances filter
   const [balancesFilter, setBalancesFilter] = useState("all"); // 'all' | 'owing' | 'paid'
 
@@ -399,14 +415,14 @@ export default function ManageFeesPage() {
     } catch (e) { setToast({ type:"err", text:(e && e.message) || "Failed to delete structure." }); }
   };
   const generateInvoices = async () => {
-    if (!ask(`Generate invoices for:\nClass: ${clsName}\nTerm: ${termName}\nYear: ${yearName}\n\nProceed?`)) return;
+    if (!ask(`Generate Fees for:\nClass: ${clsName}\nTerm: ${termName}\nYear: ${yearName}\n\nProceed?`)) return;
     try {
       const u = `${FEES_GENERATE_API}?p_school_id=${schoolId}&p_class_id=${classId}&p_term=${termId}&p_academic_year=${yearId}`;
       const r = await fetch(u, { cache:"no-store", headers:{Accept:"application/json"} });
       if (!r.ok) throw new Error("Generate failed");
       await Promise.all([loadInvoices(), loadClassSummary(), loadRecentPayments()]);
       setToast({ type:"ok", text:"Invoices generated." }); setTab("invoices");
-    } catch (e) { setToast({ type:"err", text:(e && e.message) || "Failed to generate invoices." }); }
+    } catch (e) { setToast({ type:"err", text:(e && e.message) || "Failed to generate fees." }); }
   };
 
   /* email (Std/Premium) */
@@ -414,13 +430,21 @@ export default function ManageFeesPage() {
   const studentEmail = (sid) => (studentInvoices(sid).find(i => i.contact_email)?.contact_email || "").trim();
   const studentPhone = (sid) => (studentInvoices(sid).find(i => i.contact_phone)?.contact_phone || "").trim();
 
-  const emailConsolidated = (sid, name) => {
-    const email = studentEmail(sid); if (!email) return setToast({ type:"err", text:"No contact email found." });
-    const invs = studentInvoices(sid); if (!invs.length) return setToast({ type:"err", text:"No invoices in this selection." });
-    const lines = invs.map(i => `• ${i.category_name || i.category_id}: ${money(i.amount)} | Paid: ${money(i.paid_total)} | Bal: ${money(i.balance)}${i.due_date ? ` | Due: ${i.due_date}` : ""}`).join("\n");
+  const emailConsolidated = async (sid, name) => {
+    const email = studentEmail(sid);
+    if (!email) { setToast({ type:"err", text:"No contact email found." }); return; }
+
+    const invs = studentInvoices(sid);
+    if (!invs.length) { setToast({ type:"err", text:"No invoices in this selection." }); return; }
+
+    const lines = invs.map(i =>
+      `• ${i.category_name || i.category_id}: ${money(i.amount)} | Paid: ${money(i.paid_total)} | Bal: ${money(i.balance)}${i.due_date ? ` | Due: ${i.due_date}` : ""}`
+    ).join("\n");
+
     const totalAmount = invs.reduce((s,r)=>s+Number(r.amount||0),0);
     const totalPaid   = invs.reduce((s,r)=>s+Number(r.paid_total||0),0);
     const totalBal    = invs.reduce((s,r)=>s+Number(r.balance||0),0);
+
     const subject = `Invoice for ${name} — ${clsName}, ${termName} ${yearName}`;
     const body = `Dear Parent/Guardian,
 
@@ -435,27 +459,32 @@ Totals:
 
 To make payment, please use the approved channels and include the receipt number where applicable.
 Thank you.`;
-    const href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    if (typeof window !== "undefined") window.location.href = href;
-    setToast({ type:"ok", text:`Opening email to ${email}...` });
+
+    try {
+      setSendingMailFor(sid);
+      const resp = await sendEmailApi({ to: email, subject, message: body, fromName: SCHOOL_NAME });
+      setToast({ type:"ok", text: resp?.dev ? `DEV MODE: Email simulated to ${email}` : `Invoice sent to ${email}` });
+    } catch (e) {
+      setToast({ type:"err", text: e?.message || "Failed to send email." });
+    } finally {
+      setSendingMailFor(null);
+    }
   };
 
-  // NEW: Send Reminder (Balances tab). Email preferred; fallback to SMS intent.
-  const sendReminder = (sid, name) => {
+  // NEW: Send Reminder (Balances tab) — email via API (requires email)
+  const sendReminder = async (sid, name) => {
     const email = studentEmail(sid);
-    const phone = studentPhone(sid);
+    if (!email) { setToast({ type:"err", text:"No contact email on file for this student." }); return; }
+
     const invs = studentInvoices(sid);
     const totalBal = invs.reduce((s,r)=> s + Number(((r.balance ?? (r.amount - r.paid_total)) ?? 0)), 0);
+    if (totalBal <= 0) { setToast({ type:"info", text:"This student does not owe any balance." }); return; }
 
-    if (totalBal <= 0) return setToast({ type:"info", text: "This student does not owe any balance." });
-    if (!email && !phone) return setToast({ type:"err", text: "No contact email or phone on file." });
-
-    const clsLbl = clsName;
-    const subject = `Fee Reminder — ${name} (${clsLbl}, ${termName} ${yearName})`;
+    const subject = `Fee Reminder — ${name} (${clsName}, ${termName} ${yearName})`;
     const body =
 `Dear Parent/Guardian,
 
-This is a gentle reminder that there is an outstanding fee balance for ${name} (${clsLbl}, ${termName} ${yearName}).
+This is a gentle reminder that there is an outstanding fee balance for ${name} (${clsName}, ${termName} ${yearName}).
 
 Outstanding balance: ${money(totalBal)}
 
@@ -463,14 +492,14 @@ Kindly settle the balance at your earliest convenience using the approved channe
 
 Thank you.`;
 
-    if (email) {
-      const href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-      if (typeof window !== "undefined") window.location.href = href;
-      setToast({ type:"ok", text:`Opening email to ${email}...` });
-    } else if (phone) {
-      const href = `sms:${encodeURIComponent(phone)}?&body=${encodeURIComponent(body)}`;
-      if (typeof window !== "undefined") window.location.href = href;
-      setToast({ type:"ok", text:`Opening SMS to ${phone}...` });
+    try {
+      setSendingMailFor(sid);
+      const resp = await sendEmailApi({ to: email, subject, message: body, fromName: SCHOOL_NAME });
+      setToast({ type:"ok", text: resp?.dev ? `DEV MODE: Reminder simulated to ${email}` : `Reminder sent to ${email}` });
+    } catch (e) {
+      setToast({ type:"err", text: e?.message || "Failed to send reminder." });
+    } finally {
+      setSendingMailFor(null);
     }
   };
 
@@ -583,64 +612,74 @@ Thank you.`;
       </div>
 
       {/* Overview */}
-      {tab==="overview" && (
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-6">
-            <KpiCard icon={<DollarSign className="w-5 h-5" />} title="Total Billed" value={money(summary.total_billed)} />
-            <KpiCard icon={<CheckCircle className="w-5 h-5" />} title="Total Paid" value={money(summary.total_paid)} />
-            <KpiCard icon={<XCircle className="w-5 h-5" />} title="Outstanding" value={money(summary.balance)} />
-            <KpiCard icon={<AlertCircle className="w-5 h-5" />} title="Unpaid / All" value={`${debtorsAgg.length}/${invAgg.length}`} />
-          </div>
+        {tab==="overview" && (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-6">
+          <KpiCard icon={<DollarSign className="w-5 h-5" />} title="Total Billed" value={money(summary.total_billed)} />
+          <KpiCard icon={<CheckCircle className="w-5 h-5" />} title="Total Paid" value={money(summary.total_paid)} />
+          <KpiCard icon={<XCircle className="w-5 h-5" />} title="Outstanding" value={money(summary.balance)} />
+          <KpiCard icon={<AlertCircle className="w-5 h-5" />} title="Unpaid / All" value={`${debtorsAgg.length}/${invAgg.length}`} />
+            </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-            <CardTable title={`All students — ${clsName}, ${termName} ${yearName}`} cols={["student","Total Amount","Total Paid","Balance","Status"]}>
-              {invAgg.slice(0,10).map(r => (
-                <tr key={r.student_id} className="border-b last:border-0 dark:border-gray-700">
-                  <td className="p-3 font-medium">
-                    <div className="flex flex-col">
-                      <span>{r.student_name || r.student_id}</span>
-                      <span className="text-xs text-gray-500">
-                        {(r.contact_email && r.contact_phone)
-                          ? `${r.contact_email} • ${r.contact_phone}`
-                          : (r.contact_email || r.contact_phone || <span className="text-amber-600">No contact</span>)}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="p-3">{money(r.amount)}</td>
-                  <td className="p-3">{money(r.paid_total)}</td>
-                  <td className="p-3">{money(r.balance)}</td>
-                  <td className="p-3"><StatusPill status={r.status} /></td>
-                </tr>
-              ))}
-              {invAgg.length===0 && <EmptyRow cols={5} text="No invoices yet for this selection." />}
-            </CardTable>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+          <CardTable title={`All students — ${clsName}, ${termName} ${yearName}`} cols={["student","Total Amount","Total Paid","Balance","Status"]}>
+            {invAgg.slice(0,10).map(r => (
+              <tr key={r.student_id} className="border-b last:border-0 dark:border-gray-700">
+            <td className="p-3 font-medium">
+              <div className="flex flex-col">
+                <span>{r.student_name || r.student_id}</span>
+                <span className="text-xs text-gray-500">
+              {(r.contact_email && r.contact_phone)
+                ? `${r.contact_email} • ${r.contact_phone}`
+                : (r.contact_email || r.contact_phone || <span className="text-amber-600">No contact</span>)}
+                </span>
+              </div>
+            </td>
+            <td className="p-3">{money(r.amount)}</td>
+            <td className="p-3">{money(r.paid_total)}</td>
+            <td className="p-3">{money(r.balance)}</td>
+            <td className="p-3"><StatusPill status={r.status} /></td>
+              </tr>
+            ))}
+            {invAgg.length===0 && <EmptyRow cols={5} text="No invoices yet for this selection." />}
+          </CardTable>
 
-            <CardTable title={`Students owing — ${clsName}, ${termName} ${yearName}`} cols={["Student","Billed","Paid","Balance","Status"]}>
-              {debtorsAgg.slice(0,10).map(r => (
-                <tr key={r.student_id} className="border-b last:border-0 dark:border-gray-700">
-                  <td className="p-3 font-medium">
-                    <div className="flex flex-col">
-                      <span>{r.student_name}</span>
-                      <span className="text-xs text-gray-500">
-                        {(r.contact_email && r.contact_phone)
-                          ? `${r.contact_email} • ${r.contact_phone}`
-                          : (r.contact_email || r.contact_phone || <span className="text-amber-600">No contact</span>)}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="p-3">{money(r.amount)}</td>
-                  <td className="p-3">{money(r.paid_total)}</td>
-                  <td className="p-3">{money(r.balance)}</td>
-                  <td className="p-3"><StatusPill status={r.status} /></td>
-                </tr>
-              ))}
-              {debtorsAgg.length===0 && <EmptyRow cols={5} text="Everyone is fully paid 🎉" />}
-            </CardTable>
-          </div>
-        </>
-      )}
+          <CardTable title={`Students owing — ${clsName}, ${termName} ${yearName}`} cols={["Student","Billed","Paid","Balance","Status",""]}>
+            {debtorsAgg.slice(0,10).map(r => (
+              <tr key={r.student_id} className="border-b last:border-0 dark:border-gray-700">
+            <td className="p-3 font-medium">
+              <div className="flex flex-col">
+                <span>{r.student_name}</span>
+                <span className="text-xs text-gray-500">
+              {(r.contact_email && r.contact_phone)
+                ? `${r.contact_email} • ${r.contact_phone}`
+                : (r.contact_email || r.contact_phone || <span className="text-amber-600">No contact</span>)}
+                </span>
+              </div>
+            </td>
+            <td className="p-3">{money(r.amount)}</td>
+            <td className="p-3">{money(r.paid_total)}</td>
+            <td className="p-3">{money(r.balance)}</td>
+            <td className="p-3"><StatusPill status={r.status} /></td>
+            <td className="p-3">
+              <div className="flex justify-end gap-2">
+                <button
+              className="px-2 py-1 border rounded-lg inline-flex items-center gap-1"
+              onClick={() => openPay(r.student_id, r.student_name || r.student_id)}
+                >
+              View / Pay <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </td>
+              </tr>
+            ))}
+            {debtorsAgg.length===0 && <EmptyRow cols={6} text="Everyone is fully paid 🎉" />}
+          </CardTable>
+            </div>
+          </>
+        )}
 
-      {/* Categories */}
+        {/* Categories */}
       {tab==="categories" && (
         <Section title="Categories" right={
           <>
@@ -721,9 +760,9 @@ Thank you.`;
           </Table>
 
           <div className="w-full">
-            <div className="text-xs text-gray-500 px-3 py-2 rounded-xl border border-dashed dark:border-gray-700">Tip: After changes, generate invoices for {clsName}.</div>
+            <div className="text-xs text-gray-500 px-3 py-2 rounded-xl border border-dashed dark:border-gray-700">Tip: After changes, generate fees for {clsName}.</div>
             <button onClick={generateInvoices} disabled={!schoolId||!classId} className="inline-flex items-center justify-center gap-2 bg-indigo-600 text-white px-3 py-2 rounded-xl disabled:opacity-60 w-full">
-              <Receipt className="w-4 h-4" /> Generate Invoices for {clsName}
+              <Receipt className="w-4 h-4" /> Generate fees for {clsName}
             </button>
           </div>
         </Section>
@@ -731,10 +770,10 @@ Thank you.`;
 
       {/* Invoices (by student) */}
       {tab==="invoices" && (
-        <Section title={`Invoices — ${clsName}, ${termName} ${yearName}`} right={
+        <Section title={`Fees — ${clsName}, ${termName} ${yearName}`} right={
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             {/* Left side: Title */}
-            <h3 className="font-semibold">Invoices</h3>
+            <h3 className="font-semibold">Fees</h3>
 
             {/* Right side: Search + Buttons */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
@@ -776,7 +815,7 @@ Thank you.`;
           {invErr && <div className="mb-3"><Toast type="err" text={invErr} /></div>}
           <div className="grid grid-cols-1 gap-3 xl:block">
             <div className="w-full xl:overflow-x-auto">
-              <Table cols={["tet", "Total Amount", "Total Paid", "Balance", "Status", ""]}>
+              <Table cols={["Student", "Total Amount", "Total Paid", "Balance", "Status", ""]}>
                 {invAgg.map(r => {
                   const email = studentEmail(r.student_id);
                   const canSend = !IS_BASIC && !!email;
@@ -813,23 +852,15 @@ Thank you.`;
                             View / Pay <ChevronRight className="w-4 h-4" />
                           </button>
                           <button
-                            className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 ${canSend ? "" : "opacity-60 cursor-not-allowed"
-                              }`}
-                            onClick={() =>
-                              canSend &&
-                              emailConsolidated(r.student_id, r.student_name || r.student_id)
-                            }
-                            disabled={!canSend}
-                            title={
-                              IS_BASIC
-                                ? "Available on Standard & Premium"
-                                : email
-                                  ? "Send invoice via email"
-                                  : "No email on file"
-                            }
+                            className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 ${canSend ? "" : "opacity-60 cursor-not-allowed"}`}
+                            onClick={() => canSend && emailConsolidated(r.student_id, r.student_name || r.student_id)}
+                            disabled={!canSend || sendingMailFor===r.student_id}
+                            title={IS_BASIC ? "Available on Standard & Premium" : (email ? "Send invoice via email" : "No email on file")}
                           >
-                            <Send className="w-4 h-4" /> Send Invoice
+                            {sendingMailFor===r.student_id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                            {sendingMailFor===r.student_id ? "Sending…" : "Send Invoice"}
                           </button>
+
                         </div>
                       </td>
                     </tr>
@@ -946,8 +977,8 @@ Thank you.`;
               <Table cols={["Student", "Billed", "Paid", "Balance", "Status", ""]}>
                 {balancesRows.map(b => {
                   const email = studentEmail(b.student_id);
-                  const phone = studentPhone(b.student_id);
-                  const canRemind = b.balance > 0 && (!!email || !!phone);
+                  const phone = studentPhone(b.student_id); // kept for display only
+                  const canRemind = b.balance > 0 && !!email;
 
                   return (
                     <tr
@@ -980,15 +1011,16 @@ Thank you.`;
                           </button>
                           <button
                             className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 ${canRemind ? "" : "opacity-60 cursor-not-allowed"}`}
-                            disabled={!canRemind}
+                            disabled={!canRemind || sendingMailFor===b.student_id}
                             onClick={() => sendReminder(b.student_id, b.student_name)}
                             title={b.balance <= 0
                               ? "Student is fully paid"
-                              : (!!email || !!phone
-                                ? "Send a reminder"
-                                : "No contact available")}
+                              : (email
+                                ? "Send reminder via email"
+                                : "No email available")}
                           >
-                            <Send className="w-4 h-4" /> Send Reminder
+                            {sendingMailFor===b.student_id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                            {sendingMailFor===b.student_id ? "Sending…" : "Send Reminder"}
                           </button>
                         </div>
                       </td>
@@ -1287,9 +1319,11 @@ function StudentPayModal({ cur, schoolId, student, invoices, form, setForm, onCa
             <div className="text-gray-500">Total Paid</div>
             <div className="font-semibold">{cur} {Number(totalPaid).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
           </div>
-          <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
+                   <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
             <div className="text-gray-500">Outstanding</div>
-            <div className="font-semibold">{cur} {Number(outstanding).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+            <div className="font-semibold">
+              {cur} {Number(outstanding).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}
+            </div>
           </div>
         </div>
       </div>
@@ -1309,13 +1343,23 @@ function StudentPayModal({ cur, schoolId, student, invoices, form, setForm, onCa
             {invoices.map(inv => (
               <tr key={inv.invoice_id} className="border-b last:border-0 dark:border-gray-700">
                 <td className="p-3">{inv.category_name || inv.category_id}</td>
-                <td className="p-3">{cur} {Number(inv.amount||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-                <td className="p-3">{cur} {Number(inv.paid_total||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-                <td className="p-3">{cur} {Number(((inv.balance ?? (inv.amount - inv.paid_total)) ?? 0)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+                <td className="p-3">
+                  {cur} {Number(inv.amount||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}
+                </td>
+                <td className="p-3">
+                  {cur} {Number(inv.paid_total||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}
+                </td>
+                <td className="p-3">
+                  {cur} {Number(((inv.balance ?? (inv.amount - inv.paid_total)) ?? 0)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}
+                </td>
               </tr>
             ))}
             {invoices.length === 0 && (
-              <tr><td className="p-6 text-center text-gray-500" colSpan={5}>No invoices for this student in the current selection.</td></tr>
+              <tr>
+                <td className="p-6 text-center text-gray-500" colSpan={5}>
+                  No invoices for this student in the current selection.
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
@@ -1353,6 +1397,16 @@ function StudentPayModal({ cur, schoolId, student, invoices, form, setForm, onCa
                 <option value="POS">POS</option>
               </select>
             </label>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Input
+              label="Receipt No."
+              value={form.receipt_no}
+              onChange={v => setForm(s => ({ ...s, receipt_no: v }))}
+              placeholder="Will auto-fill"
+            />
+            <div />
           </div>
 
           <div className="flex justify-end gap-2">
@@ -1395,8 +1449,9 @@ function StudentPaymentsModal({ cur, schoolName, classNameLabel, termName, yearN
     g.amount += Number(p.amount_paid || 0);
     if (p.payment_date) g.dates.push(p.payment_date);
   }
-  const groups = [...groupsMap.values()].map(g => ({ ...g, date: g.dates.sort().slice(-1)[0] || "" }))
-        .sort((a,b) => (b.date||"").localeCompare(a.date||"") || (a.receipt_no||"").localeCompare(b.receipt_no||""));
+  const groups = [...groupsMap.values()]
+    .map(g => ({ ...g, date: g.dates.sort().slice(-1)[0] || "" }))
+    .sort((a,b) => (b.date||"").localeCompare(a.date||"") || (a.receipt_no||"").localeCompare(b.receipt_no||""));
 
   const total = groups.reduce((s,g)=>s+g.amount,0);
 
@@ -1504,4 +1559,3 @@ function StudentPaymentsModal({ cur, schoolName, classNameLabel, termName, yearN
     </div>
   );
 }
-

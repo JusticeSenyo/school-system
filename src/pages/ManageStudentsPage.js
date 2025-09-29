@@ -1645,84 +1645,99 @@ export default function ManageStudentsPage() {
                     <h4 className="text-sm font-semibold">Parents & Guardians</h4>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <InfoLine label="Father's Name" value={infoStudent.father_name} />
-                    <InfoLine label="Father's Phone" value={infoStudent.father_phone} />
-                    <InfoLine label="Mother's Name" value={infoStudent.mother_name} />
-                    <InfoLine label="Mother's Phone" value={infoStudent.mother_phone} />
-                    <InfoLine label="Guardian's Name" value={infoStudent.guardian_name} />
-                    <InfoLine label="Guardian's Phone" value={infoStudent.guardian_phone} />
-                  </div>
-                </div>
-              </div>
-            </div>
+                          <InfoLine label="Father's Name" value={infoStudent.father_name} />
+                          <InfoLine label="Father's Phone" value={infoStudent.father_phone} />
+                          <InfoLine label="Mother's Name" value={infoStudent.mother_name} />
+                          <InfoLine label="Mother's Phone" value={infoStudent.mother_phone} />
+                          <InfoLine label="Guardian's Name" value={infoStudent.guardian_name} />
+                          <InfoLine label="Guardian's Phone" value={infoStudent.guardian_phone} />
+                          </div>
+                        </div>
+                        </div>
+                      </div>
 
-            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-end">
-              <button
-                onClick={() => setIsInfoOpen(false)}
-                className="px-4 py-2 rounded-md border bg-white hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Bulk Import Dialog */}
-      {bulkOpen && (
-        <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/40" onClick={() => (bulkBusy || importing) ? null : setBulkOpen(false)} />
-          <div className="relative z-10 h-full overflow-y-auto">
-            <div className="flex min-h-full items-center justify-center p-4">
-              <div className="w-full max-w-4xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col max-h-[90vh]">
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
-                  <h3 className="text-lg font-semibold">Bulk Import Students</h3>
-                  <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" onClick={() => (bulkBusy || importing) ? null : setBulkOpen(false)}>
-                    <X className="h-5 w-5" />
-                  </button>
-                </div>
-
-                <div className="px-6 py-4 space-y-4 overflow-y-auto">
-                  <div className="rounded-lg border p-3 text-sm bg-indigo-50/60 dark:bg-indigo-900/20 dark:border-indigo-900/40">
-                    <div className="flex items-start gap-2">
-                      <Info className="h-4 w-4 mt-0.5 text-indigo-600" />
-                      <div>
-                        <div>Upload an <strong>.xlsx</strong> file with headers: <code>full_name</code>, <code>class_id</code> (or <code>class_name</code>), <code>status</code>, <code>email</code>, <code>gender</code> (M/F), <code>dob</code> (YYYY-MM-DD), and optional contact fields.</div>
-                        <div className="mt-1">Your plan: <strong>{planHuman}</strong>. Remaining capacity: <strong>{isFinite(remaining) ? remaining : 'unlimited'}</strong>.</div>
+                      <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-end">
+                        <button
+                        onClick={() => setIsInfoOpen(false)}
+                        className="px-4 py-2 rounded-md border bg-white hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800"
+                        >
+                        Close
+                        </button>
+                      </div>
                       </div>
                     </div>
-                  </div>
+                    )}
 
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={downloadTemplate}
-                      className="inline-flex items-center gap-2 px-3 py-2 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800"
-                    >
-                      <Download size={16} /> Download Template
-                    </button>
+                    {/* Bulk Import Dialog */}
+                    {bulkOpen && (
+                    <div className="fixed inset-0 z-50">
+                      <div className="absolute inset-0 bg-black/40" onClick={() => (bulkBusy || importing) ? null : setBulkOpen(false)} />
+                      <div className="relative z-10 h-full overflow-y-auto">
+                      <div className="flex min-h-full items-center justify-center p-4">
+                        <div className="w-full max-w-4xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col max-h-[90vh]">
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+                          <h3 className="text-lg font-semibold">Bulk Import Students</h3>
+                          <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" onClick={() => (bulkBusy || importing) ? null : setBulkOpen(false)}>
+                          <X className="h-5 w-5" />
+                          </button>
+                        </div>
 
-                    <label className="inline-flex items-center gap-2 px-3 py-2 rounded-md border bg-white hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800 cursor-pointer">
-                      <Upload size={16} /> Choose File
-                      <input type="file" accept=".xlsx" className="hidden" onChange={handleBulkFile} />
-                    </label>
+                        <div className="px-6 py-4 space-y-4 overflow-y-auto">
+                          <div className="rounded-lg border p-3 text-sm bg-indigo-50/60 dark:bg-indigo-900/20 dark:border-indigo-900/40">
+                          <div className="flex items-start gap-2">
+                            <Info className="h-4 w-4 mt-0.5 text-indigo-600" />
+                            <div>
+                            <div>
+                              Upload an <strong>.xlsx</strong> file with headers: <code>full_name</code>, <code>class_id</code>, <code>status</code>, <code>email</code>, <code>gender</code> (M/F), <code>dob</code> (YYYY-MM-DD), and optional contact fields.
+                            </div>
+                            <div className="mt-1">
+                              <b>Important:</b> Please use the <strong>class ID</strong> (not the class name) in the <code>class_id</code> column of your Excel file. See the list below for available class IDs.
+                            </div>
+                            <div className="mt-1">
+                              <b>Available Classes:</b>
+                              <ul className="ml-4 list-disc">
+                              {classes.map((c) => (
+                                <li key={String(c.class_id ?? '')}>
+                                <b>{c.class_id}</b> - {c.class_name}
+                                </li>
+                              ))}
+                              </ul>
+                            </div>
+                            <div className="mt-1">Your plan: <strong>{planHuman}</strong>. Remaining capacity: <strong>{isFinite(remaining) ? remaining : 'unlimited'}</strong>.</div>
+                            </div>
+                          </div>
+                          </div>
 
-                    {bulkFileName && <span className="text-sm text-gray-600">Selected: {bulkFileName}</span>}
-                  </div>
+                          <div className="flex items-center gap-2">
+                          <button
+                            onClick={downloadTemplate}
+                            className="inline-flex items-center gap-2 px-3 py-2 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800"
+                          >
+                            <Download size={16} /> Download Template
+                          </button>
 
-                  {bulkErr && (
-                    <div className="flex items-start gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
-                      <AlertCircle className="mt-0.5 h-4 w-4" />
-                      <span className="text-sm">{bulkErr}</span>
-                    </div>
-                  )}
-                  {bulkOk && (
-                    <div className="flex items-start gap-2 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-                      <CheckCircle2 className="mt-0.5 h-4 w-4" />
-                      <span className="text-sm">{bulkOk}</span>
-                    </div>
-                  )}
+                          <label className="inline-flex items-center gap-2 px-3 py-2 rounded-md border bg-white hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800 cursor-pointer">
+                            <Upload size={16} /> Choose File
+                            <input type="file" accept=".xlsx" className="hidden" onChange={handleBulkFile} />
+                          </label>
 
-                  {/* Preview table */}
+                          {bulkFileName && <span className="text-sm text-gray-600">Selected: {bulkFileName}</span>}
+                          </div>
+
+                          {bulkErr && (
+                          <div className="flex items-start gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
+                            <AlertCircle className="mt-0.5 h-4 w-4" />
+                            <span className="text-sm">{bulkErr}</span>
+                          </div>
+                          )}
+                          {bulkOk && (
+                          <div className="flex items-start gap-2 text-emerald-700 bg-emerald-50 border-emerald-200 rounded-lg p-3">
+                            <CheckCircle2 className="mt-0.5 h-4 w-4" />
+                            <span className="text-sm">{bulkOk}</span>
+                          </div>
+                          )}
+
+                          {/* Preview table */}
                   {previewRows.length > 0 && (
                     <div className="overflow-x-auto rounded-lg border">
                       <table className="min-w-full text-xs">

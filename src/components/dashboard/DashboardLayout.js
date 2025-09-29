@@ -10,7 +10,8 @@ import { roleBasedMenus } from "../../constants/roleBasedMenus";
 const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // controls mobile sidebar
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // mobile overlay
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false); // desktop mini/full
   const [query, setQuery] = useState("");
   const navigate = useNavigate();
 
@@ -58,139 +59,121 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
   };
 
   const handleLogout = async () => {
-    try {
-      await Promise.resolve(logout?.());
-    } finally {
-      const schoolId =
-        user?.schoolId ?? user?.school_id ?? user?.school?.id ?? "";
-      window.location.href = `http://app.schoolmasterhub.net/login/?p_school_id=${encodeURIComponent(
-        schoolId ?? ""
-      )}`;
+    try { await Promise.resolve(logout?.()); }
+    finally {
+      const schoolId = user?.schoolId ?? user?.school_id ?? user?.school?.id ?? "";
+      window.location.href = `http://app.schoolmasterhub.net/login/?p_school_id=${encodeURIComponent(schoolId ?? "")}`;
     }
   };
 
+  const toggleSidebar = () => setIsSidebarCollapsed(prev => !prev);
+
   return (
     <div className="flex min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
-      {/* Sidebar - mobile (slides in/out) */}
+      {/* Mobile overlay sidebar */}
       <div
         className={`fixed inset-y-0 left-0 z-40 w-64 transform bg-white dark:bg-gray-900 shadow-lg transition-transform duration-300 xl:hidden
           ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
       >
         <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
           <h2 className="text-lg font-semibold">Menu</h2>
-          <button
-            onClick={() => setIsSidebarOpen(false)}
-            className="p-2 text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
-          >
-            <X className="h-5 w-5" />
+          <button onClick={() => setIsSidebarOpen(false)}>
+            <X size={20} />
           </button>
         </div>
-        <Sidebar isCollapsed={false} />
-      </div>
-
-      {/* Sidebar - desktop (always visible) */}
-      <div className="hidden xl:block w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700">
-        <Sidebar isCollapsed={false} />
-      </div>
-
-      {/* Overlay for mobile */}
-      {isSidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-30 md:hidden"
-          onClick={() => setIsSidebarOpen(false)}
+        <Sidebar
+          isCollapsed={false}
+          onExpand={() => {}}
+          role={role}
+          menus={menusForRole}
         />
-      )}
+      </div>
+
+      {/* Desktop sidebar */}
+      <div className="hidden xl:flex xl:flex-col">
+        <Sidebar
+          isCollapsed={isSidebarCollapsed}
+          onExpand={() => setIsSidebarCollapsed(false)}
+          role={role}
+          menus={menusForRole}
+        />
+      </div>
 
       {/* Main content */}
       <div className="flex-1 flex flex-col">
         {/* Header */}
-        <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-20">
-          <div className="px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
+        <header className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center space-x-2">
+            {/* Mobile menu button */}
+            <button
+              onClick={() => setIsSidebarOpen(true)}
+              className="xl:hidden p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
+            >
+              <Menu size={20} />
+            </button>
 
-              {/* Left section */}
-              <div className="flex items-center space-x-4">
-                {/* Hamburger only on mobile */}
-                <button
-                  onClick={() => setIsSidebarOpen(true)}
-                  className="p-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg xl:hidden"
-                >
-                  <Menu className="h-5 w-5" />
-                </button>
+            {/* Desktop collapse button */}
+            <button
+              onClick={toggleSidebar}
+              className="hidden xl:inline-flex p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
+            >
+              <Menu size={20} />
+            </button>
 
-                {/* Title + Subtitle */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-2">
-                  <h1 className="text-[14px] sm:text-xl md:text-2xlfont-semibold truncate break-words whitespace-normal ">{title}</h1>
-                  {subtitle && (
-                    <span className="px-2 py-0.5 text-xs text-gray-500 dark:text-gray-400 truncate">
-                      {subtitle}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Right section */}
-              <div className="flex items-center space-x-3">
-                {/* Search bar (hidden on mobile, smaller on tablet) */}
-                <form
-                  onSubmit={handleSearch}
-                  className="relative hidden sm:block"
-                >
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
-                  <input
-                    type="text"
-                    placeholder="Search pages…"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    className="pl-10 pr-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 
-  w-32 sm:w-40 md:w-56 lg:w-64"
-                  />
-                </form>
-
-                {/* Theme toggle */}
-                <button
-                  onClick={toggleTheme}
-                  className="p-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
-                >
-                  {theme === "dark" ? (
-                    <Sun className="h-5 w-5" />
-                  ) : (
-                    <Moon className="h-5 w-5" />
-                  )}
-                </button>
-
-                {/* User info */}
-                <div className="flex items-center space-x-2 flex-wrap">
-                  {/* Hide text on very small screens */}
-                  <div className="text-right hidden md:block">
-                    <p className="text-sm font-medium truncate max-w-[100px]">
-                      {user?.name || "User"}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 capitalize truncate">
-                      {user?.userType || "Role"}
-                    </p>
-                  </div>
-
-                  <div className="h-8 w-8 bg-purple-500 rounded-full flex items-center justify-center text-white font-medium">
-                    {user?.name?.charAt(0)?.toUpperCase() || "U"}
-                  </div>
-
-                  <button
-                    onClick={handleLogout}
-                    className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
-                  >
-                    <LogOut className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
+            <div className="flex flex-col">
+              <h1 className="text-[14px] sm:text-xl md:text-2xlfont-semibold truncate break-words whitespace-normal">{title}</h1>
+              {subtitle && <p className="px-2 py-0.5 text-xs text-gray-500 dark:text-gray-400 truncate">{subtitle}</p>}
             </div>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <form
+              onSubmit={handleSearch}
+              className="relative hidden sm:block"
+            >
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <input
+                type="text"
+                placeholder="Search pages…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="pl-10 pr-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 
+  w-32 sm:w-40 md:w-56 lg:w-64"
+              />
+            </form>
+
+            <button onClick={toggleTheme} className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800">
+              {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+
+            {/* User info */}
+            <div className="flex items-center space-x-2 flex-wrap">
+              {/* Hide text on very small screens */}
+              <div className="text-right hidden md:block">
+                <p className="text-sm font-medium truncate max-w-[100px]">
+                  {user?.name || "User"}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 capitalize truncate">
+                  {user?.userType || "Role"}
+                </p>
+              </div>
+
+              <div className="h-8 w-8 bg-purple-500 rounded-full flex items-center justify-center text-white font-medium">
+                {user?.name?.charAt(0)?.toUpperCase() || "U"}
+              </div>
+
+              <button
+                onClick={handleLogout}
+                className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            </div>
+            
           </div>
         </header>
 
-
-        <main className="flex-1 py-6 px-4 sm:px-6 lg:px-8 overflow-y-auto">
-          {children}
-        </main>
+        <main className="flex-1 p-4 overflow-auto">{children}</main>
       </div>
     </div>
   );

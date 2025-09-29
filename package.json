@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
-    "@sendgrid/mail": "^8.1.5",
+    "@sendgrid/mail": "^8.1.6",
     "@sentry/react": "^9.35.0",
     "@sentry/tracing": "^7.120.3",
     "@testing-library/dom": "^10.4.0",

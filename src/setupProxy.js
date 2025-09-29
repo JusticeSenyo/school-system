@@ -1,6 +1,8 @@
+// src/setupProxy.js
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
-module.exports = function(app) {
+module.exports = function (app) {
+  // 1) Proxy for Oracle APEX/ORDS (external)
   app.use(
     '/api/ords',
     createProxyMiddleware({
@@ -8,6 +10,15 @@ module.exports = function(app) {
       changeOrigin: true,
       secure: true,
       pathRewrite: { '^/api/ords': '/ords' },
+    })
+  );
+
+  // 2) Proxy for your local Express API (send-email, etc.)
+  app.use(
+    '/api',
+    createProxyMiddleware({
+      target: 'http://localhost:4000',
+      changeOrigin: true,
     })
   );
 };

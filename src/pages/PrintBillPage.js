@@ -339,16 +339,6 @@ Thank you.`;
         </button>
 
         <button
-          onClick={IS_BASIC ? undefined : copyPaymentLink}
-          disabled={!hasStudent || IS_BASIC}
-          title={disabledReason("Copy Payment Link")}
-          className={`inline-flex items-center gap-2 px-3 py-2 border rounded-lg ${(!hasStudent || IS_BASIC) ? "opacity-60 cursor-not-allowed" : ""}`}
-        >
-          <Copy className="h-4 w-4" /> Copy Payment Link
-          {IS_BASIC && <Lock className="h-4 w-4 ml-1" />}
-        </button>
-
-        <button
           onClick={IS_BASIC ? undefined : emailBill}
           disabled={!hasStudent || !hasEmail || IS_BASIC}
           title={

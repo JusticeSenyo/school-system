@@ -15,6 +15,7 @@ const ACADEMIC_TERM_API    = `${HOST}/academic/get/term/`;
 const ACADEMIC_FEECAT_LIST_API = `${HOST}/academic/list/fee_category/`;
 const FEES_INVOICES_API    = `${HOST}/fees/invoice/`;   // ?p_school_id=&p_class_id=&p_term=&p_academic_year=
 const FEES_PAYMENTS_API    = `${HOST}/fees/payment/`;   // ?p_invoice_id=
+const ACADEMIC_SCHOOL_API  = `${HOST}/academic/get/school/`; // includes logo_url, signature_url
 
 /* ------------ helpers (same style as ManageFeesPage) ------------ */
 const jtxt = async (u) => {
@@ -27,6 +28,25 @@ const jarr = async (u) => {
   try { const d = JSON.parse(t); return Array.isArray(d) ? d : (Array.isArray(d.items) ? d.items : []); } catch { return []; }
 };
 const currency = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const bust = (url) => {
+  if (!url) return "";
+  try { const u = new URL(url, window.location.origin); u.searchParams.set("_", Date.now()); return u.toString(); }
+  catch { return `${url}${url.includes("?") ? "&" : "?"}_=${Date.now()}`; }
+};
+
+// --- email helper (same shape as ManageFeesPage) ---
+const sendEmailApi = async ({ to, subject, message, fromName }) => {
+  const r = await fetch("/api/send-email", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ to: Array.isArray(to) ? to : [to], subject, message, fromName }),
+  });
+  const j = await r.json().catch(()=>({}));
+  if (!r.ok || j?.success === false) {
+    throw new Error(j?.error || `Email send failed (${r.status})`);
+  }
+  return j; // { success: true, sent, dev? }
+};
 
 /* ------------ page ------------ */
 export default function PrintBillPage() {
@@ -38,6 +58,9 @@ export default function PrintBillPage() {
   const SCHOOL_NAME = user?.school?.name ?? user?.school_name ?? "Your School";
   const SCHOOL_PHONE = user?.school?.phone ?? "";
   const SCHOOL_EMAIL = user?.school?.email ?? "";
+
+  // Branding (fetched live)
+  const [branding, setBranding] = useState({ logoUrl: "", signatureUrl: "" });
 
   // Filters/options
   const [terms, setTerms] = useState([]);     const [termId, setTermId] = useState(null);
@@ -75,6 +98,24 @@ export default function PrintBillPage() {
   const [openReminder, setOpenReminder] = useState(false);
 
   const previewRef = useRef(null);
+
+  // sending states
+  const [sendingBill, setSendingBill] = useState(false);
+  const [sendingReminder, setSendingReminder] = useState(false);
+
+  /* ---- load school branding ---- */
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await jarr(ACADEMIC_SCHOOL_API);
+        const rec = rows.find(r => String(r.school_id ?? r.SCHOOL_ID) === String(schoolId));
+        setBranding({
+          logoUrl: rec?.logo_url ?? rec?.LOGO_URL ?? "",
+          signatureUrl: rec?.signature_url ?? rec?.SIGNATURE_URL ?? "",
+        });
+      } catch { setBranding({ logoUrl: "", signatureUrl: "" }); }
+    })();
+  }, [schoolId]);
 
   /* ---- load options ---- */
   useEffect(() => {
@@ -210,7 +251,7 @@ export default function PrintBillPage() {
             const fc = feeCatById.get(Number(row.category_id));
             return {
               ...row,
-              description: fc?.description || ""  // bring in description from catalogue
+              description: fc?.description || ""
             };
           });
         setItems(lines);
@@ -250,30 +291,34 @@ export default function PrintBillPage() {
 
   /* ---- actions ---- */
   const money = (n) => `${CUR} ${currency(n)}`;
-  // Use INDEX NO in the payment link reference
-  const paymentLink = () => `https://pay.schoolmasterhub.com/${encodeURIComponent(yearName)}/${encodeURIComponent(termName)}/${encodeURIComponent(student?.index_no || "")}`;
 
   const handlePrint = () => window.print();
 
-  const copyPaymentLink = () => {
-    const link = paymentLink();
-    navigator.clipboard?.writeText(link);
-    alert("Payment link copied.");
-  };
+  const emailBill = async () => {
+    const to = (student?.contact_email || "").trim();
+    if (!to) return alert("No contact email found for this student.");
 
-  const emailBill = () => {
     const subject = `School Bill — ${termName} ${yearName}`;
     const body =
 `Dear Parent/Guardian,
 
 Please find the bill for ${student?.full_name} (Index No.: ${student?.index_no || "-"}) — ${classNameLabel}.
-Total Due: ${money(totals.due)}
-Pay online: ${paymentLink()}
+
+Billed:       ${money(totals.billed)}
+Paid to date: ${money(totals.paid)}
+Total Due:    ${money(totals.due)}
 
 Thank you.`;
-    const to = (student?.contact_email || "").trim();
-    if (!to) return alert("No contact email found for this student.");
-    window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+    try {
+      setSendingBill(true);
+      const resp = await sendEmailApi({ to, subject, message: body, fromName: SCHOOL_NAME });
+      alert(resp?.dev ? `DEV MODE: Email simulated to ${to}` : `Bill sent to ${to}`);
+    } catch (e) {
+      alert(e?.message || "Failed to send email.");
+    } finally {
+      setSendingBill(false);
+    }
   };
 
   /* ---- gated button states (show for all plans; disable on BASIC) ---- */
@@ -340,14 +385,15 @@ Thank you.`;
 
         <button
           onClick={IS_BASIC ? undefined : emailBill}
-          disabled={!hasStudent || !hasEmail || IS_BASIC}
+          disabled={!hasStudent || !hasEmail || IS_BASIC || sendingBill}
           title={
             !hasStudent ? "Select a student first"
-            : (!hasEmail ? "No contact email on file" : (IS_BASIC ? "Upgrade to access Email Bill" : "Send via default mail app"))
+            : (!hasEmail ? "No contact email on file" : (IS_BASIC ? "Upgrade to access Email Bill" : "Send bill by email"))
           }
           className={`inline-flex items-center gap-2 px-3 py-2 border rounded-lg ${(!hasStudent || !hasEmail || IS_BASIC) ? "opacity-60 cursor-not-allowed" : ""}`}
         >
-          <Mail className="h-4 w-4" /> Email Bill
+          {sendingBill ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+          {sendingBill ? "Sending…" : "Email Bill"}
           {IS_BASIC && <Lock className="h-4 w-4 ml-1" />}
         </button>
 
@@ -400,6 +446,8 @@ Thank you.`;
               schoolName={SCHOOL_NAME}
               schoolPhone={SCHOOL_PHONE}
               schoolEmail={SCHOOL_EMAIL}
+              schoolLogoUrl={branding.logoUrl}
+              headSignatureUrl={branding.signatureUrl}
             />
           )}
         </div>
@@ -428,7 +476,20 @@ Thank you.`;
           termName={termName}
           yearName={yearName}
           classNameLabel={classNameLabel}
-          paymentUrl={paymentLink()}
+          // NEW: email through API
+          onSendEmail={async ({ to, subject, message }) => {
+            try {
+              setSendingReminder(true);
+              const resp = await sendEmailApi({ to, subject, message, fromName: SCHOOL_NAME });
+              alert(resp?.dev ? `DEV MODE: Reminder simulated to ${to}` : `Reminder sent to ${to}`);
+              setOpenReminder(false);
+            } catch (e) {
+              alert(e?.message || "Failed to send reminder.");
+            } finally {
+              setSendingReminder(false);
+            }
+          }}
+          sending={sendingReminder}
         />
       )}
 
@@ -447,12 +508,19 @@ Thank you.`;
 }
 
 /* ------------ subcomponents ------------ */
-function BillDocument({ term, year, classNameLabel, student, items, totals, notes, includeMoMoBlock, cur, schoolName, schoolPhone, schoolEmail }) {
+function BillDocument({
+  term, year, classNameLabel, student, items, totals, notes, includeMoMoBlock, cur,
+  schoolName, schoolPhone, schoolEmail, schoolLogoUrl, headSignatureUrl
+}) {
   return (
     <div className="print-area max-w-3xl mx-auto my-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg">
       {/* Header */}
       <div className="p-6 border-b dark:border-gray-700 flex items-start gap-4">
-        <div className="h-14 w-14 rounded bg-indigo-600" />
+        {schoolLogoUrl ? (
+          <img src={bust(schoolLogoUrl)} alt="School Logo" className="h-14 w-14 object-contain" />
+        ) : (
+          <div className="h-14 w-14 rounded bg-indigo-600" />
+        )}
         <div className="flex-1">
           <div className="text-xl font-bold">{schoolName}</div>
           {(schoolPhone || schoolEmail) && (
@@ -529,20 +597,6 @@ function BillDocument({ term, year, classNameLabel, student, items, totals, note
         </table>
       </div>
 
-      {/* Payment instructions */}
-      {includeMoMoBlock && (
-        <div className="px-6 pb-6">
-          <div className="rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/30 p-3 text-sm text-indigo-800 dark:text-indigo-100">
-            <div className="font-semibold mb-1">Pay by Mobile Money / Card</div>
-            <ul className="list-disc ml-5 space-y-1">
-              <li>Use the online link sent via Email/SMS, or visit: <span className="underline">pay.schoolmasterhub.com</span></li>
-              <li>Reference (Index No.): <span className="font-medium">{student?.index_no || "-"}</span> · Term: <span className="font-medium">{term}</span></li>
-              <li>Receipts are issued automatically after payment.</li>
-            </ul>
-          </div>
-        </div>
-      )}
-
       {/* Footer notes */}
       {notes && (
         <div className="px-6 pb-6 text-sm text-gray-600 dark:text-gray-300">
@@ -555,7 +609,11 @@ function BillDocument({ term, year, classNameLabel, student, items, totals, note
       <div className="px-6 pb-10">
         <div className="flex justify-end">
           <div className="text-center">
-            <div className="h-14" />
+            <div className="h-14 flex items-end justify-center">
+              {headSignatureUrl ? (
+                <img src={bust(headSignatureUrl)} alt="Headteacher Signature" className="h-12 object-contain" />
+              ) : null}
+            </div>
             <div className="border-t dark:border-gray-600 w-56 mx-auto" />
             <div className="text-sm mt-1">Authorized Signature</div>
           </div>
@@ -565,7 +623,7 @@ function BillDocument({ term, year, classNameLabel, student, items, totals, note
   );
 }
 
-function ReminderModal({ onClose, student, totals, termName, yearName, classNameLabel, paymentUrl }) {
+function ReminderModal({ onClose, student, totals, termName, yearName, classNameLabel, paymentUrl, onSendEmail, sending }) {
   const [channel, setChannel] = useState("Email"); // Email | SMS
   const [email, setEmail] = useState(student?.contact_email || "");
   const [phone, setPhone] = useState(student?.contact_phone || "");
@@ -576,8 +634,6 @@ function ReminderModal({ onClose, student, totals, termName, yearName, className
 This is a friendly reminder that fees for ${student?.full_name} (Index No.: ${student?.index_no || "-"}) — ${classNameLabel} are due.
 Outstanding: ${totals ? `${totals.due}` : ""}
 
-You can pay securely here: ${paymentUrl}
-
 Thank you.`
   );
 
@@ -587,9 +643,11 @@ Thank you.`
     return () => document.body.classList.remove("overflow-hidden");
   }, []);
 
-  const sendEmail = () => {
-    const href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
-    window.location.href = href;
+  const sendEmail = async () => {
+    const to = (email || "").trim();
+    if (!to) return alert("Enter a valid email address.");
+    if (!onSendEmail) return alert("Email sender is not configured.");
+    await onSendEmail({ to, subject, message });
   };
 
   const copySms = () => {
@@ -643,7 +701,13 @@ Thank you.`
               </label>
               <div className="flex justify-end gap-2">
                 <button className="px-3 py-2 border rounded-lg" onClick={onClose}>Close</button>
-                <button className="px-3 py-2 bg-indigo-600 text-white rounded-lg" onClick={sendEmail}>Send Email</button>
+                <button
+                  className="px-3 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-60"
+                  onClick={sendEmail}
+                  disabled={!!sending}
+                >
+                  {sending ? <Loader2 className="h-4 w-4 animate-spin inline-block" /> : "Send Email"}
+                </button>
               </div>
             </>
           ) : (
@@ -802,13 +866,10 @@ function StudentLov({ label = "Student", students = [], value, onPick }) {
               ) : (
                 <ul className="divide-y dark:divide-gray-800">
                   {filtered.map((s) => {
-                    const isActive = String(s.student_id) === String(value);
                     return (
                       <li key={s.student_id}>
                         <button
-                          className={`w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                            isActive ? "bg-indigo-50 dark:bg-indigo-900/30" : ""
-                          }`}
+                          className={`w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800`}
                           onClick={() => { onPick(String(s.student_id)); setOpen(false); }}
                         >
                           <div className="font-medium">

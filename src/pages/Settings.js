@@ -1,5 +1,5 @@
 // src/pages/Settings.js
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
 import { useTheme } from "../contexts/ThemeContext";
@@ -20,7 +20,14 @@ import {
   CalendarClock,
   Package,
   Banknote,
+  Image as ImageIcon,
+  Upload,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
+
+import { putToOCI, buildPublicUrl } from "../config/storage";
 
 /* ------------ ORDS base ------------ */
 const HOST =
@@ -28,8 +35,9 @@ const HOST =
 
 /* ------------ Live endpoints ------------ */
 const STAFF_LIST_API = `${HOST}/staff/get/staff/`;       // ?p_school_id[&p_role]
-const SCHOOLS_LIST_API = `${HOST}/academic/get/school/`; // returns all schools with package/expiry/etc.
+const SCHOOLS_LIST_API = `${HOST}/academic/get/school/`; // returns all schools incl logo/signature
 const RESET_PASSWORD_API = `${HOST}/staff/reset_password/`; // GET ?p_user_id=&p_password=
+const UPDATE_SCHOOL_API = `${HOST}/academic/update/school/`; // expects p_school_id, p_logo_url, p_signature_url
 
 /* ------------ External login (redirect after logout) ------------ */
 const LOGIN_BASE = "https://app.schoolmasterhub.net//login/";
@@ -45,6 +53,7 @@ const roleLabelFrom = (raw) => {
   return raw || "—";
 };
 const isAdminFrom = (raw) => /(^|\b)(AD|ADMIN|ADMINISTRATOR)(\b|$)/i.test(String(raw || ""));
+const isHeadFrom  = (raw) => /(^|\b)(HT|HEAD ?TEACH(ER)?)(\b|$)/i.test(String(raw || ""));
 
 export default function Settings() {
   const navigate = useNavigate();
@@ -84,6 +93,16 @@ export default function Settings() {
     status: user?.school?.status ?? "",
   });
 
+  // === Branding (logo & signature) ===
+  const [logoUrl, setLogoUrl] = useState("");
+  const [signatureUrl, setSignatureUrl] = useState("");
+  const [logoBusy, setLogoBusy] = useState(false);
+  const [sigBusy, setSigBusy] = useState(false);
+  const [logoMsg, setLogoMsg] = useState("");
+  const [sigMsg, setSigMsg] = useState("");
+  const logoInputRef = useRef(null);
+  const sigInputRef = useRef(null);
+
   // Change Password modal
   const [pwdOpen, setPwdOpen] = useState(false);
   const [pwd, setPwd] = useState({ next: "", show: false });
@@ -102,11 +121,11 @@ export default function Settings() {
     }
   };
 
-  // Fetch school (plan) + staff (self) from live APIs
+  // Fetch school (plan + branding) + staff (self) from live APIs
   useEffect(() => {
     (async () => {
       try {
-        // School list (includes package, status, expiry, currency)
+        // School list (includes package, status, expiry, currency, MAY include logo/signature)
         const schools = await jarr(SCHOOLS_LIST_API);
         if (schools?.length && schoolId != null) {
           const s = schools.find(
@@ -120,6 +139,8 @@ export default function Settings() {
               expiry: s.expiry ?? s.EXPIRY ?? "",
               status: s.status ?? s.STATUS ?? "",
             });
+            setLogoUrl(s.logo_url ?? s.LOGO_URL ?? "");
+            setSignatureUrl(s.signature_url ?? s.SIGNATURE_URL ?? "");
           }
         }
 
@@ -186,6 +207,10 @@ export default function Settings() {
           schoolName,
         },
         plan,
+        branding: {
+          logo_url: logoUrl || null,
+          signature_url: signatureUrl || null,
+        },
         exportedAt: new Date().toISOString(),
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], {
@@ -219,9 +244,113 @@ export default function Settings() {
 
   /* ---------- Derived ---------- */
   const isAdmin = isAdminFrom(roleRaw);
+  const isHead  = isHeadFrom(roleRaw);
   const pkgNum = Number(plan.package ?? 0);
   const pkgName =
     pkgNum === 1 ? "Basic" : pkgNum === 2 ? "Standard" : pkgNum === 3 ? "Premium" : String(plan.package ?? "—");
+
+  // === Branding helpers ===
+  const extFromName = (name) => {
+    const e = String(name || "").split(".").pop()?.toLowerCase();
+    if (!e) return "jpg";
+    if (["jpg","jpeg","png","webp","gif"].includes(e)) return e === "jpeg" ? "jpg" : e;
+    return "jpg";
+  };
+  const bust = (url) => {
+    if (!url) return "";
+    try {
+      const u = new URL(url, window.location.origin);
+      u.searchParams.set("_", Date.now().toString());
+      return u.toString();
+    } catch {
+      return `${url}${url.includes("?") ? "&" : "?"}_=${Date.now()}`;
+    }
+  };
+
+  // One robust updater to avoid nulling the other column
+  const updateSchoolBrandingRobust = async ({ logo, signature }) => {
+    const params = {
+      p_school_id: String(schoolId),
+      p_logo_url: String(logo ?? logoUrl ?? ""),
+      p_signature_url: String(signature ?? signatureUrl ?? ""),
+    };
+
+    const encodeForm = (obj) =>
+      Object.entries(obj)
+        .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+        .join("&");
+
+    // 1) POST form-urlencoded
+    try {
+      const r = await fetch(UPDATE_SCHOOL_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", ...headers },
+        body: encodeForm(params),
+      });
+      if (r.ok) return true;
+    } catch {}
+
+    // 2) GET fallback
+    try {
+      const qp = new URLSearchParams(params).toString();
+      const r = await fetch(`${UPDATE_SCHOOL_API}?${qp}`, { method: "GET", headers });
+      if (r.ok) return true;
+    } catch {}
+
+    // 3) POST JSON fallback
+    const r = await fetch(UPDATE_SCHOOL_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(params),
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(()=> "");
+      throw new Error((t || `HTTP ${r.status}`).slice(0, 600));
+    }
+    return true;
+  };
+
+  const uploadLogo = async (file) => {
+    if (!file || !isAdmin || !schoolId) return;
+    setLogoBusy(true); setLogoMsg("");
+    try {
+      const ext = extFromName(file.name);
+      const key = `schools/${schoolId}/branding/logo.${ext}`;
+      await putToOCI(file, key);
+      const publicUrl = buildPublicUrl(key);
+
+      await updateSchoolBrandingRobust({ logo: publicUrl, signature: undefined });
+
+      setLogoUrl(publicUrl);
+      setLogoMsg("Logo updated successfully.");
+    } catch (e) {
+      setLogoMsg(e?.message || "Failed to upload logo.");
+    } finally {
+      setLogoBusy(false);
+      setTimeout(() => setLogoMsg(""), 3500);
+    }
+  };
+
+  const uploadSignature = async (file) => {
+    if (!file || !isHead || !schoolId) return;
+    setSigBusy(true); setSigMsg("");
+    try {
+      const ext = extFromName(file.name);
+      const key = `schools/${schoolId}/branding/signature-ht.${ext}`;
+      await putToOCI(file, key);
+      const publicUrl = buildPublicUrl(key);
+
+      await updateSchoolBrandingRobust({ logo: undefined, signature: publicUrl });
+
+      setSignatureUrl(publicUrl);
+      setSigMsg("Signature updated successfully.");
+    } catch (e) {
+      setSigMsg(e?.message || "Failed to upload signature.");
+    } finally {
+      setSigBusy(false);
+      setTimeout(() => setSigMsg(""), 3500);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-6 sm:py-8">
@@ -321,6 +450,101 @@ export default function Settings() {
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
               </label>
+            </div>
+
+            {/* === Branding (logo & signature) === */}
+            <div className="mt-6 grid gap-4">
+              {isAdmin && (
+                <section className="rounded-lg p-4 border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/20">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-100 flex items-center gap-2">
+                      <ImageIcon className="h-4 w-4" />
+                      School Logo (Admin)
+                    </h3>
+                  </div>
+
+                  <div className="mt-3 flex items-center gap-4">
+                    <div className="h-16 w-16 rounded bg-white dark:bg-gray-900 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center overflow-hidden">
+                      {logoUrl ? (
+                        <img src={bust(logoUrl)} alt="Logo" className="max-h-full max-w-full object-contain" />
+                      ) : (
+                        <span className="text-xs text-gray-500 px-2">No logo</span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        ref={logoInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => uploadLogo(e.target.files?.[0])}
+                      />
+                      <button
+                        onClick={() => logoInputRef.current?.click()}
+                        disabled={logoBusy}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60"
+                        type="button"
+                      >
+                        {logoBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                        {logoBusy ? "Uploading…" : "Upload Logo"}
+                      </button>
+                      {logoMsg && (
+                        <span className={`text-sm inline-flex items-center gap-1 ${/success|updated/i.test(logoMsg) ? "text-emerald-700" : "text-rose-700"}`}>
+                          {/updated|success/i.test(logoMsg) ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+                          {logoMsg}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </section>
+              )}
+
+              {isHead && (
+                <section className="rounded-lg p-4 border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-900/20">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-sky-900 dark:text-sky-100 flex items-center gap-2">
+                      <ImageIcon className="h-4 w-4" />
+                      Headteacher Signature (HT)
+                    </h3>
+                  </div>
+
+                  <div className="mt-3 flex items-center gap-4">
+                    <div className="h-16 w-28 rounded bg-white dark:bg-gray-900 border border-sky-200 dark:border-sky-800 flex items-center justify-center overflow-hidden">
+                      {signatureUrl ? (
+                        <img src={bust(signatureUrl)} alt="Signature" className="max-h-full max-w-full object-contain" />
+                      ) : (
+                        <span className="text-xs text-gray-500 px-2">No signature</span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        ref={sigInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => uploadSignature(e.target.files?.[0])}
+                      />
+                      <button
+                        onClick={() => sigInputRef.current?.click()}
+                        disabled={sigBusy}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-60"
+                        type="button"
+                      >
+                        {sigBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                        {sigBusy ? "Uploading…" : "Upload Signature"}
+                      </button>
+                      {sigMsg && (
+                        <span className={`text-sm inline-flex items-center gap-1 ${/success|updated/i.test(sigMsg) ? "text-emerald-700" : "text-rose-700"}`}>
+                          {/updated|success/i.test(sigMsg) ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+                          {sigMsg}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </section>
+              )}
             </div>
 
             {/* ADMIN-ONLY: Plan & Billing */}

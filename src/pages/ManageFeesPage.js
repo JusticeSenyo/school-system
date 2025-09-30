@@ -73,9 +73,7 @@ const getReceiptNo = async (schoolId) => {
     const j = JSON.parse(raw);
     const rcpt = (j.receipt_no || j.RECEIPT_NO || j.receipt || j.RECEIPT || "").toString();
     if (rcpt) return rcpt;
-  } catch (_) {
-    // ignore; we'll try other strategies below
-  }
+  } catch (_) {}
 
   // 2) Try to locate a JSON-looking substring within text/HTML
   const firstBrace = raw.indexOf("{");
@@ -93,7 +91,6 @@ const getReceiptNo = async (schoolId) => {
   const m = raw.match(/RCPT-[A-Za-z0-9-]+/);
   if (m && m[0]) return m[0];
 
-  // 4) Give a helpful error with a short excerpt
   const excerpt = raw.replace(/\s+/g, " ").slice(0, 180);
   throw new Error(`Receipt API returned invalid JSON: ${excerpt}${raw.length > 180 ? "…" : ""}`);
 };
@@ -166,6 +163,7 @@ export default function ManageFeesPage() {
   const pkg = Number(user?.school?.package ?? user?.package ?? user?.plan ?? 2);
   const PLAN = pkg===1 ? "basic" : pkg===3 ? "premium" : "standard";
   const IS_BASIC = pkg===1;
+  const IS_PREMIUM = pkg===3;
   const CUR = user?.school?.currency ?? user?.currency ?? "GHS";
   const SCHOOL_NAME = user?.school?.name ?? user?.school_name ?? "Your School";
   const money = (n) => `${CUR} ${currency(n)}`;
@@ -309,6 +307,8 @@ export default function ManageFeesPage() {
         student_name: r.student_name ?? r.STUDENT_NAME,
         contact_email: r.contact_email ?? r.CONTACT_EMAIL ?? "",
         contact_phone: r.contact_phone ?? r.CONTACT_PHONE ?? "",
+        // NEW: capture index number so we can build payment links for email
+        index_no: r.index_no ?? r.student_index ?? r.INDEX_NO ?? r.STUDENT_INDEX ?? "",
         category_id: r.category_id ?? r.CATEGORY_ID,
         category_name: r.category_name ?? r.CATEGORY_NAME, 
         term: r.term ?? r.TERM, 
@@ -425,11 +425,18 @@ export default function ManageFeesPage() {
     } catch (e) { setToast({ type:"err", text:(e && e.message) || "Failed to generate fees." }); }
   };
 
-  /* email (Std/Premium) */
+  /* email helpers */
   const studentInvoices = (sid) => invoices.filter(i => Number(i.student_id)===Number(sid));
   const studentEmail = (sid) => (studentInvoices(sid).find(i => i.contact_email)?.contact_email || "").trim();
   const studentPhone = (sid) => (studentInvoices(sid).find(i => i.contact_phone)?.contact_phone || "").trim();
+  const studentIndex = (sid) => (studentInvoices(sid).find(i => i.index_no)?.index_no || "").trim();
+  const paymentLinkFor = (sid) => {
+    const idx = studentIndex(sid);
+    if (!idx) return "";
+    return `https://pay.schoolmasterhub.com/${encodeURIComponent(yearName)}/${encodeURIComponent(termName)}/${encodeURIComponent(idx)}`;
+  };
 
+  // UPDATED: Send Invoice now sends a *bill-style* email with totals + payment link
   const emailConsolidated = async (sid, name) => {
     const email = studentEmail(sid);
     if (!email) { setToast({ type:"err", text:"No contact email found." }); return; }
@@ -437,33 +444,26 @@ export default function ManageFeesPage() {
     const invs = studentInvoices(sid);
     if (!invs.length) { setToast({ type:"err", text:"No invoices in this selection." }); return; }
 
-    const lines = invs.map(i =>
-      `• ${i.category_name || i.category_id}: ${money(i.amount)} | Paid: ${money(i.paid_total)} | Bal: ${money(i.balance)}${i.due_date ? ` | Due: ${i.due_date}` : ""}`
-    ).join("\n");
-
     const totalAmount = invs.reduce((s,r)=>s+Number(r.amount||0),0);
     const totalPaid   = invs.reduce((s,r)=>s+Number(r.paid_total||0),0);
-    const totalBal    = invs.reduce((s,r)=>s+Number(r.balance||0),0);
+    const totalBal    = invs.reduce((s,r)=>s+Number((r.balance ?? (r.amount - r.paid_total)) || 0),0);
 
-    const subject = `Invoice for ${name} — ${clsName}, ${termName} ${yearName}`;
-    const body = `Dear Parent/Guardian,
+    const subject = `School Bill — ${name} — ${clsName}, ${termName} ${yearName}`;
+    const body =
+`Dear Parent/Guardian,
 
-Please find the invoice breakdown for ${name} (${clsName}, ${termName} ${yearName}):
+Please find the bill for ${name} (${clsName}, ${termName} ${yearName}).
 
-${lines}
+Billed:       ${money(totalAmount)}
+Paid to date: ${money(totalPaid)}
+Total Due:    ${money(totalBal)}
 
-Totals:
-• Amount: ${money(totalAmount)}
-• Paid:   ${money(totalPaid)}
-• Balance:${money(totalBal)}
-
-To make payment, please use the approved channels and include the receipt number where applicable.
 Thank you.`;
 
     try {
       setSendingMailFor(sid);
       const resp = await sendEmailApi({ to: email, subject, message: body, fromName: SCHOOL_NAME });
-      setToast({ type:"ok", text: resp?.dev ? `DEV MODE: Email simulated to ${email}` : `Invoice sent to ${email}` });
+      setToast({ type:"ok", text: resp?.dev ? `DEV MODE: Email simulated to ${email}` : `Bill sent to ${email}` });
     } catch (e) {
       setToast({ type:"err", text: e?.message || "Failed to send email." });
     } finally {
@@ -471,7 +471,7 @@ Thank you.`;
     }
   };
 
-  // NEW: Send Reminder (Balances tab) — email via API (requires email)
+  // Send Reminder (Balances tab) — unchanged logic, but still uses the same API
   const sendReminder = async (sid, name) => {
     const email = studentEmail(sid);
     if (!email) { setToast({ type:"err", text:"No contact email on file for this student." }); return; }
@@ -479,6 +479,7 @@ Thank you.`;
     const invs = studentInvoices(sid);
     const totalBal = invs.reduce((s,r)=> s + Number(((r.balance ?? (r.amount - r.paid_total)) ?? 0)), 0);
     if (totalBal <= 0) { setToast({ type:"info", text:"This student does not owe any balance." }); return; }
+
 
     const subject = `Fee Reminder — ${name} (${clsName}, ${termName} ${yearName})`;
     const body =
@@ -488,7 +489,7 @@ This is a gentle reminder that there is an outstanding fee balance for ${name} (
 
 Outstanding balance: ${money(totalBal)}
 
-Kindly settle the balance at your earliest convenience using the approved channels. If you have recently paid, please ignore this reminder.
+Kindly settle the balance at your earliest convenience. If you have recently paid, please ignore this reminder.
 
 Thank you.`;
 
@@ -612,74 +613,74 @@ Thank you.`;
       </div>
 
       {/* Overview */}
-        {tab==="overview" && (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-6">
-          <KpiCard icon={<DollarSign className="w-5 h-5" />} title="Total Billed" value={money(summary.total_billed)} />
-          <KpiCard icon={<CheckCircle className="w-5 h-5" />} title="Total Paid" value={money(summary.total_paid)} />
-          <KpiCard icon={<XCircle className="w-5 h-5" />} title="Outstanding" value={money(summary.balance)} />
-          <KpiCard icon={<AlertCircle className="w-5 h-5" />} title="Unpaid / All" value={`${debtorsAgg.length}/${invAgg.length}`} />
-            </div>
+      {tab==="overview" && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-6">
+            <KpiCard icon={<DollarSign className="w-5 h-5" />} title="Total Billed" value={money(summary.total_billed)} />
+            <KpiCard icon={<CheckCircle className="w-5 h-5" />} title="Total Paid" value={money(summary.total_paid)} />
+            <KpiCard icon={<XCircle className="w-5 h-5" />} title="Outstanding" value={money(summary.balance)} />
+            <KpiCard icon={<AlertCircle className="w-5 h-5" />} title="Unpaid / All" value={`${debtorsAgg.length}/${invAgg.length}`} />
+          </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-          <CardTable title={`All students — ${clsName}, ${termName} ${yearName}`} cols={["student","Total Amount","Total Paid","Balance","Status"]}>
-            {invAgg.slice(0,10).map(r => (
-              <tr key={r.student_id} className="border-b last:border-0 dark:border-gray-700">
-            <td className="p-3 font-medium">
-              <div className="flex flex-col">
-                <span>{r.student_name || r.student_id}</span>
-                <span className="text-xs text-gray-500">
-              {(r.contact_email && r.contact_phone)
-                ? `${r.contact_email} • ${r.contact_phone}`
-                : (r.contact_email || r.contact_phone || <span className="text-amber-600">No contact</span>)}
-                </span>
-              </div>
-            </td>
-            <td className="p-3">{money(r.amount)}</td>
-            <td className="p-3">{money(r.paid_total)}</td>
-            <td className="p-3">{money(r.balance)}</td>
-            <td className="p-3"><StatusPill status={r.status} /></td>
-              </tr>
-            ))}
-            {invAgg.length===0 && <EmptyRow cols={5} text="No invoices yet for this selection." />}
-          </CardTable>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+            <CardTable title={`All students — ${clsName}, ${termName} ${yearName}`} cols={["student","Total Amount","Total Paid","Balance","Status"]}>
+              {invAgg.slice(0,10).map(r => (
+                <tr key={r.student_id} className="border-b last:border-0 dark:border-gray-700">
+                  <td className="p-3 font-medium">
+                    <div className="flex flex-col">
+                      <span>{r.student_name || r.student_id}</span>
+                      <span className="text-xs text-gray-500">
+                        {(r.contact_email && r.contact_phone)
+                          ? `${r.contact_email} • ${r.contact_phone}`
+                          : (r.contact_email || r.contact_phone || <span className="text-amber-600">No contact</span>)}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="p-3">{money(r.amount)}</td>
+                  <td className="p-3">{money(r.paid_total)}</td>
+                  <td className="p-3">{money(r.balance)}</td>
+                  <td className="p-3"><StatusPill status={r.status} /></td>
+                </tr>
+              ))}
+              {invAgg.length===0 && <EmptyRow cols={5} text="No invoices yet for this selection." />}
+            </CardTable>
 
-          <CardTable title={`Students owing — ${clsName}, ${termName} ${yearName}`} cols={["Student","Billed","Paid","Balance","Status",""]}>
-            {debtorsAgg.slice(0,10).map(r => (
-              <tr key={r.student_id} className="border-b last:border-0 dark:border-gray-700">
-            <td className="p-3 font-medium">
-              <div className="flex flex-col">
-                <span>{r.student_name}</span>
-                <span className="text-xs text-gray-500">
-              {(r.contact_email && r.contact_phone)
-                ? `${r.contact_email} • ${r.contact_phone}`
-                : (r.contact_email || r.contact_phone || <span className="text-amber-600">No contact</span>)}
-                </span>
-              </div>
-            </td>
-            <td className="p-3">{money(r.amount)}</td>
-            <td className="p-3">{money(r.paid_total)}</td>
-            <td className="p-3">{money(r.balance)}</td>
-            <td className="p-3"><StatusPill status={r.status} /></td>
-            <td className="p-3">
-              <div className="flex justify-end gap-2">
-                <button
-              className="px-2 py-1 border rounded-lg inline-flex items-center gap-1"
-              onClick={() => openPay(r.student_id, r.student_name || r.student_id)}
-                >
-              View / Pay <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            </td>
-              </tr>
-            ))}
-            {debtorsAgg.length===0 && <EmptyRow cols={6} text="Everyone is fully paid 🎉" />}
-          </CardTable>
-            </div>
-          </>
-        )}
+            <CardTable title={`Students owing — ${clsName}, ${termName} ${yearName}`} cols={["Student","Billed","Paid","Balance","Status",""]}>
+              {debtorsAgg.slice(0,10).map(r => (
+                <tr key={r.student_id} className="border-b last:border-0 dark:border-gray-700">
+                  <td className="p-3 font-medium">
+                    <div className="flex flex-col">
+                      <span>{r.student_name}</span>
+                      <span className="text-xs text-gray-500">
+                        {(r.contact_email && r.contact_phone)
+                          ? `${r.contact_email} • ${r.contact_phone}`
+                          : (r.contact_email || r.contact_phone || <span className="text-amber-600">No contact</span>)}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="p-3">{money(r.amount)}</td>
+                  <td className="p-3">{money(r.paid_total)}</td>
+                  <td className="p-3">{money(r.balance)}</td>
+                  <td className="p-3"><StatusPill status={r.status} /></td>
+                  <td className="p-3">
+                    <div className="flex justify-end gap-2">
+                      <button
+                        className="px-2 py-1 border rounded-lg inline-flex items-center gap-1"
+                        onClick={() => openPay(r.student_id, r.student_name || r.student_id)}
+                      >
+                        View / Pay <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {debtorsAgg.length===0 && <EmptyRow cols={6} text="Everyone is fully paid 🎉" />}
+            </CardTable>
+          </div>
+        </>
+      )}
 
-        {/* Categories */}
+      {/* Categories */}
       {tab==="categories" && (
         <Section title="Categories" right={
           <>
@@ -818,7 +819,7 @@ Thank you.`;
               <Table cols={["Student", "Total Amount", "Total Paid", "Balance", "Status", ""]}>
                 {invAgg.map(r => {
                   const email = studentEmail(r.student_id);
-                  const canSend = !IS_BASIC && !!email;
+                  const canSend = IS_PREMIUM && !!email;
                   return (
                     <tr
                       key={r.student_id}
@@ -855,7 +856,7 @@ Thank you.`;
                             className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 ${canSend ? "" : "opacity-60 cursor-not-allowed"}`}
                             onClick={() => canSend && emailConsolidated(r.student_id, r.student_name || r.student_id)}
                             disabled={!canSend || sendingMailFor===r.student_id}
-                            title={IS_BASIC ? "Available on Standard & Premium" : (email ? "Send invoice via email" : "No email on file")}
+                            title={!IS_PREMIUM ? "Available on Premium plan" : (email ? "Send bill via email" : "No email on file")}
                           >
                             {sendingMailFor===r.student_id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                             {sendingMailFor===r.student_id ? "Sending…" : "Send Invoice"}
@@ -1071,7 +1072,7 @@ Thank you.`;
             setForm={setPayAnyForm}
             onCancel={()=>setOpenStudentPay(false)}
             onSave={()=>savePaymentForStudent()}
-            isBasic={IS_BASIC}
+            isPremium={IS_PREMIUM}
             emailSender={(sid, name)=>emailConsolidated(sid, name)}
           />
         </Modal>
@@ -1266,7 +1267,7 @@ function StructureForm({ initial, onCancel, onSave, categories, needCategoriesHi
 }
 
 /* ------------ student modals ------------ */
-function StudentPayModal({ cur, schoolId, student, invoices, form, setForm, onCancel, onSave, isBasic, emailSender }) {
+function StudentPayModal({ cur, schoolId, student, invoices, form, setForm, onCancel, onSave, isPremium, emailSender }) {
   const totalBilled = invoices.reduce((s,r)=>s+Number(r.amount||0),0);
   const totalPaid   = invoices.reduce((s,r)=>s+Number(r.paid_total||0),0);
   const outstanding = invoices.reduce((s,r)=> s + Number(((r.balance ?? (r.amount - r.paid_total)) ?? 0)), 0);
@@ -1319,7 +1320,7 @@ function StudentPayModal({ cur, schoolId, student, invoices, form, setForm, onCa
             <div className="text-gray-500">Total Paid</div>
             <div className="font-semibold">{cur} {Number(totalPaid).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
           </div>
-                   <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
+          <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
             <div className="text-gray-500">Outstanding</div>
             <div className="font-semibold">
               {cur} {Number(outstanding).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}
@@ -1399,25 +1400,9 @@ function StudentPayModal({ cur, schoolId, student, invoices, form, setForm, onCa
             </label>
           </div>
 
-          <div className="grid sm:grid-cols-2 gap-3">
-            <Input
-              label="Receipt No."
-              value={form.receipt_no}
-              onChange={v => setForm(s => ({ ...s, receipt_no: v }))}
-              placeholder="Will auto-fill"
-            />
-            <div />
-          </div>
+          {/* Receipt No. field is now hidden (auto-generated & used internally) */}
 
           <div className="flex justify-end gap-2">
-            {!isBasic && hasBalance && (
-              <button
-                className="px-3 py-2 border rounded-xl inline-flex items-center gap-2"
-                onClick={() => emailSender(student.student_id, student.full_name)}
-              >
-                <Send className="w-4 h-4" /> Send Invoice
-              </button>
-            )}
             <button className="px-3 py-2 border rounded-xl inline-flex items-center gap-2" onClick={onCancel}>
               <X className="h-4 w-4" /> Close
             </button>
@@ -1439,6 +1424,7 @@ function StudentPayModal({ cur, schoolId, student, invoices, form, setForm, onCa
 /* Payments list modal (group by receipt no + method, sum amounts, print) */
 function StudentPaymentsModal({ cur, schoolName, classNameLabel, termName, yearName, student, payments, onClose }) {
   // group by receipt_no+method
+    // group by receipt_no+method
   const groupsMap = new Map();
   for (const p of payments) {
     const rcpt = (p.receipt_no || "-").toString();

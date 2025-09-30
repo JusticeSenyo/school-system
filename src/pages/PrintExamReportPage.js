@@ -27,6 +27,7 @@ const ACADEMIC_CLASSES_API = `${HOST}/academic/get/classes/`;
 const ACADEMIC_YEAR_API = `${HOST}/academic/get/academic_year/`;
 const ACADEMIC_TERM_API = `${HOST}/academic/get/term/`;
 const SUBJECTS_API = `${HOST}/academic/get/subject/`; // ?p_school_id=
+const ACADEMIC_SCHOOL_API = `${HOST}/academic/get/school/`; // has logo_url, signature_url
 
 /* ------------ Exams APIs (LIVE) ------------ */
 const STUDENT_REPORT_URL = ({
@@ -90,13 +91,11 @@ const jarr = async (u, headers = {}) => {
   }
 };
 const jobjectLenient = async (u, headers = {}) => {
-  // Returns: {} for empty / no row, or a plain object if available
   try {
     const t = await jtxt(u, headers);
     if (!t) return {};
     try {
       const parsed = JSON.parse(t);
-      // Some gateways wrap as items:[], standardize to plain object
       if (Array.isArray(parsed)) return parsed[0] || {};
       if (parsed && typeof parsed === "object" && Array.isArray(parsed.items)) {
         return parsed.items[0] || {};
@@ -111,6 +110,11 @@ const jobjectLenient = async (u, headers = {}) => {
 };
 const asArr = (v) => (Array.isArray(v) ? v : Array.isArray(v?.items) ? v.items : []);
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+const bust = (url) => {
+  if (!url) return "";
+  try { const u = new URL(url, window.location.origin); u.searchParams.set("_", Date.now()); return u.toString(); }
+  catch { return `${url}${url.includes("?") ? "&" : "?"}_=${Date.now()}`; }
+};
 
 export default function PrintExamReportPage() {
   const { user, token } = useAuth() || {};
@@ -140,9 +144,26 @@ export default function PrintExamReportPage() {
   const [scaleBands, setScaleBands] = useState([]);
   const [review, setReview] = useState(null); // teacher/head remarks, attendance, etc.
 
+  // School branding (logo + headteacher signature)
+  const [branding, setBranding] = useState({ logoUrl: "", signatureUrl: "" });
+
   // UX
   const [loading, setLoading] = useState(false);
   const [passMark] = useState(50);
+
+  // Load Branding
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await jarr(ACADEMIC_SCHOOL_API, H);
+        const rec = rows.find(r => String(r.school_id ?? r.SCHOOL_ID) === String(schoolId));
+        setBranding({
+          logoUrl: rec?.logo_url ?? rec?.LOGO_URL ?? "",
+          signatureUrl: rec?.signature_url ?? rec?.SIGNATURE_URL ?? "",
+        });
+      } catch { setBranding({ logoUrl: "", signatureUrl: "" }); }
+    })();
+  }, [schoolId, H]);
 
   // Load Classes
   useEffect(() => {
@@ -242,7 +263,7 @@ export default function PrintExamReportPage() {
     })();
   }, [schoolId, H]);
 
-  // Load Students (filtered by class) + include image_url
+  // Load Students
   useEffect(() => {
     if (!schoolId) return;
     (async () => {
@@ -268,7 +289,7 @@ export default function PrintExamReportPage() {
               s.MOTHER_PHONE ??
               "",
             email: s.email ?? s.EMAIL ?? "",
-            image_url: s.image_url ?? s.IMAGE_URL ?? "", // student photo
+            image_url: s.image_url ?? s.IMAGE_URL ?? "",
           }))
           .filter((x) => x.id != null);
         setStudents(arr);
@@ -286,7 +307,7 @@ export default function PrintExamReportPage() {
     })();
   }, [schoolId, classId, classes, H]);
 
-  // Load grading scale (from marks_grade) for this school + class
+  // Load grading scale
   useEffect(() => {
     if (!schoolId) return;
     (async () => {
@@ -356,7 +377,6 @@ export default function PrintExamReportPage() {
       }
 
       try {
-        // REVIEW: single object with lower-case keys per your PL/SQL
         const revObj = await jobjectLenient(
           REVIEW_URL({
             sid: schoolId,
@@ -367,8 +387,6 @@ export default function PrintExamReportPage() {
           }),
           H
         );
-
-        // Normalize to a shallow object with both lower & upper lookups
         const norm = revObj && typeof revObj === "object" ? revObj : {};
         setReview(norm);
       } catch {
@@ -498,7 +516,8 @@ export default function PrintExamReportPage() {
                 address: user?.school?.address || "",
                 phone: user?.school?.phone || "",
                 email: user?.school?.email || "",
-                logoUrl: "",
+                logoUrl: branding.logoUrl || "",
+                signatureUrl: branding.signatureUrl || "",
               }}
             />
           ) : (
@@ -543,12 +562,10 @@ function StudentReportDocument({
   const attendance    = pick(review, "attendance",      "ATTENDANCE")      ?? "-";
   let reopen          = pick(review, "reopen_date",     "REOPEN_DATE")     ?? "-";
 
-  // Normalize reopen format to YYYY-MM-DD if ISO
   if (typeof reopen === "string" && reopen.length >= 10) {
     reopen = reopen.slice(0, 10);
   }
 
-  // If API didn't provide overall_score, use computed average
   const overallScore = apiOverall != null && apiOverall !== "" ? apiOverall : stats.avg;
 
   return (
@@ -556,7 +573,7 @@ function StudentReportDocument({
       {/* Header */}
       <div className="p-6 border-b dark:border-gray-700 flex items-start gap-4">
         {school.logoUrl ? (
-          <img src={school.logoUrl} alt="School Logo" className="h-14 w-14 object-contain" />
+          <img src={bust(school.logoUrl)} alt="School Logo" className="h-14 w-14 object-contain" />
         ) : (
           <div className="h-14 w-14 rounded bg-indigo-600" />
         )}
@@ -668,7 +685,7 @@ function StudentReportDocument({
         />
       </div>
 
-      {/* Grading scale (School + Class scoped) */}
+      {/* Grading scale */}
       {!!scale?.length && (
         <div className="px-6 py-4">
           <div className="text-sm font-semibold mb-1 flex items-center gap-2">
@@ -699,10 +716,10 @@ function StudentReportDocument({
         </div>
       )}
 
-      {/* Signatures (Class Teacher removed) */}
+      {/* Signatures */}
       <div className="px-6 pb-10">
-        <div className="flex justify-between">
-          <Signature label="Head Teacher" />
+        <div className="flex justify-between w-full">
+          <Signature label="Head Teacher" imageUrl={school.signatureUrl} />
           <Signature label="Parent/Guardian" />
         </div>
       </div>
@@ -788,15 +805,28 @@ function LabelWithIcon({ icon, text }) {
   );
 }
 
-function Signature({ label }) {
+function Signature({ label, imageUrl }) {
   return (
     <div className="text-center w-1/2">
-      <div className="h-14" />
+      {/* signature image area */}
+      <div className="h-16 flex items-end justify-center">
+        {imageUrl ? (
+          <img
+            src={bust(imageUrl)}
+            alt={`${label} signature`}
+            className="max-h-16 object-contain"
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
+        ) : null}
+      </div>
+
+      {/* signing line + caption */}
       <div className="border-t dark:border-gray-600 w-40 mx-auto" />
       <div className="text-xs mt-1">{label} Signature</div>
     </div>
   );
 }
+
 
 function StudentLov({ label = "Student", students = [], value, onPick }) {
   const [open, setOpen] = React.useState(false);

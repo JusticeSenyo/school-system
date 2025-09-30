@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 import {
   Mail, MessageSquare, Send, Loader2, Users, Building2, Inbox,
-  CheckCircle2, UserCheck2, Shield, AlertCircle, Info, X
+  CheckCircle2, UserCheck2, Shield, AlertCircle, X
 } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 
@@ -131,7 +131,16 @@ export default function CommunicationPage() {
   const [pkgName, setPkgName] = useState("");
   const [expiryRaw, setExpiryRaw] = useState("");
   const [pkgLoaded, setPkgLoaded] = useState(false);
-  const [showPlan, setShowPlan] = useState(true);
+
+  // plan banner dismiss (persist per school)
+  const bannerKey = `comms_plan_banner_dismissed_${schoolId}`;
+  const [showPlan, setShowPlan] = useState(() => {
+    try { return localStorage.getItem(bannerKey) !== '1'; } catch { return true; }
+  });
+  const onDismissPlan = () => {
+    try { localStorage.setItem(bannerKey, '1'); } catch {}
+    setShowPlan(false);
+  };
 
   useEffect(() => {
     (async () => {
@@ -150,9 +159,13 @@ export default function CommunicationPage() {
     })();
   }, [schoolId]);
 
-  const planHuman = HUMAN_PLAN(PLAN_NAME_BY_CODE(pkgName));
+  // Normalize once; derive all gates from normalized code
+  const planCode  = PLAN_NAME_BY_CODE(pkgName);   // 'BASIC' | 'STANDARD' | 'PREMIUM'
+  const planHuman = HUMAN_PLAN(planCode);
   const isExpired = isDateExpired(expiryRaw);
-  const isPremium = String(pkgName).trim().toLowerCase() === "premium";
+  const isPremium = planCode === 'PREMIUM';
+
+  // Premium-only gates
   const canUseSms = isPremium && !isExpired;
   const canUseParentsDashboard = isPremium && !isExpired;
 
@@ -440,8 +453,8 @@ export default function CommunicationPage() {
 
   return (
     <DashboardLayout title="Communication" subtitle="">
-      {/* Plan status banner */}
-      {pkgLoaded && (
+      {/* Plan status banner (respects dismiss + expiry coloring) */}
+      {pkgLoaded && showPlan && (
         <div className={`mb-4 rounded-lg border p-3 text-sm ${isExpired
           ? 'bg-rose-50 border-rose-200 text-rose-700'
           : 'bg-gray-50 border-gray-200 text-gray-700'
@@ -453,15 +466,15 @@ export default function CommunicationPage() {
               {expiryRaw ? <> · Expires: <strong>{String(expiryRaw).slice(0,10)}</strong></> : null}
               {isExpired && <> · <strong>Expired</strong></>}
             </span>
+            <button
+              onClick={onDismissPlan}
+              className="ml-auto p-1 rounded hover:bg-black/5"
+              aria-label="Dismiss plan banner"
+              type="button"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
-          <button
-            onClick={() => setShowPlan(false)}
-            className="ml-auto p-1 rounded hover:bg-black/5"
-            aria-label="Dismiss plan banner"
-            type="button"
-          >
-            <X className="h-4 w-4" />
-          </button>
         </div>
       )}
 

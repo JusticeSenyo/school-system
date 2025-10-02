@@ -433,14 +433,6 @@ export default function HeadTeacherDashboard() {
       )}
 
       {/* Today's Announcements */}
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
-          Today’s Announcements
-        </h3>
-        <div className="text-xs text-gray-500 dark:text-gray-400">
-          Role filter: {roleCode || "—"} • Targeted + General
-        </div>
-      </div>
 
       {annLoading ? (
         <div className="rounded-xl border border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 text-sm text-gray-600 dark:text-gray-300 mb-8">

@@ -41,7 +41,7 @@ export const roleBasedMenus = Object.freeze({
   headteacher: [
     { label: "Dashboard", path: "/dashboard" },
     { label: "Communication", path: "/dashboard/communication" },
-    { label: "Manage Staff", path: "/dashboard/manage-staff" },
+    // Removed: { label: "Manage Staff", path: "/dashboard/manage-staff" },
     { label: "Manage Students", path: "/dashboard/manage-students" },
     {
       label: "Attendance",
@@ -75,9 +75,7 @@ export const roleBasedMenus = Object.freeze({
     { label: "Dashboard", path: "/dashboard" },
     {
       label: "Examination",
-      children: [
-        { label: "Enter Scores", path: "/dashboard/exams/enter-scores" },
-      ],
+      children: [{ label: "Enter Scores", path: "/dashboard/exams/enter-scores" }],
     },
     { label: "Settings", path: "/settings" },
   ],

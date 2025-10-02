@@ -63,6 +63,10 @@ const ATTEND_SUMMARY_URL = ({ sid, classId, yearId, termId }) => {
   return `${HOST}/report/get/attendance/summary/?${qp.toString()}`;
 };
 
+/* ------------ Promote / Repeat ------------ */
+const PROMO_CLASSES_API = `${HOST}/student/get/classes/`; // ?p_school_id
+const STUDENT_UPDATE_API = `${HOST}/student/update/student/`;
+
 /* ------------ helpers ------------ */
 const normalizeRole = (role) => {
   if (!role) return "";
@@ -247,6 +251,16 @@ export default function ManageExamReportPage() {
 
   // Prevent race conditions across scope changes
   const [scopeKey, setScopeKey] = useState("");
+
+  // ===== Promote / Repeat modal state (simplified UX) =====
+  const [showPromoteModal, setShowPromoteModal] = useState(false);
+  const [promoLoading, setPromoLoading] = useState(false);
+  const [promoClasses, setPromoClasses] = useState([]); // [{class_id, class_name, section}]
+  const [promoStudents, setPromoStudents] = useState([]); // full rows for update
+  const [promoActions, setPromoActions] = useState({}); // { [student_id]: 'SKIP'|'PROMOTE'|'REPEAT' }
+  const [promoteToClassId, setPromoteToClassId] = useState(null);
+  const [promoBanner, setPromoBanner] = useState({ type: "", text: "" });
+  const canPromote = isHT && !isExpired;
 
   // Update scopeKey and clear rows whenever scope changes
   useEffect(() => {
@@ -611,6 +625,144 @@ export default function ManageExamReportPage() {
 
   const unsavedCount = rows.filter((r) => r.__dirty).length;
 
+  /* ===== Promote / Repeat functions (new UX) ===== */
+  function setPromoForAll(action) {
+    setPromoActions((prev) => {
+      const next = { ...prev };
+      for (const s of promoStudents) next[s.student_id] = action;
+      return next;
+    });
+  }
+
+  async function openPromoteModal() {
+    if (!isHT) return;
+    setPromoBanner({ type: "", text: "" });
+    setShowPromoteModal(true);
+    setPromoLoading(true);
+    try {
+      // Load classes for target list
+      const cls = await jarr(`${PROMO_CLASSES_API}?p_school_id=${encodeURIComponent(schoolId)}`, H);
+      const normC = (cls || []).map(r => ({
+        class_id: Number(r.class_id ?? r.CLASS_ID ?? r.id ?? r.ID),
+        class_name: r.class_name ?? r.CLASS_NAME ?? r.name ?? r.NAME ?? "",
+        section: r.section ?? r.SECTION ?? "",
+      })).filter(c => Number.isFinite(c.class_id));
+      setPromoClasses(normC);
+
+      // Choose a sensible default "Promote to" class (first one that is NOT the current class if possible)
+      let defaultTarget = normC.find(c => Number(c.class_id) !== Number(classId))?.class_id;
+      if (!Number.isFinite(defaultTarget) && normC.length) defaultTarget = normC[0].class_id;
+      setPromoteToClassId(Number.isFinite(defaultTarget) ? defaultTarget : null);
+
+      // Load students (full payload for update API)
+      const sRows = await jarr(
+        `${STUDENTS_API}?p_school_id=${encodeURIComponent(schoolId)}&p_class_id=${encodeURIComponent(classId)}`,
+        H
+      );
+      const normS = (sRows || []).map(s => ({
+        student_id: Number(s.student_id ?? s.STUDENT_ID ?? s.id ?? s.ID),
+        school_id: Number(s.school_id ?? s.SCHOOL_ID ?? schoolId),
+        full_name: s.full_name ?? s.FULL_NAME ?? "",
+        gender: s.gender ?? s.GENDER ?? "",
+        dob: s.dob ?? s.DOB ?? "",
+        class_id: Number(s.class_id ?? s.CLASS_ID ?? classId),
+        admission_no: s.admission_no ?? s.ADMISSION_NO ?? "",
+        index_no: s.index_no ?? s.INDEX_NO ?? "",
+        role: s.role ?? s.ROLE ?? "",
+        status: s.status ?? s.STATUS ?? "",
+        father_name: s.father_name ?? s.FATHER_NAME ?? "",
+        mother_name: s.mother_name ?? s.MOTHER_NAME ?? "",
+        father_phone: s.father_phone ?? s.FATHER_PHONE ?? "",
+        mother_phone: s.mother_phone ?? s.MOTHER_PHONE ?? "",
+        guardian_name: s.guardian_name ?? s.GUARDIAN_NAME ?? "",
+        guardian_phone: s.guardian_phone ?? s.GUARDIAN_PHONE ?? "",
+        phone: s.phone ?? s.PHONE ?? "",
+        email: s.email ?? s.EMAIL ?? "",
+        image_url: s.image_url ?? s.IMAGE_URL ?? "",
+        name: (s.full_name ?? s.FULL_NAME ?? "").trim(),
+      })).filter(x => Number.isFinite(x.student_id));
+      setPromoStudents(normS);
+
+      // init actions to SKIP
+      const init = {};
+      for (const s of normS) init[s.student_id] = "SKIP";
+      setPromoActions(init);
+    } catch (e) {
+      setPromoBanner({ type: "error", text: `Failed to load promotion data: ${e?.message || e}` });
+    } finally {
+      setPromoLoading(false);
+    }
+  }
+
+  async function submitPromotions() {
+    if (!isHT || isExpired) return;
+    setPromoLoading(true);
+    setPromoBanner({ type: "", text: "" });
+    try {
+      // Validate if at least one Promote requires target and we have a target class selected
+      const needsTarget = Object.values(promoActions).some(a => a === "PROMOTE");
+      if (needsTarget && !Number.isFinite(promoteToClassId)) {
+        throw new Error("Select a 'Promote to class' before applying changes.");
+      }
+
+      let changed = 0;
+      for (const s of promoStudents) {
+        const action = promoActions[s.student_id];
+        if (!action || action === "SKIP") continue;
+
+        const targetClassId = action === "REPEAT" ? Number(s.class_id) : Number(promoteToClassId);
+        if (!Number.isFinite(targetClassId)) continue;
+
+        const qs = new URLSearchParams({
+          p_student_id: String(s.student_id),
+          p_school_id: String(s.school_id || schoolId),
+          p_class_id: String(targetClassId),
+
+          p_full_name: s.full_name || "",
+          p_gender: s.gender || "",
+          p_image_url: s.image_url || "",
+          p_role: s.role || "",
+          p_status: s.status || "",
+          p_admission_no: s.admission_no || "",
+          p_index_no: s.index_no || "",
+          p_father_name: s.father_name || "",
+          p_mother_name: s.mother_name || "",
+          p_father_phone: s.father_phone || "",
+          p_mother_phone: s.mother_phone || "",
+          p_guardian_name: s.guardian_name || "",
+          p_guardian_phone: s.guardian_phone || "",
+          p_phone: s.phone || "",
+          p_email: s.email || "",
+          p_dob: s.dob || "",
+        });
+
+        const url = `${STUDENT_UPDATE_API}?${qs.toString()}`;
+        const res = await fetch(url, { method: "GET", headers: { ...H } });
+        if (!res.ok) {
+          const txt = await res.text().catch(() => "");
+          throw new Error(`Failed for ${s.name || s.student_id}: HTTP ${res.status} ${txt}`);
+        }
+        changed++;
+      }
+
+      setPromoBanner({ type: "success", text: changed ? `Updated ${changed} student${changed === 1 ? "" : "s"}.` : "No changes made." });
+
+      // Recompute table and students in class (remove promoted ones from current class view)
+      await buildTable();
+      setStudents((prev) =>
+        prev.filter(st => {
+          const action = promoActions[st.id];
+          if (action === "PROMOTE") return false; // moved out
+          return true; // REPEAT or SKIP remain
+        })
+      );
+    } catch (e) {
+      setPromoBanner({ type: "error", text: e?.message || "Promotion failed." });
+    } finally {
+      setPromoLoading(false);
+    }
+  }
+
   return (
     <DashboardLayout title={`Manage Exam Report (${PLAN.toUpperCase()})`} subtitle="">
       {/* Plan status banner */}
@@ -741,6 +893,19 @@ export default function ManageExamReportPage() {
           >
             <Save size={16} /> Save All {unsavedCount ? `(${unsavedCount})` : ""}
           </button>
+
+          {/* Promote / Repeat (HT only, more visible) */}
+          {isHT && (
+            <button
+              onClick={openPromoteModal}
+              className="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold transition bg-fuchsia-600 text-white hover:bg-fuchsia-700"
+              type="button"
+              title="Promote or repeat students"
+            >
+              <Filter size={16} />
+              Promote / Repeat
+            </button>
+          )}
         </div>
       </div>
 
@@ -882,6 +1047,206 @@ export default function ManageExamReportPage() {
         Tip: “Save” on each row only saves that student. “Save All” saves all edited remarks.
         {isHT ? " “Apply to All & Save” sets or updates the Reopen Date for everyone in the class." : ""}
       </div>
+
+      {/* Promote / Repeat Modal (HT only) */}
+      {showPromoteModal && isHT && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center">
+          {/* backdrop */}
+          <div className="absolute inset-0 bg-black/40" onClick={() => !promoLoading && setShowPromoteModal(false)} />
+          {/* modal */}
+          <div className="relative z-[71] w-full max-w-5xl mx-4 rounded-2xl border bg-white dark:bg-gray-900 dark:border-gray-700 shadow-xl">
+            {/* header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b dark:border-gray-700">
+              <div>
+                <div className="text-lg font-semibold">Promote / Repeat Students</div>
+                <div className="text-xs text-gray-500">
+                  Current class: <strong>{classes.find(c => Number(c.id) === Number(classId))?.name || `#${classId}`}</strong> · Term: {terms.find(t => Number(t.id) === Number(termId))?.name || termId} · Year: {years.find(y => Number(y.id) === Number(yearId))?.name || yearId}
+                </div>
+              </div>
+              <button
+                onClick={() => setShowPromoteModal(false)}
+                disabled={promoLoading}
+                className="p-2 rounded hover:bg-black/5 disabled:opacity-50"
+                aria-label="Close"
+                type="button"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* banner */}
+            {promoBanner.text && (
+              <div className={`mx-5 mt-4 rounded-lg border p-3 text-sm ${
+                promoBanner.type === "success"
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                  : promoBanner.type === "error"
+                  ? "bg-rose-50 border-rose-200 text-rose-700"
+                  : "bg-gray-50 border-gray-200 text-gray-700"
+              }`}>
+                {promoBanner.text}
+              </div>
+            )}
+
+            {/* controls */}
+            <div className="px-5 pt-4 pb-3 flex flex-col lg:flex-row lg:items-end gap-3">
+              <div className="flex flex-col">
+                <label className="text-sm text-gray-600 mb-1">Promote to class (applies to all marked <strong>Promote</strong>)</label>
+                <select
+                  value={Number.isFinite(promoteToClassId) ? String(promoteToClassId) : ""}
+                  onChange={(e) => setPromoteToClassId(Number(e.target.value))}
+                  disabled={promoLoading || promoClasses.length === 0}
+                  className="px-3 py-2 rounded-md border bg-white dark:bg-gray-800 dark:border-gray-700 text-sm min-w-[16rem]"
+                >
+                  {promoClasses.length ? promoClasses.map(c => (
+                    <option key={c.class_id} value={String(c.class_id)}>
+                      {c.class_name}{c.section ? ` (${c.section})` : ""}
+                    </option>
+                  )) : <option value="">No classes</option>}
+                </select>
+                <div className="text-xs text-gray-500 mt-1">Students marked <em>Repeat</em> will remain in their current class.</div>
+              </div>
+
+              <div className="ml-auto flex items-center gap-2">
+                <button
+                  onClick={() => setPromoForAll("PROMOTE")}
+                  disabled={promoLoading || promoStudents.length === 0 || !Number.isFinite(promoteToClassId)}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-md border bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-700 text-sm"
+                  type="button"
+                  title="Set all to Promote"
+                >
+                  Promote All
+                </button>
+                <button
+                  onClick={() => setPromoForAll("REPEAT")}
+                  disabled={promoLoading || promoStudents.length === 0}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-md border bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-700 text-sm"
+                  type="button"
+                  title="Set all to Repeat"
+                >
+                  Repeat All
+                </button>
+                <button
+                  onClick={() => setPromoForAll("SKIP")}
+                  disabled={promoLoading || promoStudents.length === 0}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-md border bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-700 text-sm"
+                  type="button"
+                  title="Clear selections"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+
+            {/* summary chips */}
+            <div className="px-5 pb-2 text-xs text-gray-500 flex flex-wrap gap-2">
+              {(() => {
+                const vals = Object.values(promoActions);
+                const total = promoStudents.length;
+                const promote = vals.filter(v => v === "PROMOTE").length;
+                const repeat = vals.filter(v => v === "REPEAT").length;
+                const skip = total - promote - repeat;
+                return (
+                  <>
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-fuchsia-50 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-200">Promote: {promote}</span>
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200">Repeat: {repeat}</span>
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200">Skip: {skip}</span>
+                  </>
+                );
+              })()}
+            </div>
+
+            {/* table */}
+            <div className="px-5 pb-5">
+              <div className="overflow-x-auto rounded-xl border dark:border-gray-700">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-100 dark:bg-gray-800">
+                    <tr>
+                      <th className="px-4 py-3 text-left">Student</th>
+                      <th className="px-4 py-3 text-left">Current Class</th>
+                      <th className="px-4 py-3 text-left">Action</th>
+                      <th className="px-4 py-3 text-left">Target Class (read-only)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {promoLoading ? (
+                      <tr><td colSpan={4} className="px-4 py-6 text-center text-gray-500">
+                        <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</span>
+                      </td></tr>
+                    ) : promoStudents.length === 0 ? (
+                      <tr><td colSpan={4} className="px-4 py-6 text-center text-gray-500">No students in this class.</td></tr>
+                    ) : promoStudents.map((s, idx) => {
+                      const action = promoActions[s.student_id] || "SKIP";
+                      const curClassName =
+                        classes.find(c => Number(c.id) === Number(s.class_id))?.name ||
+                        promoClasses.find(c => Number(c.class_id) === Number(s.class_id))?.class_name ||
+                        s.class_id;
+
+                      let targetText = "—";
+                      if (action === "REPEAT") targetText = String(curClassName);
+                      if (action === "PROMOTE") {
+                        const tgt = promoClasses.find(c => Number(c.class_id) === Number(promoteToClassId));
+                        targetText = tgt ? `${tgt.class_name}${tgt.section ? ` (${tgt.section})` : ""}` : "Select class above";
+                      }
+
+                      return (
+                        <tr key={s.student_id} className={idx % 2 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50/40 dark:bg-gray-800/40'}>
+                          <td className="px-4 py-2">{s.name}</td>
+                          <td className="px-4 py-2">{String(curClassName)}</td>
+                          <td className="px-4 py-2">
+                            <select
+                              value={action}
+                              onChange={(e) => {
+                                const a = e.target.value;
+                                setPromoActions(prev => ({ ...prev, [s.student_id]: a }));
+                              }}
+                              disabled={promoLoading}
+                              className="px-3 py-2 rounded-md border bg-white dark:bg-gray-800 dark:border-gray-700"
+                            >
+                              <option value="SKIP">Skip</option>
+                              <option value="PROMOTE">Promote</option>
+                              <option value="REPEAT">Repeat</option>
+                            </select>
+                          </td>
+                          <td className="px-4 py-2">
+                            <input
+                              readOnly
+                              value={targetText}
+                              className="w-full px-3 py-2 rounded-md border bg-gray-50 dark:bg-gray-900 dark:border-gray-700 text-gray-700 dark:text-gray-300"
+                              title="Target class is derived from your action and the selection above"
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* footer actions */}
+              <div className="mt-4 flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setShowPromoteModal(false)}
+                  disabled={promoLoading}
+                  className="px-4 py-2 rounded-md border bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-700"
+                  type="button"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={submitPromotions}
+                  disabled={promoLoading || !isHT || isExpired}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition bg-fuchsia-600 text-white hover:bg-fuchsia-700 disabled:opacity-50 ${(!isHT || isExpired) ? "cursor-not-allowed" : ""}`}
+                  title={!isHT ? "Head Teacher only" : (isExpired ? "Plan expired" : "Apply changes")}
+                  type="button"
+                >
+                  {promoLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  {promoLoading ? "Applying…" : "Apply Changes"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }

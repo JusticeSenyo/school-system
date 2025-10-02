@@ -30,14 +30,7 @@ const SUBJECTS_API = `${HOST}/academic/get/subject/`; // ?p_school_id=
 const ACADEMIC_SCHOOL_API = `${HOST}/academic/get/school/`; // has logo_url, signature_url
 
 /* ------------ Exams APIs (LIVE) ------------ */
-const STUDENT_REPORT_URL = ({
-  sid,
-  yearId,
-  termId,
-  classId,
-  studentId,
-  passMark,
-}) => {
+const STUDENT_REPORT_URL = ({ sid, yearId, termId, classId, studentId, passMark }) => {
   const qp = new URLSearchParams({
     p_school_id: String(sid),
     p_year_id: String(yearId),
@@ -64,6 +57,9 @@ const REVIEW_URL = ({ sid, yearId, termId, classId, studentId }) => {
 /* ------------ Students API ------------ */
 const STUDENTS_API = `${HOST}/student/get/students/`; // ?p_school_id=&p_class_id=
 
+/* ------------ Attendance API (per-day rows; supports p_term & p_student_id) ------------ */
+const ATTENDANCE_API = `${HOST}/report/get/attendance/`; // ?p_school_id=&p_class_id=&p_academic_year=&p_term=&p_student_id=&p_date?
+
 /* ------------ Grading scale (from marks_grade) ------------ */
 const GRADING_SCALE_URL = ({ sid, classId }) => {
   const qp = new URLSearchParams({ p_school_id: String(sid) });
@@ -73,10 +69,7 @@ const GRADING_SCALE_URL = ({ sid, classId }) => {
 
 /* ------------ helpers ------------ */
 const jtxt = async (u, headers = {}) => {
-  const r = await fetch(u, {
-    cache: "no-store",
-    headers: { Accept: "application/json", ...headers },
-  });
+  const r = await fetch(u, { cache: "no-store", headers: { Accept: "application/json", ...headers } });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return (await r.text()).trim();
 };
@@ -116,13 +109,21 @@ const bust = (url) => {
   catch { return `${url}${url.includes("?") ? "&" : "?"}_=${Date.now()}`; }
 };
 
+/* Ordinal helper: 1 -> 1st, 2 -> 2nd, 3 -> 3rd, 11/12/13 -> th */
+function ordinalize(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v ?? "-");
+  const mod100 = n % 100;
+  const suffix = (mod100 >= 11 && mod100 <= 13)
+    ? "th"
+    : ({ 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th");
+  return `${n}${suffix}`;
+}
+
 export default function PrintExamReportPage() {
   const { user, token } = useAuth() || {};
   const schoolId = user?.schoolId ?? user?.school_id ?? user?.school?.id ?? 1;
-  const H = useMemo(
-    () => (token ? { Authorization: `Bearer ${token}` } : {}),
-    [token]
-  );
+  const H = useMemo(() => (token ? { Authorization: `Bearer ${token}` } : {}), [token]);
 
   // LOV state
   const [years, setYears] = useState([]);
@@ -144,8 +145,11 @@ export default function PrintExamReportPage() {
   const [scaleBands, setScaleBands] = useState([]);
   const [review, setReview] = useState(null); // teacher/head remarks, attendance, etc.
 
-  // School branding (logo + headteacher signature)
+  // School branding
   const [branding, setBranding] = useState({ logoUrl: "", signatureUrl: "" });
+
+  // Attendance label for the selected student (Present X / Y)
+  const [attLabel, setAttLabel] = useState(null);
 
   // UX
   const [loading, setLoading] = useState(false);
@@ -170,23 +174,14 @@ export default function PrintExamReportPage() {
     if (!schoolId) return;
     (async () => {
       try {
-        const rows = await jarr(
-          `${ACADEMIC_CLASSES_API}?p_school_id=${encodeURIComponent(
-            schoolId
-          )}`,
-          H
-        );
-        const norm = rows
-          .map((r) => ({
-            id: r.class_id ?? r.CLASS_ID ?? r.id ?? r.ID,
-            name: r.class_name ?? r.CLASS_NAME ?? r.name ?? r.NAME,
-          }))
-          .filter((x) => x.id != null);
+        const rows = await jarr(`${ACADEMIC_CLASSES_API}?p_school_id=${encodeURIComponent(schoolId)}`, H);
+        const norm = rows.map((r) => ({
+          id: r.class_id ?? r.CLASS_ID ?? r.id ?? r.ID,
+          name: r.class_name ?? r.CLASS_NAME ?? r.name ?? r.NAME,
+        })).filter((x) => x.id != null);
         setClasses(norm);
         if (!classId && norm.length) setClassId(Number(norm[0].id));
-      } catch {
-        setClasses([]);
-      }
+      } catch { setClasses([]); }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schoolId, H]);
@@ -195,21 +190,14 @@ export default function PrintExamReportPage() {
   useEffect(() => {
     if (!schoolId) return;
     (async () => {
-      const rows = await jarr(
-        `${ACADEMIC_YEAR_API}?p_school_id=${encodeURIComponent(schoolId)}`,
-        H
-      );
-      const all = rows
-        .map((r) => ({
-          id: r.academic_year_id ?? r.ACADEMIC_YEAR_ID,
-          name: r.academic_year_name ?? r.ACADEMIC_YEAR_NAME,
-          status: (r.status ?? r.STATUS) || "",
-        }))
-        .filter((a) => a.id != null);
+      const rows = await jarr(`${ACADEMIC_YEAR_API}?p_school_id=${encodeURIComponent(schoolId)}`, H);
+      const all = rows.map((r) => ({
+        id: r.academic_year_id ?? r.ACADEMIC_YEAR_ID,
+        name: r.academic_year_name ?? r.ACADEMIC_YEAR_NAME,
+        status: (r.status ?? r.STATUS) || "",
+      })).filter((a) => a.id != null);
       setYears(all);
-      const cur = all.find(
-        (a) => String(a.status).toUpperCase() === "CURRENT"
-      );
+      const cur = all.find((a) => String(a.status).toUpperCase() === "CURRENT");
       setYearId(Number(cur?.id ?? all[0]?.id ?? null));
     })();
   }, [schoolId, H]);
@@ -218,21 +206,14 @@ export default function PrintExamReportPage() {
   useEffect(() => {
     if (!schoolId) return;
     (async () => {
-      const rows = await jarr(
-        `${ACADEMIC_TERM_API}?p_school_id=${encodeURIComponent(schoolId)}`,
-        H
-      );
-      const all = rows
-        .map((r) => ({
-          id: r.term_id ?? r.TERM_ID,
-          name: r.term_name ?? r.TERM_NAME,
-          status: (r.status ?? r.STATUS) || "",
-        }))
-        .filter((t) => t.id != null);
+      const rows = await jarr(`${ACADEMIC_TERM_API}?p_school_id=${encodeURIComponent(schoolId)}`, H);
+      const all = rows.map((r) => ({
+        id: r.term_id ?? r.TERM_ID,
+        name: r.term_name ?? r.TERM_NAME,
+        status: (r.status ?? r.STATUS) || "",
+      })).filter((t) => t.id != null);
       setTerms(all);
-      const cur = all.find(
-        (t) => String(t.status).toUpperCase() === "CURRENT"
-      );
+      const cur = all.find((t) => String(t.status).toUpperCase() === "CURRENT");
       setTermId(Number(cur?.id ?? all[0]?.id ?? null));
     })();
   }, [schoolId, H]);
@@ -242,24 +223,16 @@ export default function PrintExamReportPage() {
     if (!schoolId) return;
     (async () => {
       try {
-        const rows = await jarr(
-          `${SUBJECTS_API}?p_school_id=${encodeURIComponent(schoolId)}`,
-          H
-        );
+        const rows = await jarr(`${SUBJECTS_API}?p_school_id=${encodeURIComponent(schoolId)}`, H);
         const m = new Map(
-          rows
-            .map((s) => {
-              const id = Number(s.subject_id ?? s.SUBJECT_ID ?? s.id ?? s.ID);
-              const name =
-                s.subject_name ?? s.SUBJECT_NAME ?? s.name ?? s.NAME ?? "";
-              return id ? [id, name] : null;
-            })
-            .filter(Boolean)
+          rows.map((s) => {
+            const id = Number(s.subject_id ?? s.SUBJECT_ID ?? s.id ?? s.ID);
+            const name = s.subject_name ?? s.SUBJECT_NAME ?? s.name ?? s.NAME ?? "";
+            return id ? [id, name] : null;
+          }).filter(Boolean)
         );
         setSubjectNames(m);
-      } catch {
-        setSubjectNames(new Map());
-      }
+      } catch { setSubjectNames(new Map()); }
     })();
   }, [schoolId, H]);
 
@@ -268,35 +241,24 @@ export default function PrintExamReportPage() {
     if (!schoolId) return;
     (async () => {
       try {
-        const url = `${STUDENTS_API}?p_school_id=${encodeURIComponent(
-          schoolId
-        )}${classId ? `&p_class_id=${encodeURIComponent(classId)}` : ""}`;
+        const url = `${STUDENTS_API}?p_school_id=${encodeURIComponent(schoolId)}${classId ? `&p_class_id=${encodeURIComponent(classId)}` : ""}`;
         const rows = await jarr(url, H);
         const byId = new Map(classes.map((c) => [Number(c.id), c.name]));
-        const arr = rows
-          .map((s) => ({
-            id: s.student_id ?? s.STUDENT_ID ?? s.id ?? s.ID,
-            name: s.full_name ?? s.FULL_NAME ?? s.name ?? s.NAME ?? "",
-            index_no: s.index_no ?? s.INDEX_NO ?? "",
-            class_id: s.class_id ?? s.CLASS_ID ?? null,
-            class_name: byId.get(Number(s.class_id ?? s.CLASS_ID)) || "",
-            parent_phone:
-              s.guardian_phone ??
-              s.GUARDIAN_PHONE ??
-              s.father_phone ??
-              s.FATHER_PHONE ??
-              s.mother_phone ??
-              s.MOTHER_PHONE ??
-              "",
-            email: s.email ?? s.EMAIL ?? "",
-            image_url: s.image_url ?? s.IMAGE_URL ?? "",
-          }))
-          .filter((x) => x.id != null);
+        const arr = rows.map((s) => ({
+          id: s.student_id ?? s.STUDENT_ID ?? s.id ?? s.ID,
+          name: s.full_name ?? s.FULL_NAME ?? s.name ?? s.NAME ?? "",
+          index_no: s.index_no ?? s.INDEX_NO ?? "",
+          class_id: s.class_id ?? s.CLASS_ID ?? null,
+          class_name: byId.get(Number(s.class_id ?? s.CLASS_ID)) || "",
+          parent_phone:
+            s.guardian_phone ?? s.GUARDIAN_PHONE ??
+            s.father_phone ?? s.FATHER_PHONE ??
+            s.mother_phone ?? s.MOTHER_PHONE ?? "",
+          email: s.email ?? s.EMAIL ?? "",
+          image_url: s.image_url ?? s.IMAGE_URL ?? "",
+        })).filter((x) => x.id != null);
         setStudents(arr);
-        if (
-          !selectedStudentId ||
-          !arr.find((a) => String(a.id) === String(selectedStudentId))
-        ) {
+        if (!selectedStudentId || !arr.find((a) => String(a.id) === String(selectedStudentId))) {
           if (arr.length) setSelectedStudentId(String(arr[0].id));
           else setSelectedStudentId("");
         }
@@ -305,7 +267,7 @@ export default function PrintExamReportPage() {
         setSelectedStudentId("");
       }
     })();
-  }, [schoolId, classId, classes, H]);
+  }, [schoolId, classId, classes, H]); // classes in dep so class_name maps correctly
 
   // Load grading scale
   useEffect(() => {
@@ -323,9 +285,7 @@ export default function PrintExamReportPage() {
         }));
         bands.sort((a, b) => (b.min || 0) - (a.min || 0));
         setScaleBands(bands);
-      } catch {
-        setScaleBands([]);
-      }
+      } catch { setScaleBands([]); }
     })();
   }, [schoolId, classId, H]);
 
@@ -334,83 +294,84 @@ export default function PrintExamReportPage() {
     const load = async () => {
       setStudentReport([]);
       setReview(null);
-      if (!schoolId || !yearId || !termId || !classId || !selectedStudentId)
-        return;
+      if (!schoolId || !yearId || !termId || !classId || !selectedStudentId) return;
       setLoading(true);
       try {
         const t = await jtxt(
-          STUDENT_REPORT_URL({
-            sid: schoolId,
-            yearId,
-            termId,
-            classId,
-            studentId: selectedStudentId,
-            passMark,
-          }),
+          STUDENT_REPORT_URL({ sid: schoolId, yearId, termId, classId, studentId: selectedStudentId, passMark }),
           H
         );
         let res;
-        try {
-          res = JSON.parse(t);
-        } catch {
-          res = [];
-        }
+        try { res = JSON.parse(t); } catch { res = []; }
         const arr = asArr(res).map((r) => ({
           subjectId: r.subject_id ?? r.SUBJECT_ID ?? r.subject,
-          subjectName:
-            r.subject_name ??
-            r.SUBJECT_NAME ??
-            (r.subject_id ? `Subject ${r.subject_id}` : ""),
-          classwork: Number(
-            r.classwork ?? r.CLASSWORK ?? r.class_score ?? r.CLASS_SCORE ?? 0
-          ),
+          subjectName: r.subject_name ?? r.SUBJECT_NAME ?? (r.subject_id ? `Subject ${r.subject_id}` : ""),
+          classwork: Number(r.classwork ?? r.CLASSWORK ?? r.class_score ?? r.CLASS_SCORE ?? 0),
           exam: Number(r.exam ?? r.EXAM ?? r.exam_score ?? r.EXAM_SCORE ?? 0),
           total: Number(r.total ?? r.TOTAL ?? 0),
           grade: r.grade ?? r.GRADE ?? "",
           remark: r.remark ?? r.REMARK ?? r.meaning ?? r.MEANING ?? "",
-          pass:
-            String(r.pass ?? r.PASS).toUpperCase() === "Y" || r.pass === true,
+          pass: String(r.pass ?? r.PASS).toUpperCase() === "Y" || r.pass === true,
         }));
         setStudentReport(arr);
-      } catch {
-        setStudentReport([]);
-      }
+      } catch { setStudentReport([]); }
 
       try {
         const revObj = await jobjectLenient(
-          REVIEW_URL({
-            sid: schoolId,
-            yearId,
-            termId,
-            classId,
-            studentId: selectedStudentId,
-          }),
+          REVIEW_URL({ sid: schoolId, yearId, termId, classId, studentId: selectedStudentId }),
           H
         );
-        const norm = revObj && typeof revObj === "object" ? revObj : {};
-        setReview(norm);
-      } catch {
-        setReview({});
-      }
+        setReview(revObj && typeof revObj === "object" ? revObj : {});
+      } catch { setReview({}); }
 
       setLoading(false);
     };
     load();
   }, [schoolId, yearId, termId, classId, selectedStudentId, passMark, H]);
 
-  // helpers
-  const getYearName = (id) =>
-    years.find((y) => Number(y.id) === Number(id))?.name || id || "-";
-  const getTermName = (id) =>
-    terms.find((t) => Number(t.id) === Number(id))?.name || id || "-";
-  const getClassName = (id) =>
-    classes.find((c) => Number(c.id) === Number(id))?.name || id || "-";
+  // Load attendance for the selected student (scoped by year + term + class)
+  useEffect(() => {
+    const loadAttendanceForStudent = async () => {
+      setAttLabel(null);
+      if (!schoolId || !classId || !yearId || !termId || !selectedStudentId) return;
+      try {
+        const qp = new URLSearchParams({
+          p_school_id: String(schoolId),
+          p_class_id: String(classId),
+          p_academic_year: String(yearId),
+          p_term: String(termId),
+          p_student_id: String(selectedStudentId),
+        });
+        const rows = await jarr(`${ATTENDANCE_API}?${qp.toString()}`, H);
+        let total = 0, present = 0;
+        for (const r of rows) {
+          total += 1;
+          const statusRaw = String(r.status ?? r.STATUS ?? "").trim().toLowerCase();
+          if (statusRaw === "present" || statusRaw === "p" || statusRaw === "1") present += 1;
+        }
+        setAttLabel(total > 0 ? `Present ${present} / ${total}` : "-");
+      } catch {
+        setAttLabel(null);
+      }
+    };
+    loadAttendanceForStudent();
+  }, [schoolId, classId, yearId, termId, selectedStudentId, H]);
 
-  const student =
-    useMemo(
-      () => students.find((s) => String(s.id) === String(selectedStudentId)) || null,
-      [students, selectedStudentId]
-    );
+  // helpers
+  const getYearName   = (id) => years.find((y) => Number(y.id) === Number(id))?.name || id || "-";
+  const getTermName   = (id) => terms.find((t) => Number(t.id) === Number(id))?.name || id || "-";
+  const getClassName  = (id) => classes.find((c) => Number(c.id) === Number(id))?.name || id || "-";
+  const student = useMemo(
+    () => students.find((s) => String(s.id) === String(selectedStudentId)) || null,
+    [students, selectedStudentId]
+  );
+
+  // fallback attendance if API returns nothing, use review.attendance
+  const fallbackAttendanceFromReview = useMemo(() => {
+    const pick = (o, a, b) => (o && (o[a] ?? o[b])) ?? undefined;
+    const attendance = pick(review, "attendance", "ATTENDANCE");
+    return attendance ? String(attendance) : "-";
+  }, [review]);
 
   const previewRef = useRef(null);
   const handlePrint = () => window.print();
@@ -427,14 +388,10 @@ export default function PrintExamReportPage() {
   }, [studentReport]);
 
   return (
-    <DashboardLayout
-      title="Print Exam Report"
-      subtitle=""
-    >
+    <DashboardLayout title="Print Exam Report" subtitle="">
       {/* Filters */}
       <div className="sticky top-0 z-10 pb-3 bg-gradient-to-b from-white/70 to-transparent dark:from-gray-900/60 backdrop-blur-md mb-3">
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow p-4 border border-gray-100 dark:border-gray-700">
-            {/* Make Student picker a full-width row */}
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
             <div className="col-span-1 md:col-span-2 xl:col-span-6">
               <StudentLov
@@ -451,9 +408,7 @@ export default function PrintExamReportPage() {
             >
               {classes.length === 0 && <option value="">No classes</option>}
               {classes.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
+                <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </LabeledSelect>
             <LabeledSelect
@@ -463,9 +418,7 @@ export default function PrintExamReportPage() {
             >
               {terms.length === 0 && <option value="">No terms</option>}
               {terms.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
+                <option key={t.id} value={t.id}>{t.name}</option>
               ))}
             </LabeledSelect>
             <LabeledSelect
@@ -475,13 +428,11 @@ export default function PrintExamReportPage() {
             >
               {years.length === 0 && <option value="">No years</option>}
               {years.map((y) => (
-                <option key={y.id} value={y.id}>
-                  {y.name}
-                </option>
+                <option key={y.id} value={y.id}>{y.name}</option>
               ))}
             </LabeledSelect>
 
-            <div className=" md:flex items-end">
+            <div className="md:flex items-end">
               <button
                 onClick={handlePrint}
                 className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg w-full md:w-auto"
@@ -511,6 +462,7 @@ export default function PrintExamReportPage() {
               scale={scaleBands}
               review={review}
               subjectNames={subjectNames}
+              attendanceLabel={attLabel ?? fallbackAttendanceFromReview}
               school={{
                 name: user?.school?.name || user?.school_name || "Your School",
                 address: user?.school?.address || "",
@@ -551,15 +503,14 @@ function StudentReportDocument({
   review,
   school,
   subjectNames,
+  attendanceLabel,
 }) {
-  // Helper that reads either lower- or upper-cased API keys
   const pick = (o, a, b) => (o && (o[a] ?? o[b])) ?? undefined;
 
   const teacherRemark = pick(review, "teacher_remarks", "TEACHER_REMARKS") || "";
   const headRemark    = pick(review, "head_remarks",    "HEAD_REMARKS")    || "";
   const apiOverall    = pick(review, "overall_score",   "OVERALL_SCORE");
   const overallPos    = pick(review, "overall_position","OVERALL_POSITION") ?? "-";
-  const attendance    = pick(review, "attendance",      "ATTENDANCE")      ?? "-";
   let reopen          = pick(review, "reopen_date",     "REOPEN_DATE")     ?? "-";
 
   if (typeof reopen === "string" && reopen.length >= 10) {
@@ -666,8 +617,11 @@ function StudentReportDocument({
       {/* Summary quick facts */}
       <div className="px-6 py-4 grid sm:grid-cols-2 gap-3">
         <InfoRow label="Overall Score" value={overallScore ?? "-"} />
-        <InfoRow label="Overall Position" value={overallPos ?? "-"} />
-        <InfoRow label="Attendance" value={attendance ?? "-"} />
+        <InfoRow
+          label="Overall Position"
+          value={overallPos != null && overallPos !== "-" ? ordinalize(overallPos) : "-"}
+        />
+        <InfoRow label="Attendance" value={attendanceLabel ?? "-"} />
         <InfoRow label="Reopen Date" value={reopen ?? "-"} />
       </div>
 
@@ -808,7 +762,6 @@ function LabelWithIcon({ icon, text }) {
 function Signature({ label, imageUrl }) {
   return (
     <div className="text-center w-1/2">
-      {/* signature image area */}
       <div className="h-16 flex items-end justify-center">
         {imageUrl ? (
           <img
@@ -819,14 +772,11 @@ function Signature({ label, imageUrl }) {
           />
         ) : null}
       </div>
-
-      {/* signing line + caption */}
       <div className="border-t dark:border-gray-600 w-40 mx-auto" />
       <div className="text-xs mt-1">{label} Signature</div>
     </div>
   );
 }
-
 
 function StudentLov({ label = "Student", students = [], value, onPick }) {
   const [open, setOpen] = React.useState(false);
@@ -862,16 +812,9 @@ function StudentLov({ label = "Student", students = [], value, onPick }) {
           title="Click to choose student"
         >
           <span className="truncate">
-            {selected
-              ? `${selected.name} (Index No.: ${selected.index_no || "-"})`
-              : "Select student…"}
+            {selected ? `${selected.name} (Index No.: ${selected.index_no || "-"})` : "Select student…"}
           </span>
-          <svg
-            className="ml-2 h-4 w-4 text-gray-400"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            aria-hidden="true"
-          >
+          <svg className="ml-2 h-4 w-4 text-gray-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
             <path
               fillRule="evenodd"
               d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z"
@@ -886,10 +829,7 @@ function StudentLov({ label = "Student", students = [], value, onPick }) {
           <div className="w-full max-w-2xl bg-white dark:bg-gray-900 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700">
             <div className="flex items-center justify-between p-4 border-b dark:border-gray-700">
               <div className="font-semibold">Choose Student</div>
-              <button
-                onClick={() => setOpen(false)}
-                className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
-              >
+              <button onClick={() => setOpen(false)} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -912,9 +852,7 @@ function StudentLov({ label = "Student", students = [], value, onPick }) {
 
             <div className="max-h-80 overflow-auto px-2 pb-2">
               {filtered.length === 0 ? (
-                <div className="px-4 py-6 text-center text-sm text-gray-500">
-                  No students found.
-                </div>
+                <div className="px-4 py-6 text-center text-sm text-gray-500">No students found.</div>
               ) : (
                 <ul className="divide-y dark:divide-gray-800">
                   {filtered.map((s) => {
@@ -922,23 +860,13 @@ function StudentLov({ label = "Student", students = [], value, onPick }) {
                     return (
                       <li key={s.id}>
                         <button
-                          className={`w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                            isActive ? "bg-indigo-50 dark:bg-indigo-900/30" : ""
-                          }`}
-                          onClick={() => {
-                            onPick(String(s.id));
-                            setOpen(false);
-                          }}
+                          className={`w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 ${isActive ? "bg-indigo-50 dark:bg-indigo-900/30" : ""}`}
+                          onClick={() => { onPick(String(s.id)); setOpen(false); }}
                         >
                           <div className="font-medium">
-                            {s.name}{" "}
-                            <span className="text-gray-500">
-                              (Index No.: {s.index_no || "-"})
-                            </span>
+                            {s.name} <span className="text-gray-500">(Index No.: {s.index_no || "-"})</span>
                           </div>
-                          <div className="text-xs text-gray-500">
-                            {s.class_name || ""}
-                          </div>
+                          <div className="text-xs text-gray-500">{s.class_name || ""}</div>
                         </button>
                       </li>
                     );
@@ -948,12 +876,8 @@ function StudentLov({ label = "Student", students = [], value, onPick }) {
             </div>
 
             <div className="p-3 border-t dark:border-gray-700 flex items-center justify-between text-xs text-gray-500">
-              <span>
-                {filtered.length} result{filtered.length === 1 ? "" : "s"}
-              </span>
-              <button onClick={() => setOpen(false)} className="px-3 py-1.5 border rounded-lg">
-                Close
-              </button>
+              <span>{filtered.length} result{filtered.length === 1 ? "" : "s"}</span>
+              <button onClick={() => setOpen(false)} className="px-3 py-1.5 border rounded-lg">Close</button>
             </div>
           </div>
         </div>

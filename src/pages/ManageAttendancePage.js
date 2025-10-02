@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 import { useAuth } from '../AuthContext';
 import {
-  CheckCircle, XCircle, Calendar, Users, Save, Loader2, CheckSquare, AlertCircle, RefreshCcw, ListChecks, Download
+  CheckCircle, XCircle, Calendar, Users, Save, Loader2, CheckSquare, AlertCircle, RefreshCcw, ListChecks, Download, X
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -17,6 +17,7 @@ const CLASS_LIST_API      = `${BASE}/academic/class_teacher/class/`;
 
 const ACADEMIC_YEAR_API   = `${BASE}/academic/get/academic_year/`;
 const ACADEMIC_TERM_API   = `${BASE}/academic/get/term/`;
+const SCHOOL_INFO_API     = `${BASE}/academic/get/school/`;
 
 /* ================== Helpers ================== */
 // Map UI value -> API value
@@ -37,14 +38,73 @@ const jarr = async (url) => {
   } catch { return []; }
 };
 
+/* ---- Plan helpers (same as other pages) ---- */
+function isDateExpired(isoOrDateString) {
+  if (!isoOrDateString) return false;
+  const d = new Date(String(isoOrDateString));
+  if (Number.isNaN(d.getTime())) return false;
+  const today = new Date();
+  const todayFloor = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  return d.getTime() < todayFloor;
+}
+const PLAN_NAME_BY_CODE = (raw) => {
+  const v = String(raw ?? '').trim().toUpperCase();
+  if (v === '1' || v === 'BASIC') return 'BASIC';
+  if (v === '2' || v === 'STANDARD') return 'STANDARD';
+  if (v === '3' || v === 'PREMIUM' || v === 'PREMUIM') return 'PREMIUM';
+  return 'BASIC';
+};
+const HUMAN_PLAN = (code) => ({ BASIC: 'Basic', STANDARD: 'Standard', PREMIUM: 'Premium' }[code] || 'Basic');
+
 /* ================== Component ================== */
 const ManageAttendancePage = () => {
-  const { user } = useAuth?.() || {};
+  const { user } = useAuth() || {};
   const userId = user?.user_id ?? user?.id ?? 1;
-  const schoolId = user?.school_id ?? 1;
+  const schoolId = user?.school_id ?? user?.schoolId ?? user?.school?.id ?? 1;
   const recordedBy = userId;
 
   const today = formatYmd(new Date());
+
+  /* ---------- Plan / expiry gating ---------- */
+  const fallbackPkg = Number(user?.school?.package ?? user?.package ?? user?.plan ?? 2);
+  const fallbackPlanCode = fallbackPkg === 1 ? "BASIC" : fallbackPkg === 3 ? "PREMIUM" : "STANDARD";
+
+  const [pkgName, setPkgName] = useState("");
+  const [expiryRaw, setExpiryRaw] = useState("");
+  const [pkgLoaded, setPkgLoaded] = useState(false);
+
+  const planBannerKey = `attendance_plan_banner_dismissed_${schoolId}`;
+  const [showPlan, setShowPlan] = useState(() => {
+    try { return localStorage.getItem(planBannerKey) !== "1"; } catch { return true; }
+  });
+  const dismissPlan = () => {
+    try { localStorage.setItem(planBannerKey, "1"); } catch {}
+    setShowPlan(false);
+  };
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await jarr(SCHOOL_INFO_API);
+        const s = rows.find(r => String(r.school_id ?? r.SCHOOL_ID) === String(schoolId));
+        const p = (s?.package ?? s?.PACKAGE ?? "").toString();
+        const exp = s?.expiry ?? s?.EXPIRY ?? "";
+        setPkgName(p);
+        setExpiryRaw(exp);
+      } catch {
+        setPkgName(fallbackPlanCode);
+        setExpiryRaw("");
+      } finally {
+        setPkgLoaded(true);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schoolId]);
+
+  const planCode = PLAN_NAME_BY_CODE(pkgName || fallbackPlanCode); // BASIC | STANDARD | PREMIUM
+  const PLAN = planCode.toLowerCase();
+  const planHuman = HUMAN_PLAN(planCode);
+  const isExpired = isDateExpired(expiryRaw);
 
   // Classes for this class teacher (from API)
   const [classes, setClasses] = useState([]); // [{class_id, class_name}]
@@ -210,20 +270,26 @@ const ManageAttendancePage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schoolId, classId, date, recordedBy]);
 
-  /* ========== UI actions ========== */
+  /* ========== UI actions (gated when plan expired) ========== */
   const handleAttendanceChange = (student_id, status) => {
+    if (isExpired) return;
     setAttendance(prev => ({ ...prev, [student_id]: status }));
   };
 
   const markAll = (status) => {
+    if (isExpired) return;
     const next = {};
     for (const s of unmarked) next[s.student_id] = status;
     setAttendance(next);
   };
 
-  const resetMarks = () => setAttendance({});
+  const resetMarks = () => {
+    if (isExpired) return;
+    setAttendance({});
+  };
 
   const submitAttendance = async () => {
+    if (isExpired) return;
     setSubmitting(true);
     setResult({ ok: null, msg: '' });
     try {
@@ -303,7 +369,35 @@ const ManageAttendancePage = () => {
   const excelDisabled = loading || marked.length === 0;
 
   return (
-    <DashboardLayout title="Manage Attendance" subtitle="">
+    <DashboardLayout title={`Manage Attendance (${PLAN.toUpperCase()})`} subtitle="">
+      {/* Plan status banner */}
+      {pkgLoaded && showPlan && (
+        <div
+          className={`mb-4 rounded-lg border p-3 text-sm ${
+            isExpired
+              ? "bg-rose-50 border-rose-200 text-rose-700"
+              : "bg-gray-50 border-gray-200 text-gray-700"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <AlertCircle className={`h-4 w-4 ${isExpired ? "text-rose-600" : "text-gray-500"}`} />
+            <span>
+              Plan: <strong>{planHuman || "—"}</strong>
+              {expiryRaw ? <> · Expires: <strong>{String(expiryRaw).slice(0,10)}</strong></> : null}
+              {isExpired && <> · <strong>Expired</strong></>}
+            </span>
+            <button
+              onClick={dismissPlan}
+              className="ml-auto p-1 rounded hover:bg-black/5"
+              aria-label="Dismiss plan banner"
+              type="button"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Top Bar */}
       <div className="mb-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
         {/* Class (class-teacher-only LOV) */}
@@ -416,7 +510,9 @@ const ManageAttendancePage = () => {
                         <select
                           value={value}
                           onChange={(e) => handleAttendanceChange(s.student_id, e.target.value)}
-                          className="px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
+                          disabled={isExpired}
+                          title={isExpired ? "Plan expired" : "Select attendance"}
+                          className={`px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
                         >
                           <option value="">Select</option>
                           <option value="present">Present</option>
@@ -438,13 +534,17 @@ const ManageAttendancePage = () => {
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleAttendanceChange(s.student_id, 'present')}
-                          className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
+                          disabled={isExpired}
+                          title={isExpired ? "Plan expired" : "Mark Present"}
+                          className={`px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60 ${isExpired ? "cursor-not-allowed" : ""}`}
                         >
                           Present
                         </button>
                         <button
                           onClick={() => handleAttendanceChange(s.student_id, 'absent')}
-                          className="px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700"
+                          disabled={isExpired}
+                          title={isExpired ? "Plan expired" : "Mark Absent"}
+                          className={`px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-60 ${isExpired ? "cursor-not-allowed" : ""}`}
                         >
                           Absent
                         </button>
@@ -473,14 +573,42 @@ const ManageAttendancePage = () => {
               </span>
             </div>
 
-            <button
-              onClick={submitAttendance}
-              disabled={submitting || unmarked.length === 0}
-              className="inline-flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-60"
-            >
-              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              {submitting ? 'Submitting…' : 'Submit Attendance'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => markAll('present')}
+                disabled={isExpired || unmarked.length === 0}
+                title={isExpired ? "Plan expired" : "Mark all Present"}
+                className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-60 ${isExpired ? "cursor-not-allowed" : ""}`}
+              >
+                <CheckSquare className="w-4 h-4" /> Mark all Present
+              </button>
+              <button
+                onClick={() => markAll('absent')}
+                disabled={isExpired || unmarked.length === 0}
+                title={isExpired ? "Plan expired" : "Mark all Absent"}
+                className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-60 ${isExpired ? "cursor-not-allowed" : ""}`}
+              >
+                <XCircle className="w-4 h-4" /> Mark all Absent
+              </button>
+              <button
+                onClick={resetMarks}
+                disabled={isExpired || unmarked.length === 0}
+                title={isExpired ? "Plan expired" : "Reset selections"}
+                className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-60 ${isExpired ? "cursor-not-allowed" : ""}`}
+              >
+                <RefreshCcw className="w-4 h-4" /> Reset
+              </button>
+
+              <button
+                onClick={submitAttendance}
+                disabled={submitting || unmarked.length === 0 || isExpired}
+                title={isExpired ? "Plan expired" : "Submit attendance"}
+                className={`inline-flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-60 ${isExpired ? "cursor-not-allowed" : ""}`}
+              >
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {submitting ? 'Submitting…' : 'Submit Attendance'}
+              </button>
+            </div>
           </div>
 
           {/* Messages */}

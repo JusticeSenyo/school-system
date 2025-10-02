@@ -28,6 +28,7 @@ const FEES_PAYMENTS_API          = `${HOST}/fees/payment/`;
 const FEES_PAYMENTS_LISTADD_API  = `${HOST}/fees/list/payment/`;
 const FEES_CLASS_SUMMARY_API     = `${HOST}/fees/summary/class/`;
 const FEES_RECEIPT_GEN_API       = `${HOST}/fees/receipt/generate/`;
+const SCHOOL_INFO_API            = `${HOST}/academic/get/school/`;
 
 /* ------------ utils ------------ */
 const jtxt = async (u) => {
@@ -121,6 +122,24 @@ const Toast = ({ type="info", text }) => {
   return <div className={`rounded-xl px-4 py-3 ${m}`}>{text}</div>;
 };
 
+/* ---- Plan helpers (same mapping as CommunicationPage) ---- */
+function isDateExpired(isoOrDateString) {
+  if (!isoOrDateString) return false;
+  const d = new Date(String(isoOrDateString));
+  if (Number.isNaN(d.getTime())) return false;
+  const today = new Date();
+  const todayFloor = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  return d.getTime() < todayFloor;
+}
+const PLAN_NAME_BY_CODE = (raw) => {
+  const v = String(raw ?? '').trim().toUpperCase();
+  if (v === '1' || v === 'BASIC') return 'BASIC';
+  if (v === '2' || v === 'STANDARD') return 'STANDARD';
+  if (v === '3' || v === 'PREMIUM' || v === 'PREMUIM') return 'PREMIUM';
+  return 'BASIC';
+};
+const HUMAN_PLAN = (code) => ({ BASIC: 'Basic', STANDARD: 'Standard', PREMIUM: 'Premium' }[code] || 'Basic');
+
 /* ------------ aggregations ------------ */
 const aggInvoices = (rows=[]) => {
   const m = new Map();
@@ -160,10 +179,52 @@ const aggPayments = (rows=[]) => {
 export default function ManageFeesPage() {
   const { user } = useAuth() || {};
   const schoolId = user?.schoolId ?? user?.school_id ?? user?.school?.id ?? 1;
-  const pkg = Number(user?.school?.package ?? user?.package ?? user?.plan ?? 2);
-  const PLAN = pkg===1 ? "basic" : pkg===3 ? "premium" : "standard";
-  const IS_BASIC = pkg===1;
-  const IS_PREMIUM = pkg===3;
+
+  // Fallbacks from user (used only if school endpoint fails)
+  const fallbackPkg = Number(user?.school?.package ?? user?.package ?? user?.plan ?? 2);
+  const fallbackPlanCode = fallbackPkg===1 ? "BASIC" : fallbackPkg===3 ? "PREMIUM" : "STANDARD";
+
+  /* --- package + expiry gating (from server) --- */
+  const [pkgName, setPkgName] = useState("");
+  const [expiryRaw, setExpiryRaw] = useState("");
+  const [pkgLoaded, setPkgLoaded] = useState(false);
+
+  // plan banner dismiss (persist per school)
+  const bannerKey = `fees_plan_banner_dismissed_${schoolId}`;
+  const [showPlan, setShowPlan] = useState(() => {
+    try { return localStorage.getItem(bannerKey) !== '1'; } catch { return true; }
+  });
+  const onDismissPlan = () => {
+    try { localStorage.setItem(bannerKey, '1'); } catch {}
+    setShowPlan(false);
+  };
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await jarr(SCHOOL_INFO_API);
+        const s = rows.find(r => String(r.school_id ?? r.SCHOOL_ID) === String(schoolId));
+        const p = (s?.package ?? s?.PACKAGE ?? "").toString();
+        const exp = s?.expiry ?? s?.EXPIRY ?? "";
+        setPkgName(p);
+        setExpiryRaw(exp);
+      } catch {
+        setPkgName(fallbackPlanCode);
+        setExpiryRaw("");
+      } finally {
+        setPkgLoaded(true);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schoolId]);
+
+  // Normalize once; derive gates
+  const planCode  = PLAN_NAME_BY_CODE(pkgName || fallbackPlanCode); // 'BASIC' | 'STANDARD' | 'PREMIUM'
+  const PLAN      = planCode.toLowerCase();                         // 'basic' | 'standard' | 'premium'
+  const IS_PREMIUM = planCode === 'PREMIUM';
+  const planHuman = HUMAN_PLAN(planCode);
+  const isExpired = isDateExpired(expiryRaw);
+
   const CUR = user?.school?.currency ?? user?.currency ?? "GHS";
   const SCHOOL_NAME = user?.school?.name ?? user?.school_name ?? "Your School";
   const money = (n) => `${CUR} ${currency(n)}`;
@@ -218,7 +279,7 @@ export default function ManageFeesPage() {
         const norm = rows.map(r => ({
           class_id: r.class_id ?? r.CLASS_ID ?? r.id ?? r.ID,
           class_name: r.class_name ?? r.CLASS_NAME ?? r.name ?? r.NAME
-        })).filter(x => x.class_id!=null);
+        })).filter(x=>x.class_id!=null);
         setClasses(norm); if (!classId && norm.length) setClassId(Number(norm[0].class_id));
       } catch (e) { setClassErr((e && e.message) || "Failed to load classes."); }
       setClassesLoading(false);
@@ -302,18 +363,18 @@ export default function ManageFeesPage() {
       const url = `${FEES_INVOICES_API}?p_school_id=${schoolId}&p_class_id=${classId}&p_term=${termId}&p_academic_year=${yearId}`;
       const rows = await jarr(url);
       setInvoices(rows.map(r => ({
-        invoice_id: r.invoice_id ?? r.INVOICE_ID, 
-        student_id: r.student_id ?? r.STUDENT_ID, 
+        invoice_id: r.invoice_id ?? r.INVOICE_ID,
+        student_id: r.student_id ?? r.STUDENT_ID,
         student_name: r.student_name ?? r.STUDENT_NAME,
         contact_email: r.contact_email ?? r.CONTACT_EMAIL ?? "",
         contact_phone: r.contact_phone ?? r.CONTACT_PHONE ?? "",
         // NEW: capture index number so we can build payment links for email
         index_no: r.index_no ?? r.student_index ?? r.INDEX_NO ?? r.STUDENT_INDEX ?? "",
         category_id: r.category_id ?? r.CATEGORY_ID,
-        category_name: r.category_name ?? r.CATEGORY_NAME, 
-        term: r.term ?? r.TERM, 
+        category_name: r.category_name ?? r.CATEGORY_NAME,
+        term: r.term ?? r.TERM,
         academic_year: r.academic_year ?? r.ACADEMIC_YEAR,
-        amount: Number(r.amount ?? r.AMOUNT ?? 0), 
+        amount: Number(r.amount ?? r.AMOUNT ?? 0),
         status: (r.status ?? r.STATUS) || "UNPAID",
         due_date:(r.due_date ?? r.DUE_DATE)?.slice ? (r.due_date ?? r.DUE_DATE).slice(0,10) : r.due_date,
         paid_total:Number(r.paid_total ?? r.AMOUNT_PAID ?? r.PAID_TOTAL ?? 0),
@@ -446,7 +507,7 @@ export default function ManageFeesPage() {
 
     const totalAmount = invs.reduce((s,r)=>s+Number(r.amount||0),0);
     const totalPaid   = invs.reduce((s,r)=>s+Number(r.paid_total||0),0);
-    const totalBal    = invs.reduce((s,r)=>s+Number((r.balance ?? (r.amount - r.paid_total)) || 0),0);
+    const totalBal    = invs.reduce((s,r)=>s+Number((r.balance ?? (r.amount - r.paid_total) ?? 0)),0);
 
     const subject = `School Bill — ${name} — ${clsName}, ${termName} ${yearName}`;
     const body =
@@ -471,7 +532,7 @@ Thank you.`;
     }
   };
 
-  // Send Reminder (Balances tab) — unchanged logic, but still uses the same API
+  // Send Reminder (Balances tab)
   const sendReminder = async (sid, name) => {
     const email = studentEmail(sid);
     if (!email) { setToast({ type:"err", text:"No contact email on file for this student." }); return; }
@@ -479,7 +540,6 @@ Thank you.`;
     const invs = studentInvoices(sid);
     const totalBal = invs.reduce((s,r)=> s + Number(((r.balance ?? (r.amount - r.paid_total)) ?? 0)), 0);
     if (totalBal <= 0) { setToast({ type:"info", text:"This student does not owe any balance." }); return; }
-
 
     const subject = `Fee Reminder — ${name} (${clsName}, ${termName} ${yearName})`;
     const body =
@@ -577,6 +637,31 @@ Thank you.`;
   /* ------------ render ------------ */
   return (
     <DashboardLayout title={`Fees (${PLAN.toUpperCase()})`} subtitle="">
+      {/* Plan status banner (dismissable; red if expired) */}
+      {pkgLoaded && showPlan && (
+        <div className={`mb-4 rounded-lg border p-3 text-sm ${isExpired
+          ? 'bg-rose-50 border-rose-200 text-rose-700'
+          : 'bg-gray-50 border-gray-200 text-gray-700'
+        }`}>
+          <div className="flex items-center gap-2">
+            <AlertCircle className={`h-4 w-4 ${isExpired ? 'text-rose-600' : 'text-gray-500'}`} />
+            <span>
+              Plan: <strong>{planHuman || '—'}</strong>
+              {expiryRaw ? <> · Expires: <strong>{String(expiryRaw).slice(0,10)}</strong></> : null}
+              {isExpired && <> · <strong>Expired</strong></>}
+            </span>
+            <button
+              onClick={onDismissPlan}
+              className="ml-auto p-1 rounded hover:bg-black/5"
+              aria-label="Dismiss plan banner"
+              type="button"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="sticky top-0 z-10 pb-3 bg-gradient-to-b from-white/70 to-transparent dark:from-gray-900/60 backdrop-blur-md mb-2">
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow p-4 border border-gray-100 dark:border-gray-700">
@@ -593,7 +678,12 @@ Thank you.`;
               {years.map(y => <option key={y.id} value={y.id}>{y.name}</option>)}
             </LabeledSelect>
             <div className="flex items-end gap-2">
-              <button onClick={()=>{loadClassSummary();loadInvoices();loadRecentPayments();}} className="w-full inline-flex items-center justify-center gap-2 border rounded-xl px-3 py-2">
+              <button
+                onClick={()=>{loadClassSummary();loadInvoices();loadRecentPayments();}}
+                className={`w-full inline-flex items-center justify-center gap-2 border rounded-xl px-3 py-2 ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+                disabled={isExpired}
+                title={isExpired ? "Plan expired" : ""}
+              >
                 <Download className="w-4 h-4" /> Refresh
               </button>
             </div>
@@ -665,8 +755,10 @@ Thank you.`;
                   <td className="p-3">
                     <div className="flex justify-end gap-2">
                       <button
-                        className="px-2 py-1 border rounded-lg inline-flex items-center gap-1"
-                        onClick={() => openPay(r.student_id, r.student_name || r.student_id)}
+                        className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+                        onClick={() => !isExpired && openPay(r.student_id, r.student_name || r.student_id)}
+                        disabled={isExpired}
+                        title={isExpired ? "Plan expired" : "View/Pay"}
                       >
                         View / Pay <ChevronRight className="w-4 h-4" />
                       </button>
@@ -684,10 +776,20 @@ Thank you.`;
       {tab==="categories" && (
         <Section title="Categories" right={
           <>
-            <button className="inline-flex items-center gap-2 px-3 py-2 border rounded-xl" onClick={loadCategories}>
+            <button
+              className={`inline-flex items-center gap-2 px-3 py-2 border rounded-xl ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+              onClick={!isExpired ? loadCategories : undefined}
+              disabled={isExpired}
+              title={isExpired ? "Plan expired" : "Refresh"}
+            >
               {catLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} Refresh
             </button>
-            <button className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-xl" onClick={()=>{setEditCat(null);setOpenCat(true);}}>
+            <button
+              className={`inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-xl ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+              onClick={()=>{ if (!isExpired){ setEditCat(null); setOpenCat(true);} }}
+              disabled={isExpired}
+              title={isExpired ? "Plan expired" : "New Category"}
+            >
               <Plus className="w-4 h-4" /> New Category
             </button>
           </>
@@ -700,17 +802,37 @@ Thank you.`;
                 <td className="p-3">{c.description || "-"}</td>
                 <td className="p-3">
                   <div className="flex justify-end gap-2">
-                    <button className="px-2 py-1 border rounded-lg inline-flex items-center gap-1 max-sm:hidden" onClick={()=>{setEditCat(c);setOpenCat(true);}}>
+                    <button
+                      className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 max-sm:hidden ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+                      onClick={()=>{ if (!isExpired){ setEditCat(c); setOpenCat(true);} }}
+                      disabled={isExpired}
+                      title={isExpired ? "Plan expired" : "Edit"}
+                    >
                       <Edit3 className="h-4 w-4" />Edit
                     </button>
-                    <button className="px-2 py-1 border rounded-lg inline-flex items-center gap-1 sm:hidden" onClick={()=>{setEditCat(c);setOpenCat(true);}}>
+                    <button
+                      className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 sm:hidden ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+                      onClick={()=>{ if (!isExpired){ setEditCat(c); setOpenCat(true);} }}
+                      disabled={isExpired}
+                      title={isExpired ? "Plan expired" : "Edit"}
+                    >
                       <Edit3 className="h-4 w-4" />
                     </button>
-                    <button className="px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1 max-sm:hidden" onClick={()=>deleteCategory(c.category_id)}>
+                    <button
+                      className={`px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1 max-sm:hidden ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+                      onClick={()=>{ if (!isExpired){ deleteCategory(c.category_id);} }}
+                      disabled={isExpired}
+                      title={isExpired ? "Plan expired" : "Delete"}
+                    >
                       <Trash2 className="h-4 w-4" /> Delete
                     </button>
-                    <button className="px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1 sm:hidden" onClick={()=>deleteCategory(c.category_id)}>
-                      <Trash2 className="h-4 w-4" /> 
+                    <button
+                      className={`px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1 sm:hidden ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+                      onClick={()=>{ if (!isExpired){ deleteCategory(c.category_id);} }}
+                      disabled={isExpired}
+                      title={isExpired ? "Plan expired" : "Delete"}
+                    >
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                 </td>
@@ -725,10 +847,20 @@ Thank you.`;
       {tab==="structures" && (
         <Section title={`Fee Structures — ${clsName}, ${termName} ${yearName}`} right={
           <>
-            <button className="inline-flex items-center gap-2 px-3 py-2 border rounded-xl" onClick={loadStructures}>
+            <button
+              className={`inline-flex items-center gap-2 px-3 py-2 border rounded-xl ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+              onClick={!isExpired ? loadStructures : undefined}
+              disabled={isExpired}
+              title={isExpired ? "Plan expired" : "Refresh"}
+            >
               {strLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} Refresh
             </button>
-            <button className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-xl" onClick={()=>{setEditStr(null);setOpenStr(true);}}>
+            <button
+              className={`inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-xl ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+              onClick={()=>{ if (!isExpired){ setEditStr(null); setOpenStr(true);} }}
+              disabled={isExpired}
+              title={isExpired ? "Plan expired" : "Add / Update Line"}
+            >
               <Plus className="w-4 h-4" /> Add / Update Line
             </button>
           </>
@@ -741,17 +873,37 @@ Thank you.`;
                 <td className="p-3">{money(s.amount)}</td>
                 <td className="p-3">
                   <div className="flex justify-end gap-2">
-                    <button className="px-2 py-1 border rounded-lg inline-flex items-center gap-1 max-sm:hidden" onClick={()=>{setEditStr(s);setOpenStr(true);}}>
+                    <button
+                      className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 max-sm:hidden ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+                      onClick={()=>{ if (!isExpired){ setEditStr(s); setOpenStr(true);} }}
+                      disabled={isExpired}
+                      title={isExpired ? "Plan expired" : "Edit"}
+                    >
                       <Edit3 className="h-4 w-4" /> Edit
                     </button>
-                    <button className="px-2 py-1 border rounded-lg inline-flex items-center gap-1 sm:hidden" onClick={()=>{setEditStr(s);setOpenStr(true);}}>
-                      <Edit3 className="h-4 w-4" /> 
+                    <button
+                      className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 sm:hidden ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+                      onClick={()=>{ if (!isExpired){ setEditStr(s); setOpenStr(true);} }}
+                      disabled={isExpired}
+                      title={isExpired ? "Plan expired" : "Edit"}
+                    >
+                      <Edit3 className="h-4 w-4" />
                     </button>
-                    <button className="px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1 max-sm:hidden" disabled={!s.structure_id} onClick={()=>deleteStructure(s.structure_id)}>
+                    <button
+                      className={`px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1 max-sm:hidden ${(!s.structure_id || isExpired) ? "opacity-60 cursor-not-allowed" : ""}`}
+                      disabled={!s.structure_id || isExpired}
+                      onClick={()=>{ if (!isExpired){ deleteStructure(s.structure_id);} }}
+                      title={isExpired ? "Plan expired" : (!s.structure_id ? "Nothing to delete" : "Delete")}
+                    >
                       <Trash2 className="h-4 w-4" /> Delete
                     </button>
-                    <button className="px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1 sm:hidden" disabled={!s.structure_id} onClick={()=>deleteStructure(s.structure_id)}>
-                      <Trash2 className="h-4 w-4" /> 
+                    <button
+                      className={`px-2 py-1 border rounded-lg text-rose-600 inline-flex items-center gap-1 sm:hidden ${(!s.structure_id || isExpired) ? "opacity-60 cursor-not-allowed" : ""}`}
+                      disabled={!s.structure_id || isExpired}
+                      onClick={()=>{ if (!isExpired){ deleteStructure(s.structure_id);} }}
+                      title={isExpired ? "Plan expired" : (!s.structure_id ? "Nothing to delete" : "Delete")}
+                    >
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                 </td>
@@ -762,7 +914,12 @@ Thank you.`;
 
           <div className="w-full">
             <div className="text-xs text-gray-500 px-3 py-2 rounded-xl border border-dashed dark:border-gray-700">Tip: After changes, generate fees for {clsName}.</div>
-            <button onClick={generateInvoices} disabled={!schoolId||!classId} className="inline-flex items-center justify-center gap-2 bg-indigo-600 text-white px-3 py-2 rounded-xl disabled:opacity-60 w-full">
+            <button
+              onClick={!isExpired ? generateInvoices : undefined}
+              disabled={!schoolId||!classId || isExpired}
+              className={`inline-flex items-center justify-center gap-2 bg-indigo-600 text-white px-3 py-2 rounded-xl disabled:opacity-60 w-full ${isExpired ? "cursor-not-allowed" : ""}`}
+              title={isExpired ? "Plan expired" : `Generate fees for ${clsName}`}
+            >
               <Receipt className="w-4 h-4" /> Generate fees for {clsName}
             </button>
           </div>
@@ -786,8 +943,10 @@ Thank you.`;
 
               <div className="flex flex-row sm:flex-row gap-2">
                 <button
-                  className="inline-flex items-center justify-center gap-2 px-3 py-2 border rounded-xl"
-                  onClick={loadInvoices}
+                  className={`inline-flex items-center justify-center gap-2 px-3 py-2 border rounded-xl ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+                  onClick={!isExpired ? loadInvoices : undefined}
+                  disabled={isExpired}
+                  title={isExpired ? "Plan expired" : "Refresh"}
                 >
                   {invLoading ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -798,13 +957,10 @@ Thank you.`;
                 </button>
 
                 <button
-                  className="inline-flex items-center justify-center gap-2 px-3 py-2 border rounded-xl"
-                  onClick={() =>
-                    csv(
-                      invAgg,
-                      `invoices_by_student_${clsName}_${termName}_${yearName}.csv`
-                    )
-                  }
+                  className={`inline-flex items-center justify-center gap-2 px-3 py-2 border rounded-xl ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+                  onClick={() => { if (!isExpired){ csv(invAgg, `invoices_by_student_${clsName}_${termName}_${yearName}.csv`);} }}
+                  disabled={isExpired}
+                  title={isExpired ? "Plan expired" : "Export"}
                 >
                   <FileDown className="w-4 h-4" /> Export
                 </button>
@@ -819,7 +975,7 @@ Thank you.`;
               <Table cols={["Student", "Total Amount", "Total Paid", "Balance", "Status", ""]}>
                 {invAgg.map(r => {
                   const email = studentEmail(r.student_id);
-                  const canSend = IS_PREMIUM && !!email;
+                  const canSend = IS_PREMIUM && !!email && !isExpired;
                   return (
                     <tr
                       key={r.student_id}
@@ -845,10 +1001,10 @@ Thank you.`;
                       <td className="p-3">
                         <div className="flex justify-end gap-2">
                           <button
-                            className="px-2 py-1 border rounded-lg inline-flex items-center gap-1"
-                            onClick={() =>
-                              openPay(r.student_id, r.student_name || r.student_id)
-                            }
+                            className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+                            onClick={() => { if (!isExpired){ openPay(r.student_id, r.student_name || r.student_id);} }}
+                            disabled={isExpired}
+                            title={isExpired ? "Plan expired" : "View/Pay"}
                           >
                             View / Pay <ChevronRight className="w-4 h-4" />
                           </button>
@@ -856,7 +1012,11 @@ Thank you.`;
                             className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 ${canSend ? "" : "opacity-60 cursor-not-allowed"}`}
                             onClick={() => canSend && emailConsolidated(r.student_id, r.student_name || r.student_id)}
                             disabled={!canSend || sendingMailFor===r.student_id}
-                            title={!IS_PREMIUM ? "Available on Premium plan" : (email ? "Send bill via email" : "No email on file")}
+                            title={
+                              isExpired ? "Plan expired"
+                              : (!IS_PREMIUM ? "Available on Premium plan"
+                                : (email ? "Send bill via email" : "No email on file"))
+                            }
                           >
                             {sendingMailFor===r.student_id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                             {sendingMailFor===r.student_id ? "Sending…" : "Send Invoice"}
@@ -893,8 +1053,10 @@ Thank you.`;
             {/* Buttons side by side */}
             <div className="flex gap-2">
               <button
-                className="inline-flex items-center gap-2 px-3 py-2 border rounded-xl"
-                onClick={loadRecentPayments}
+                className={`inline-flex items-center gap-2 px-3 py-2 border rounded-xl ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+                onClick={!isExpired ? loadRecentPayments : undefined}
+                disabled={isExpired}
+                title={isExpired ? "Plan expired" : "Refresh"}
               >
                 {payLoading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -905,13 +1067,10 @@ Thank you.`;
               </button>
 
               <button
-                className="inline-flex items-center gap-2 px-3 py-2 border rounded-xl"
-                onClick={() =>
-                  csv(
-                    payAggFiltered,
-                    `payments_by_student_${clsName}_${termName}_${yearName}.csv`
-                  )
-                }
+                className={`inline-flex items-center gap-2 px-3 py-2 border rounded-xl ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+                onClick={() => { if (!isExpired){ csv(payAggFiltered, `payments_by_student_${clsName}_${termName}_${yearName}.csv`);} }}
+                disabled={isExpired}
+                title={isExpired ? "Plan expired" : "Export"}
               >
                 <FileDown className="w-4 h-4" /> Export
               </button>
@@ -927,7 +1086,12 @@ Thank you.`;
                 <td className="p-3">{money(p.total_paid_now)}</td>
                 <td className="p-3">
                   <div className="flex justify-end gap-2">
-                    <button className="px-2 py-1 border rounded-lg inline-flex items-center gap-1" onClick={()=>openPayments(p.student_id, p.student_name || p.student_id)}>
+                    <button
+                      className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+                      onClick={()=>{ if (!isExpired){ openPayments(p.student_id, p.student_name || p.student_id);} }}
+                      disabled={isExpired}
+                      title={isExpired ? "Plan expired" : "View Payments"}
+                    >
                       View Payments <ChevronRight className="w-4 h-4" />
                     </button>
                   </div>
@@ -960,10 +1124,20 @@ Thank you.`;
                 title="Show fully paid only"
               >Paid</button>
             </div>
-            <button className="inline-flex items-center gap-2 px-3 py-2 border rounded-xl" onClick={()=>{loadInvoices();loadClassSummary();}}>
+            <button
+              className={`inline-flex items-center gap-2 px-3 py-2 border rounded-xl ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+              onClick={()=>{ if (!isExpired){ loadInvoices();loadClassSummary();} }}
+              disabled={isExpired}
+              title={isExpired ? "Plan expired" : "Refresh"}
+            >
               <Download className="w-4 h-4" /> Refresh
             </button>
-            <button className="inline-flex items-center gap-2 px-3.5 py-2 border rounded-xl" onClick={()=>csv(balancesRows, `balances_${balancesFilter}_${clsName}_${termName}_${yearName}.csv`)}>
+            <button
+              className={`inline-flex items-center gap-2 px-3.5 py-2 border rounded-xl ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+              onClick={()=>{ if (!isExpired){ csv(balancesRows, `balances_${balancesFilter}_${clsName}_${termName}_${yearName}.csv`);} }}
+              disabled={isExpired}
+              title={isExpired ? "Plan expired" : "Export"}
+            >
               <FileDown className="w-4 h-4" /> Export
             </button>
           </>
@@ -978,8 +1152,8 @@ Thank you.`;
               <Table cols={["Student", "Billed", "Paid", "Balance", "Status", ""]}>
                 {balancesRows.map(b => {
                   const email = studentEmail(b.student_id);
-                  const phone = studentPhone(b.student_id); // kept for display only
-                  const canRemind = b.balance > 0 && !!email;
+                  const phone = studentPhone(b.student_id); // display only
+                  const canRemind = b.balance > 0 && !!email && !isExpired;
 
                   return (
                     <tr
@@ -1005,20 +1179,23 @@ Thank you.`;
                       <td className="p-3">
                         <div className="flex justify-end gap-2">
                           <button
-                            className="px-2 py-1 border rounded-lg inline-flex items-center gap-1"
-                            onClick={() => openPay(b.student_id, b.student_name)}
+                            className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+                            onClick={() => { if (!isExpired){ openPay(b.student_id, b.student_name);} }}
+                            disabled={isExpired}
+                            title={isExpired ? "Plan expired" : "View/Pay"}
                           >
                             View / Pay <Wallet className="w-4 h-4" />
                           </button>
                           <button
                             className={`px-2 py-1 border rounded-lg inline-flex items-center gap-1 ${canRemind ? "" : "opacity-60 cursor-not-allowed"}`}
                             disabled={!canRemind || sendingMailFor===b.student_id}
-                            onClick={() => sendReminder(b.student_id, b.student_name)}
-                            title={b.balance <= 0
-                              ? "Student is fully paid"
-                              : (email
-                                ? "Send reminder via email"
-                                : "No email available")}
+                            onClick={() => canRemind && sendReminder(b.student_id, b.student_name)}
+                            title={
+                              isExpired ? "Plan expired"
+                              : (b.balance <= 0
+                                ? "Student is fully paid"
+                                : (email ? "Send reminder via email" : "No email available"))
+                            }
                           >
                             {sendingMailFor===b.student_id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                             {sendingMailFor===b.student_id ? "Sending…" : "Send Reminder"}
@@ -1043,7 +1220,12 @@ Thank you.`;
       {/* Category Modal */}
       {openCat && (
         <Modal onClose={()=>{setOpenCat(false);setEditCat(null);}} title={editCat ? "Edit Category" : "New Category"} icon={<Building2 className="h-5 w-5" />}>
-          <CategoryForm initial={editCat || { name:"", description:"" }} onCancel={()=>{setOpenCat(false);setEditCat(null);}} onSave={saveCategory} />
+          <CategoryForm
+            initial={editCat || { name:"", description:"" }}
+            onCancel={()=>{setOpenCat(false);setEditCat(null);}}
+            onSave={(form)=> isExpired ? null : saveCategory(form)}
+            disableAll={isExpired}
+          />
         </Modal>
       )}
 
@@ -1055,7 +1237,8 @@ Thank you.`;
             needCategoriesHint={categories.length===0}
             initial={editStr ? { category_id: String(editStr.category_id), amount: editStr.amount } : { category_id:"", amount:"" }}
             onCancel={()=>{setOpenStr(false);setEditStr(null);}}
-            onSave={saveStructure}
+            onSave={(form)=> isExpired ? null : saveStructure(form)}
+            disableAll={isExpired}
           />
         </Modal>
       )}
@@ -1071,9 +1254,10 @@ Thank you.`;
             form={payAnyForm}
             setForm={setPayAnyForm}
             onCancel={()=>setOpenStudentPay(false)}
-            onSave={()=>savePaymentForStudent()}
+            onSave={()=> (isExpired ? null : savePaymentForStudent())}
             isPremium={IS_PREMIUM}
-            emailSender={(sid, name)=>emailConsolidated(sid, name)}
+            emailSender={(sid, name)=> emailConsolidated(sid, name)}
+            disableAll={isExpired}
           />
         </Modal>
       )}
@@ -1090,6 +1274,7 @@ Thank you.`;
             student={studentForPayments}
             payments={payments.filter(p => Number(p.student_id) === Number(studentForPayments.student_id))}
             onClose={()=>setOpenStudentPayments(false)}
+            disableAll={isExpired}
           />
         </Modal>
       )}
@@ -1131,7 +1316,7 @@ function LabeledSelect({ icon, label, value, onChange, children }) {
     </label>
   );
 }
-function Input({ label, value, onChange, type = "text", compact = false, placeholder, ...rest }) {
+function Input({ label, value, onChange, type = "text", compact = false, placeholder, disabled=false, ...rest }) {
   return (
     <label className="text-sm grid gap-1">
       {label && <span className="text-gray-700 dark:text-gray-300">{label}</span>}
@@ -1140,7 +1325,9 @@ function Input({ label, value, onChange, type = "text", compact = false, placeho
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        className={`border rounded-xl ${compact ? "px-2 py-1.5" : "px-3 py-2"} bg-white dark:bg-gray-800`}
+        className={`border rounded-xl ${compact ? "px-2 py-1.5" : "px-3 py-2"} bg-white dark:bg-gray-800 ${disabled ? "opacity-60 cursor-not-allowed" : ""}`}
+        disabled={disabled}
+        title={disabled ? "Plan expired" : ""}
         {...rest}
       />
     </label>
@@ -1216,19 +1403,24 @@ function EmptyRow({ cols, text }) {
 }
 
 /* ------------ forms ------------ */
-function CategoryForm({ initial, onCancel, onSave }) {
+function CategoryForm({ initial, onCancel, onSave, disableAll=false }) {
   const [form, setForm] = useState(initial);
   useEffect(() => setForm(initial), [initial]);
 
   return (
     <div className="grid gap-3">
-      <Input label="Name" value={form.name} onChange={v => setForm(s => ({ ...s, name: v }))} />
-      <Input label="Description" value={form.description} onChange={v => setForm(s => ({ ...s, description: v }))} placeholder="Optional" />
+      <Input label="Name" value={form.name} onChange={v => setForm(s => ({ ...s, name: v }))} disabled={disableAll} />
+      <Input label="Description" value={form.description} onChange={v => setForm(s => ({ ...s, description: v }))} placeholder="Optional" disabled={disableAll} />
       <div className="flex justify-end gap-2 mt-2">
         <button className="px-3 py-2 border rounded-xl inline-flex items-center gap-2" onClick={onCancel}>
           <X className="h-4 w-4" /> Cancel
         </button>
-        <button className="px-3 py-2 bg-indigo-600 text-white rounded-xl inline-flex items-center gap-2" onClick={() => onSave(form)}>
+        <button
+          className={`px-3 py-2 bg-indigo-600 text-white rounded-xl inline-flex items-center gap-2 ${disableAll ? "opacity-60 cursor-not-allowed" : ""}`}
+          onClick={() => !disableAll && onSave(form)}
+          disabled={disableAll}
+          title={disableAll ? "Plan expired" : "Save"}
+        >
           <Save className="h-4 w-4" /> Save
         </button>
       </div>
@@ -1236,7 +1428,7 @@ function CategoryForm({ initial, onCancel, onSave }) {
   );
 }
 
-function StructureForm({ initial, onCancel, onSave, categories, needCategoriesHint }) {
+function StructureForm({ initial, onCancel, onSave, categories, needCategoriesHint, disableAll=false }) {
   const [form, setForm] = useState(initial);
   useEffect(() => setForm(initial), [initial]);
 
@@ -1244,21 +1436,40 @@ function StructureForm({ initial, onCancel, onSave, categories, needCategoriesHi
     <div className="grid gap-3">
       <label className="text-sm grid gap-1">
         <span className="text-gray-700 dark:text-gray-300">Category</span>
-        <select value={form.category_id} onChange={(e) => setForm(s => ({ ...s, category_id: e.target.value }))} className="border rounded-xl px-3 py-2 bg-white dark:bg-gray-800">
+        <select
+          value={form.category_id}
+          onChange={(e) => setForm(s => ({ ...s, category_id: e.target.value }))}
+          className={`border rounded-xl px-3 py-2 bg-white dark:bg-gray-800 ${disableAll ? "opacity-60 cursor-not-allowed" : ""}`}
+          disabled={disableAll}
+          title={disableAll ? "Plan expired" : ""}
+        >
           <option value="">Select category</option>
           {categories.map(c => <option key={c.category_id} value={c.category_id}>{c.name}</option>)}
         </select>
       </label>
-      <Input label="Amount" type="number" inputMode="decimal" min="0" value={form.amount} onChange={(v) => {
-        const cleaned = String(v).replace(/[^0-9.]/g, "");
-        setForm(s => ({ ...s, amount: cleaned }));
-      }} />
+      <Input
+        label="Amount"
+        type="number"
+        inputMode="decimal"
+        min="0"
+        value={form.amount}
+        onChange={(v) => {
+          const cleaned = String(v).replace(/[^0-9.]/g, "");
+          setForm(s => ({ ...s, amount: cleaned }));
+        }}
+        disabled={disableAll}
+      />
       {needCategoriesHint && <div className="text-xs text-amber-700 bg-amber-50 rounded-xl px-3 py-2">Tip: You have no categories. Add some in the Categories tab.</div>}
       <div className="flex justify-end gap-2 mt-2">
         <button className="px-3 py-2 border rounded-xl inline-flex items-center gap-2" onClick={onCancel}>
           <X className="h-4 w-4" /> Cancel
         </button>
-        <button className="px-3 py-2 bg-indigo-600 text-white rounded-xl inline-flex items-center gap-2" onClick={() => onSave({ ...form, amount: Number(form.amount||0) })}>
+        <button
+          className={`px-3 py-2 bg-indigo-600 text-white rounded-xl inline-flex items-center gap-2 ${disableAll ? "opacity-60 cursor-not-allowed" : ""}`}
+          onClick={() => !disableAll && onSave({ ...form, amount: Number(form.amount||0) })}
+          disabled={disableAll}
+          title={disableAll ? "Plan expired" : "Save"}
+        >
           <Save className="h-4 w-4" /> Save
         </button>
       </div>
@@ -1267,7 +1478,7 @@ function StructureForm({ initial, onCancel, onSave, categories, needCategoriesHi
 }
 
 /* ------------ student modals ------------ */
-function StudentPayModal({ cur, schoolId, student, invoices, form, setForm, onCancel, onSave, isPremium, emailSender }) {
+function StudentPayModal({ cur, schoolId, student, invoices, form, setForm, onCancel, onSave, isPremium, emailSender, disableAll=false }) {
   const totalBilled = invoices.reduce((s,r)=>s+Number(r.amount||0),0);
   const totalPaid   = invoices.reduce((s,r)=>s+Number(r.paid_total||0),0);
   const outstanding = invoices.reduce((s,r)=> s + Number(((r.balance ?? (r.amount - r.paid_total)) ?? 0)), 0);
@@ -1275,6 +1486,7 @@ function StudentPayModal({ cur, schoolId, student, invoices, form, setForm, onCa
   const hasBalance = outstanding > 0;
 
   const canSave = (() => {
+    if (disableAll) return false;
     const n = Number(form.amount_paid);
     if (!isFinite(n)) return false;
     if (n <= 0) return false;
@@ -1384,23 +1596,23 @@ function StudentPayModal({ cur, schoolId, student, invoices, form, setForm, onCa
               value={form.amount_paid}
               onChange={handleAmountChange}
               placeholder={`Up to ${cur} ${Number(outstanding).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`}
+              disabled={disableAll}
             />
             <label className="text-sm grid gap-1">
               <span className="text-gray-700 dark:text-gray-300">Method</span>
               <select
-                className="border rounded-xl px-3 py-2 bg-white dark:bg-gray-800"
+                className={`border rounded-xl px-3 py-2 bg-white dark:bg-gray-800 ${disableAll ? "opacity-60 cursor-not-allowed" : ""}`}
                 value={form.method}
                 onChange={e => setForm(s => ({ ...s, method: e.target.value }))}
+                disabled={disableAll}
+                title={disableAll ? "Plan expired" : ""}
               >
-                <option value="MoMo">MoMo</option>
+                <option value="MoMo">Mobile Money</option>
                 <option value="Cash">Cash</option>
                 <option value="Bank">Bank</option>
-                <option value="POS">POS</option>
               </select>
             </label>
           </div>
-
-          {/* Receipt No. field is now hidden (auto-generated & used internally) */}
 
           <div className="flex justify-end gap-2">
             <button className="px-3 py-2 border rounded-xl inline-flex items-center gap-2" onClick={onCancel}>
@@ -1410,7 +1622,7 @@ function StudentPayModal({ cur, schoolId, student, invoices, form, setForm, onCa
               className={`px-3 py-2 bg-indigo-600 text-white rounded-xl inline-flex items-center gap-2 ${canSave ? "" : "opacity-60 cursor-not-allowed"}`}
               disabled={!canSave}
               onClick={onSave}
-              title="Record payment"
+              title={disableAll ? "Plan expired" : "Record payment"}
             >
               <Save className="h-4 w-4" /> Save Payment
             </button>
@@ -1422,9 +1634,8 @@ function StudentPayModal({ cur, schoolId, student, invoices, form, setForm, onCa
 }
 
 /* Payments list modal (group by receipt no + method, sum amounts, print) */
-function StudentPaymentsModal({ cur, schoolName, classNameLabel, termName, yearName, student, payments, onClose }) {
+function StudentPaymentsModal({ cur, schoolName, classNameLabel, termName, yearName, student, payments, onClose, disableAll=false }) {
   // group by receipt_no+method
-    // group by receipt_no+method
   const groupsMap = new Map();
   for (const p of payments) {
     const rcpt = (p.receipt_no || "-").toString();
@@ -1442,6 +1653,7 @@ function StudentPaymentsModal({ cur, schoolName, classNameLabel, termName, yearN
   const total = groups.reduce((s,g)=>s+g.amount,0);
 
   const printGroups = () => {
+    if (disableAll) return;
     const win = window.open("", "_blank", "width=800,height=900");
     if (!win) return;
 
@@ -1535,7 +1747,12 @@ function StudentPaymentsModal({ cur, schoolName, classNameLabel, termName, yearN
       </div>
 
       <div className="flex justify-end gap-2">
-        <button className="px-3 py-2 border rounded-xl inline-flex items-center gap-2" onClick={printGroups}>
+        <button
+          className={`px-3 py-2 border rounded-xl inline-flex items-center gap-2 ${disableAll ? "opacity-60 cursor-not-allowed" : ""}`}
+          onClick={printGroups}
+          disabled={disableAll}
+          title={disableAll ? "Plan expired" : "Print"}
+        >
           <Printer className="h-4 w-4" /> Print
         </button>
         <button className="px-3 py-2 border rounded-xl inline-flex items-center gap-2" onClick={onClose}>

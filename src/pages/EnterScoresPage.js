@@ -24,6 +24,7 @@ const YEARS_API = `${HOST}/academic/get/academic_year/`; // ?p_school_id
 const TERMS_API = `${HOST}/academic/get/term/`; // ?p_school_id
 const STUDENTS_API = `${HOST}/student/get/students/`; // ?p_school_id&p_class_id
 const ASSIGN_API = `${HOST}/academic/get/subject_teacher/`; // ?p_school_id&p_user_id
+const SCHOOL_INFO_API = `${HOST}/academic/get/school/`; // list, we'll pick by school_id
 const SCALE_API = ({ sid, classId }) =>
   `${HOST}/exams/scheme/get/?p_school_id=${sid}${classId ? `&p_class=${classId}` : ""}`;
 
@@ -45,11 +46,7 @@ const GET_MARKS_URL = (p) => {
   return `${HOST}/exams/marks/get/?${qp.toString()}`;
 };
 
-// Delete (create this server-side if you want hard delete):
-// BEGIN
-//   DELETE FROM ADD_MARKS WHERE ADD_MARKS_ID=:p_id AND SCHOOL_ID=:p_school_id;
-//   COMMIT;
-// END;
+// Delete
 const DELETE_MARK_URL = ({ id, schoolId }) =>
   `${HOST}/exams/marks/delete/?p_id=${encodeURIComponent(id)}&p_school_id=${encodeURIComponent(
     schoolId
@@ -74,6 +71,24 @@ const jarr = async (u, headers = {}) => {
 const round1 = (n) => Math.round((Number(n) || 0) * 10) / 10;
 const numOrEmpty = (v) => (v === "" || v === null || v === undefined ? "" : Number(v));
 
+/* ---- Plan helpers (match ManageFeesPage) ---- */
+function isDateExpired(isoOrDateString) {
+  if (!isoOrDateString) return false;
+  const d = new Date(String(isoOrDateString));
+  if (Number.isNaN(d.getTime())) return false;
+  const today = new Date();
+  const todayFloor = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  return d.getTime() < todayFloor;
+}
+const PLAN_NAME_BY_CODE = (raw) => {
+  const v = String(raw ?? '').trim().toUpperCase();
+  if (v === '1' || v === 'BASIC') return 'BASIC';
+  if (v === '2' || v === 'STANDARD') return 'STANDARD';
+  if (v === '3' || v === 'PREMIUM' || v === 'PREMUIM') return 'PREMIUM';
+  return 'BASIC';
+};
+const HUMAN_PLAN = (code) => ({ BASIC: 'Basic', STANDARD: 'Standard', PREMIUM: 'Premium' }[code] || 'Basic');
+
 /* -------------------- Component -------------------- */
 export default function EnterScoresPage() {
   const { user, token } = useAuth() || {};
@@ -84,6 +99,47 @@ export default function EnterScoresPage() {
     () => (token ? { Authorization: `Bearer ${token}` } : {}),
     [token]
   );
+
+  /* ---------- Plan / expiry gating ---------- */
+  const fallbackPkg = Number(user?.school?.package ?? user?.package ?? user?.plan ?? 2);
+  const fallbackPlanCode = fallbackPkg === 1 ? "BASIC" : fallbackPkg === 3 ? "PREMIUM" : "STANDARD";
+
+  const [pkgName, setPkgName] = useState("");
+  const [expiryRaw, setExpiryRaw] = useState("");
+  const [pkgLoaded, setPkgLoaded] = useState(false);
+
+  const planBannerKey = `scores_plan_banner_dismissed_${schoolId}`;
+  const [showPlan, setShowPlan] = useState(() => {
+    try { return localStorage.getItem(planBannerKey) !== "1"; } catch { return true; }
+  });
+  const dismissPlan = () => {
+    try { localStorage.setItem(planBannerKey, "1"); } catch {}
+    setShowPlan(false);
+  };
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await jarr(SCHOOL_INFO_API, headers);
+        const s = rows.find(r => String(r.school_id ?? r.SCHOOL_ID) === String(schoolId));
+        const p = (s?.package ?? s?.PACKAGE ?? "").toString();
+        const exp = s?.expiry ?? s?.EXPIRY ?? "";
+        setPkgName(p);
+        setExpiryRaw(exp);
+      } catch {
+        setPkgName(fallbackPlanCode);
+        setExpiryRaw("");
+      } finally {
+        setPkgLoaded(true);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schoolId]);
+
+  const planCode = PLAN_NAME_BY_CODE(pkgName || fallbackPlanCode); // BASIC | STANDARD | PREMIUM
+  const PLAN = planCode.toLowerCase();
+  const planHuman = HUMAN_PLAN(planCode);
+  const isExpired = isDateExpired(expiryRaw);
 
   // Teacher assignments from /academic/get/subject_teacher/
   // Shape: [{ classId, className, subjectId, subjectName }]
@@ -397,10 +453,10 @@ export default function EnterScoresPage() {
     return arr.map((r, i) => ({ ...r, position: pos[i] }));
   };
 
-  /* ---------- Handlers ---------- */
+  /* ---------- Handlers (with plan gating) ---------- */
   const updateCell = (id, key, value) => {
-    // Index No is read-only: block changes here
-    if (key === "index_no") return;
+    if (isExpired) return; // hard gate editing
+    if (key === "index_no") return; // Index No is read-only
 
     setRows((prev) => {
       const next = prev.map((r) => {
@@ -421,6 +477,7 @@ export default function EnterScoresPage() {
   };
 
   const removeRow = async (row) => {
+    if (isExpired) return;
     if (row._exists && row._markId) {
       try {
         setSaving(true);
@@ -442,7 +499,7 @@ export default function EnterScoresPage() {
   };
 
   const refreshAll = async () => {
-    if (!canQuery) return;
+    if (!canQuery || isExpired) return;
     setLoading(true);
     try {
       const list = await jarr(
@@ -474,9 +531,9 @@ export default function EnterScoresPage() {
     }
   };
 
-  // NEW: Save a single row (like ManageExamReportPage)
+  // Save a single row
   const saveRow = async (r, showBanner = false) => {
-    if (!canQuery) return;
+    if (!canQuery || isExpired) return;
     setSaving(true);
     try {
       const url = ADD_MARK_URL({
@@ -514,7 +571,7 @@ export default function EnterScoresPage() {
   };
 
   const saveAll = async () => {
-    if (!canQuery) return;
+    if (!canQuery || isExpired) return;
     const dirty = rows.filter((r) => r._dirty);
     if (!dirty.length) {
       setBanner({ type: "info", text: "No changes to save." });
@@ -560,7 +617,35 @@ export default function EnterScoresPage() {
   }, [rows, q, showDirtyOnly]);
 
   return (
-    <DashboardLayout title="Enter Scores" subtitle="">
+    <DashboardLayout title={`Enter Scores (${PLAN.toUpperCase()})`} subtitle="">
+      {/* Plan status banner (dismissable; red if expired) */}
+      {pkgLoaded && showPlan && (
+        <div
+          className={`mb-4 rounded-lg border p-3 text-sm ${
+            isExpired
+              ? "bg-rose-50 border-rose-200 text-rose-700"
+              : "bg-gray-50 border-gray-200 text-gray-700"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <AlertCircle className={`h-4 w-4 ${isExpired ? "text-rose-600" : "text-gray-500"}`} />
+            <span>
+              Plan: <strong>{planHuman || "—"}</strong>
+              {expiryRaw ? <> · Expires: <strong>{String(expiryRaw).slice(0,10)}</strong></> : null}
+              {isExpired && <> · <strong>Expired</strong></>}
+            </span>
+            <button
+              onClick={dismissPlan}
+              className="ml-auto p-1 rounded hover:bg-black/5"
+              aria-label="Dismiss plan banner"
+              type="button"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 p-4 mb-4 grid md:grid-cols-5 gap-3">
         <LabeledSelect label="Academic Year" value={yearId ?? ""} onChange={(v) => setYearId(Number(v))}>
@@ -606,17 +691,17 @@ export default function EnterScoresPage() {
           <button
             type="button"
             onClick={refreshAll}
-            disabled={!canQuery || loading}
-            className="inline-flex items-center gap-2 px-3 py-2 border rounded-lg bg-white dark:bg-gray-900 dark:border-gray-700 disabled:opacity-50"
-            title="Reload marks"
+            disabled={!canQuery || loading || isExpired}
+            className={`inline-flex items-center gap-2 px-3 py-2 border rounded-lg bg-white dark:bg-gray-900 dark:border-gray-700 disabled:opacity-50 ${isExpired ? "cursor-not-allowed" : ""}`}
+            title={isExpired ? "Plan expired" : "Reload marks"}
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
           </button>
           <button
             onClick={saveAll}
-            disabled={saving || !canQuery || unsavedCount === 0}
-            className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50"
-            title="Save all edited rows"
+            disabled={saving || !canQuery || unsavedCount === 0 || isExpired}
+            className={`inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50 ${isExpired ? "cursor-not-allowed" : ""}`}
+            title={isExpired ? "Plan expired" : "Save all edited rows"}
           >
             <Save className="h-4 w-4" /> Save All {unsavedCount ? `(${unsavedCount})` : ""}
           </button>
@@ -723,17 +808,21 @@ export default function EnterScoresPage() {
                   <td className="p-2 text-right">
                     <input
                       type="number"
-                      className="w-24 text-right border rounded px-2 py-1 bg-white dark:bg-gray-900 dark:border-gray-700"
+                      className={`w-24 text-right border rounded px-2 py-1 bg-white dark:bg-gray-900 dark:border-gray-700 ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
                       value={r.class_score}
                       onChange={(e) => updateCell(r.id, "class_score", e.target.value)}
+                      disabled={isExpired}
+                      title={isExpired ? "Plan expired" : ""}
                     />
                   </td>
                   <td className="p-2 text-right">
                     <input
                       type="number"
-                      className="w-24 text-right border rounded px-2 py-1 bg-white dark:bg-gray-900 dark:border-gray-700"
+                      className={`w-24 text-right border rounded px-2 py-1 bg-white dark:bg-gray-900 dark:border-gray-700 ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
                       value={r.exam_score}
                       onChange={(e) => updateCell(r.id, "exam_score", e.target.value)}
+                      disabled={isExpired}
+                      title={isExpired ? "Plan expired" : ""}
                     />
                   </td>
                   <td className="p-2 text-right">{r.total}</td>
@@ -744,9 +833,9 @@ export default function EnterScoresPage() {
                     <button
                       type="button"
                       onClick={() => saveRow(r, true)}
-                      disabled={!r._dirty || saving}
-                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
-                      title="Save this row"
+                      disabled={!r._dirty || saving || isExpired}
+                      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 ${isExpired ? "cursor-not-allowed" : ""}`}
+                      title={isExpired ? "Plan expired" : "Save this row"}
                     >
                       {r._savedOk ? <CheckCircle2 className="h-4 w-4" /> : <Save className="h-4 w-4" />}
                       {r._savedOk ? "Saved" : "Save"}
@@ -756,8 +845,9 @@ export default function EnterScoresPage() {
                     <button
                       type="button"
                       onClick={() => removeRow(r)}
-                      className="p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-900/30"
-                      title={r._exists ? "Delete mark" : "Remove from view"}
+                      className={`p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-900/30 ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+                      title={isExpired ? "Plan expired" : (r._exists ? "Delete mark" : "Remove from view")}
+                      disabled={isExpired}
                     >
                       <Trash2 className="h-4 w-4 text-rose-600" />
                     </button>
@@ -773,8 +863,9 @@ export default function EnterScoresPage() {
       <div className="mt-3 flex items-center gap-3 flex-wrap">
         <button
           onClick={saveAll}
-          disabled={saving || !filteredRows.length || !canQuery || unsavedCount === 0}
-          className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50"
+          disabled={saving || !filteredRows.length || !canQuery || unsavedCount === 0 || isExpired}
+          className={`inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50 ${isExpired ? "cursor-not-allowed" : ""}`}
+          title={isExpired ? "Plan expired" : "Save all"}
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save All
           {unsavedCount ? ` (${unsavedCount})` : ""}

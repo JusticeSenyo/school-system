@@ -15,11 +15,9 @@ const buildUrl = (path, params) => {
 };
 const fmt = (d) => new Date(d).toISOString().slice(0, 10);
 
-// Tailwind classes (light + dark)
-const field =
-  "px-3 py-2 rounded-md border text-sm outline-none transition focus:ring-2 focus:ring-offset-0 focus:border-transparent " +
-  "bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:ring-blue-500 " +
-  "dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder:text-gray-400 dark:focus:ring-blue-400";
+const TERMS_API = 'academic/get/terms/'; // ?p_school_id
+const YEARS_API = 'academic/get/years/'; // ?p_school_id
+
 const btnPrimary =
   "flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition bg-emerald-600 text-white hover:bg-emerald-700 active:scale-[.99] " +
   "dark:bg-emerald-600 dark:hover:bg-emerald-700";
@@ -33,12 +31,20 @@ const AttendancePage = () => {
 
   const [classes, setClasses] = useState([]);             // [{ class_id, class_name }]
   const [selectedClass, setSelectedClass] = useState(''); // class_id (string)
+
+  // Years/Terms: show names, pass IDs
+  const [terms, setTerms] = useState([]);   // [{id,name,status}]
+  const [years, setYears] = useState([]);   // [{id,name,status}]
+  const [selectedTermId, setSelectedTermId] = useState(''); // term_id
+  const [selectedYearId, setSelectedYearId] = useState(''); // academic_year_id
+
   const [selectedDate, setSelectedDate] = useState(today);
   const [reports, setReports] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [err, setErr] = useState('');
   const [loadingLOV, setLoadingLOV] = useState(false);
   const [loadingReport, setLoadingReport] = useState(false);
+  const [loadingYT, setLoadingYT] = useState(false);
 
   // Parse JSON safely
   const parseMaybeJson = async (response) => {
@@ -50,7 +56,7 @@ const AttendancePage = () => {
     }
   };
 
-  // Load classes: show ALL classes from API; display class_name; return class_id
+  // Load classes
   const loadClasses = async () => {
     setLoadingLOV(true); setErr('');
     try {
@@ -64,7 +70,6 @@ const AttendancePage = () => {
         return;
       }
 
-      // Expect: [{ student_id, class_name, section, class_id }, ...]
       const arr = Array.isArray(json) ? json : (Array.isArray(json?.items) ? json.items : []);
       const allClasses = (arr || [])
         .map((c) => ({
@@ -75,7 +80,6 @@ const AttendancePage = () => {
 
       setClasses(allClasses);
 
-      // Auto-select first available class if none selected
       if (!selectedClass && allClasses.length) {
         setSelectedClass(String(allClasses[0].class_id));
       }
@@ -87,15 +91,55 @@ const AttendancePage = () => {
     }
   };
 
-  // Load attendance report
+  // Load Year/Term LOVs (default CURRENT)
+  const loadYearsTerms = async () => {
+    setErr(''); setLoadingYT(true);
+    try {
+      // Years
+      const yUrl = buildUrl(YEARS_API, { p_school_id: SCHOOL_ID });
+      const yRes = await fetch(yUrl, { headers: { Accept: 'application/json' } });
+      const { json: yJson } = await parseMaybeJson(yRes);
+      const yArr = Array.isArray(yJson) ? yJson : (Array.isArray(yJson?.items) ? yJson.items : []);
+      const yNorm = yArr.map(y => ({
+        id: y.academic_year_id ?? y.ACADEMIC_YEAR_ID,
+        name: y.academic_year_name ?? y.ACADEMIC_YEAR_NAME,
+        status: y.status ?? y.STATUS ?? null,
+      })).filter(x => x.id != null && x.name);
+      setYears(yNorm);
+      const yDefault = yNorm.find(x => String(x.status).toUpperCase() === 'CURRENT') || yNorm[0];
+      if (!selectedYearId && yDefault) setSelectedYearId(String(yDefault.id));
+
+      // Terms
+      const tUrl = buildUrl(TERMS_API, { p_school_id: SCHOOL_ID });
+      const tRes = await fetch(tUrl, { headers: { Accept: 'application/json' } });
+      const { json: tJson } = await parseMaybeJson(tRes);
+      const tArr = Array.isArray(tJson) ? tJson : (Array.isArray(tJson?.items) ? tJson.items : []);
+      const tNorm = tArr.map(t => ({
+        id: t.term_id ?? t.TERM_ID,
+        name: t.term_name ?? t.TERM_NAME,
+        status: t.status ?? t.STATUS ?? null,
+      })).filter(x => x.id != null && x.name);
+      setTerms(tNorm);
+      const tDefault = tNorm.find(x => String(x.status).toUpperCase() === 'CURRENT') || tNorm[0];
+      if (!selectedTermId && tDefault) setSelectedTermId(String(tDefault.id));
+    } catch (e) {
+      setErr(prev => prev || (e?.message || 'Failed to load academic years/terms'));
+    } finally {
+      setLoadingYT(false);
+    }
+  };
+
+  // Load attendance report (single-day view)
   const loadReport = async () => {
-    if (!selectedClass) return;
+    if (!selectedClass || !selectedTermId || !selectedYearId) return;
     setLoadingReport(true); setErr('');
     try {
       const url = buildUrl('report/get/attendance/', {
         p_school_id: SCHOOL_ID,
         p_class_id: selectedClass,
-        p_date: selectedDate,
+        p_academic_year: selectedYearId, // pass ID
+        p_term: selectedTermId,          // pass ID
+        p_date: selectedDate,            // YYYY-MM-DD
       });
 
       const res = await fetch(url, { headers: { Accept: 'application/json' } });
@@ -118,7 +162,8 @@ const AttendancePage = () => {
   };
 
   useEffect(() => { loadClasses(); }, []);
-  useEffect(() => { if (selectedClass) loadReport(); }, [selectedClass, selectedDate]);
+  useEffect(() => { loadYearsTerms(); }, []);
+  useEffect(() => { if (selectedClass && selectedTermId && selectedYearId) loadReport(); }, [selectedClass, selectedDate, selectedTermId, selectedYearId]);
 
   // Live client-side filter
   const filtered = useMemo(() => {
@@ -130,11 +175,13 @@ const AttendancePage = () => {
   const present = filtered.filter((r) => String(r.status || '').toUpperCase() === 'PRESENT').length;
   const absent = filtered.length - present;
 
-  // Export current view to Excel (include class name)
+  // Export current view to Excel (include class + year/term names)
   const exportToExcel = () => {
     try {
       const cls = classes.find((c) => String(c.class_id) === String(selectedClass));
       const className = (cls?.class_name || `Class-${selectedClass}`).replace(/[\\/:*?"<>|]/g, '-');
+      const yName = years.find(y => String(y.id) === String(selectedYearId))?.name || selectedYearId;
+      const tName = terms.find(t => String(t.id) === String(selectedTermId))?.name || selectedTermId;
 
       const rows = filtered.map((r, idx) => ({
         '#': idx + 1,
@@ -144,7 +191,7 @@ const AttendancePage = () => {
       const ws = XLSX.utils.json_to_sheet(rows);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
-      XLSX.writeFile(wb, `Attendance_${className}_${selectedDate}.xlsx`);
+      XLSX.writeFile(wb, `Attendance_${className}_${yName}_${tName}_${selectedDate}.xlsx`);
     } catch (e) {
       alert(e?.message || 'Failed to export Excel');
     }
@@ -155,6 +202,48 @@ const AttendancePage = () => {
       {/* Toolbar */}
       <div className="mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-2">
+          {/* Academic Year (show name, value = id) */}
+          <select
+            className="px-4 py-2 rounded-md text-sm border bg-white dark:bg-gray-900"
+            value={selectedYearId}
+            onChange={(e) => setSelectedYearId(e.target.value)}
+            disabled={loadingYT || years.length === 0}
+            title="Academic Year"
+          >
+            {loadingYT ? (
+              <option>Loading years…</option>
+            ) : years.length ? (
+              years.map((y) => (
+                <option key={String(y.id)} value={String(y.id)}>
+                  {y.name}{String(y.status).toUpperCase() === 'CURRENT' ? ' (CURRENT)' : ''}
+                </option>
+              ))
+            ) : (
+              <option>No years</option>
+            )}
+          </select>
+
+          {/* Term (show name, value = id) */}
+          <select
+            className="px-4 py-2 rounded-md text-sm border bg-white dark:bg-gray-900"
+            value={selectedTermId}
+            onChange={(e) => setSelectedTermId(e.target.value)}
+            disabled={loadingYT || terms.length === 0}
+            title="Term"
+          >
+            {loadingYT ? (
+              <option>Loading terms…</option>
+            ) : terms.length ? (
+              terms.map((t) => (
+                <option key={String(t.id)} value={String(t.id)}>
+                  {t.name}{String(t.status).toUpperCase() === 'CURRENT' ? ' (CURRENT)' : ''}
+                </option>
+              ))
+            ) : (
+              <option>No terms</option>
+            )}
+          </select>
+
           {/* Class (ALL classes) */}
           <select
             className="px-4 py-2 rounded-md text-sm border bg-white dark:bg-gray-900"
@@ -239,7 +328,7 @@ const AttendancePage = () => {
           <span className="text-sm">{err}</span>
         </div>
       )}
-      {!err && loadingReport && (
+      {!err && (loadingReport || loadingYT || loadingLOV) && (
         <div className="mb-3 p-3 rounded border bg-gray-50 text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200">
           Loading report…
         </div>

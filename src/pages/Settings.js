@@ -38,10 +38,18 @@ const STAFF_LIST_API = `${HOST}/staff/get/staff/`;       // ?p_school_id[&p_role
 const SCHOOLS_LIST_API = `${HOST}/academic/get/school/`; // returns all schools incl logo/signature
 const RESET_PASSWORD_API = `${HOST}/staff/reset_password/`; // GET ?p_user_id=&p_password=
 const UPDATE_SCHOOL_API = `${HOST}/academic/update/school/`; // expects p_school_id, p_logo_url, p_signature_url
+const PACKAGES_API = `${HOST}/academic/get/packages/`;
+const SUBSCRIPTION_UPDATE_API = `${HOST}/academic/update/subscription/`; // GET
+// [TXNS] Transactions endpoint
+const TRANSACTIONS_API = `${HOST}/academic/get/transactions/`; // ?p_school_id=
 
 /* ------------ External login (redirect after logout) ------------ */
 const LOGIN_BASE = "https://app.schoolmasterhub.net//login/";
-const BILLING_BASE = "https://app.schoolmasterhub.net/billing/";
+
+/* ------------ Paystack (TEST KEYS) ------------ */
+/* ⚠️ Test only. Move SECRET to backend for production. */
+const PAYSTACK_PUBLIC_KEY = "pk_test_35edc9a2e57cde6ac30c218013addc08f108365c";
+const PAYSTACK_SECRET_KEY = "sk_test_1b800a192fa1015a486636be538d8dae94588e49";
 
 /* ------------ Role helpers ------------ */
 const roleLabelFrom = (raw) => {
@@ -54,6 +62,88 @@ const roleLabelFrom = (raw) => {
 };
 const isAdminFrom = (raw) => /(^|\b)(AD|ADMIN|ADMINISTRATOR)(\b|$)/i.test(String(raw || ""));
 const isHeadFrom  = (raw) => /(^|\b)(HT|HEAD ?TEACH(ER)?)(\b|$)/i.test(String(raw || ""));
+
+const normalizePkgName = (s) => {
+  const v = String(s || "").trim();
+  if (/premiu?im/i.test(v)) return "Premium";
+  if (/standard/i.test(v)) return "Standard";
+  if (/basic/i.test(v)) return "Basic";
+  return v || "—";
+};
+const pkgRank = (nameOrNum) => {
+  const n = Number(nameOrNum);
+  if (!Number.isNaN(n) && [1,2,3].includes(n)) return n;
+  const v = normalizePkgName(nameOrNum);
+  return v === "Basic" ? 1 : v === "Standard" ? 2 : v === "Premium" ? 3 : 0;
+};
+
+/* ------------ Discounts & limits ------------ */
+const DISCOUNT_TIERS = { 3: 0.05, 6: 0.10, 12: 0.17 };
+const MAX_MONTHS = 12;
+
+/* ------------ Currency helpers ------------ */
+const toSubunit = (amount) => Math.round(Number(amount || 0) * 100);
+const channelsForCurrency = (cur) => {
+  const c = String(cur || "").toUpperCase();
+  if (c === "GHS") return ["card", "mobile_money", "bank_transfer"];
+  if (c === "NGN") return ["card", "bank", "ussd", "qr", "bank_transfer"];
+  return ["card"];
+};
+
+/* ------------ LocalStorage keys ------------ */
+const LS_REF_KEY = "smh_ps_pending_ref";
+const LS_META_KEY = "smh_ps_pending_meta";
+
+/* ------------ Date helpers ------------ */
+const parseISODate = (d) => {
+  if (!d) return null;
+  const s = String(d).slice(0, 10);
+  const [y, m, dd] = s.split("-").map(Number);
+  if (!y || !m || !dd) return null;
+  return new Date(Date.UTC(y, m - 1, dd));
+};
+const addMonthsUTC = (date, months) => {
+  if (!date) return null;
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  d.setUTCMonth(d.getUTCMonth() + months);
+  return d;
+};
+const formatISO = (d) =>
+  d ? `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}` : "—";
+const formatDateOnly = (d) => {
+  if (!d) return "";
+  const dt = new Date(d);
+  const y = dt.getUTCFullYear();
+  const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(dt.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+/* ------------ Paystack inline script helper (same page) ------------ */
+function ensurePaystackScript() {
+  return new Promise((resolve, reject) => {
+    if (window.PaystackPop && typeof window.PaystackPop.setup === "function") {
+      resolve(true);
+      return;
+    }
+    const id = "paystack-inline-js";
+    if (document.getElementById(id)) {
+      const check = () => {
+        if (window.PaystackPop) resolve(true);
+        else setTimeout(check, 300);
+      };
+      check();
+      return;
+    }
+    const s = document.createElement("script");
+    s.id = id;
+    s.src = "https://js.paystack.co/v1/inline.js";
+    s.async = true;
+    s.onload = () => resolve(true);
+    s.onerror = () => reject(new Error("Failed to load Paystack script."));
+    document.body.appendChild(s);
+  });
+}
 
 export default function Settings() {
   const navigate = useNavigate();
@@ -68,24 +158,23 @@ export default function Settings() {
     [token]
   );
 
-  // Basic ids
+  // IDs
   const schoolId =
     user?.schoolId ?? user?.school_id ?? user?.school?.id ?? user?.SCHOOL_ID ?? null;
   const userId =
     user?.id ?? user?.userId ?? user?.USER_ID ?? user?.staff_id ?? user?.STAFF_ID ?? null;
 
-  // Local UI
+  // UI
   const [banner, setBanner] = useState({ kind: "", msg: "" });
   const [loading, setLoading] = useState(false);
 
-  // Live profile bits
+  // Profile/plan
   const [fullName, setFullName] = useState(user?.full_name || user?.name || "");
   const [email, setEmail] = useState(user?.email || "");
   const [roleRaw, setRoleRaw] = useState(user?.role || user?.userType || "");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [schoolName, setSchoolName] = useState(user?.school?.name || user?.school_name || "");
 
-  // Plan (admin only)
   const [plan, setPlan] = useState({
     package: user?.school?.package ?? null,
     currency: user?.school?.currency ?? "",
@@ -93,7 +182,7 @@ export default function Settings() {
     status: user?.school?.status ?? "",
   });
 
-  // === Branding (logo & signature) ===
+  // Branding
   const [logoUrl, setLogoUrl] = useState("");
   const [signatureUrl, setSignatureUrl] = useState("");
   const [logoBusy, setLogoBusy] = useState(false);
@@ -103,10 +192,37 @@ export default function Settings() {
   const logoInputRef = useRef(null);
   const sigInputRef = useRef(null);
 
-  // Change Password modal
+  // Password modal
   const [pwdOpen, setPwdOpen] = useState(false);
   const [pwd, setPwd] = useState({ next: "", show: false });
   const canChangePwd = (pwd.next || "").length >= 8;
+
+  // ===== Billing modal =====
+  const [billingOpen, setBillingOpen] = useState(false);
+  const [billingBusy, setBillingBusy] = useState(false);
+
+  // Packages / pricing
+  const [pkgOptions, setPkgOptions] = useState([]); // ["Basic","Standard","Premium"]
+  const [priceByPkg, setPriceByPkg] = useState({}); // { Basic: 100, ... }
+
+  // Selections
+  const [billing, setBilling] = useState({
+    targetPackage: Number(user?.school?.package ?? 1) || 1,
+    months: 12,
+  });
+
+  // Payment flow states
+  const [pendingRef, setPendingRef] = useState(null);
+  const [verifying, setVerifying] = useState(false);
+  const [pollCount, setPollCount] = useState(0);
+  const [billingResult, setBillingResult] = useState(null); // thank-you view (kept per your file)
+
+  // Currency from auth (authoritative)
+  const accountCurrency =
+    plan.currency ||
+    user?.school?.currency ||
+    user?.CURRENCY ||
+    "GHS";
 
   // Helpers
   const jarr = async (url) => {
@@ -121,11 +237,10 @@ export default function Settings() {
     }
   };
 
-  // Fetch school (plan + branding) + staff (self) from live APIs
+  // Fetch plan & staff
   useEffect(() => {
     (async () => {
       try {
-        // School list (includes package, status, expiry, currency, MAY include logo/signature)
         const schools = await jarr(SCHOOLS_LIST_API);
         if (schools?.length && schoolId != null) {
           const s = schools.find(
@@ -141,10 +256,12 @@ export default function Settings() {
             });
             setLogoUrl(s.logo_url ?? s.LOGO_URL ?? "");
             setSignatureUrl(s.signature_url ?? s.SIGNATURE_URL ?? "");
+            setBilling((b) => ({
+              ...b,
+              targetPackage: Number(s.package ?? s.PACKAGE ?? 1) || 1,
+            }));
           }
         }
-
-        // Current staff profile
         if (schoolId) {
           const staff = await jarr(`${STAFF_LIST_API}?p_school_id=${encodeURIComponent(schoolId)}`);
           const me = staff.find((m) => String(m.user_id ?? m.USER_ID) === String(userId));
@@ -162,20 +279,51 @@ export default function Settings() {
             setAvatarUrl(av);
           }
         }
-      } catch {
-        // keep fallbacks
-      }
+      } catch {}
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schoolId, userId, token]);
 
-  /* ---------- Actions ---------- */
+  // Load package pricing when opening modal
+  const loadPackages = async () => {
+    try {
+      const items = await jarr(PACKAGES_API);
+      const filtered = (items || [])
+        .map((x) => ({
+          name: normalizePkgName(x.package_name ?? x.PACKAGE_NAME),
+          currency: String(x.currency ?? x.CURRENCY ?? "").toUpperCase(),
+          amount: Number(x.amount ?? x.AMOUNT ?? 0),
+        }))
+        .filter((x) => x.currency === String(accountCurrency).toUpperCase())
+        .filter((x) => ["Basic", "Standard", "Premium"].includes(x.name));
+
+      const map = {};
+      for (const row of filtered) {
+        if (!(row.name in map)) map[row.name] = row.amount;
+        else map[row.name] = Math.min(map[row.name], row.amount);
+      }
+      setPriceByPkg(map);
+      setPkgOptions(["Basic", "Standard", "Premium"].filter((n) => n in map));
+      setBilling((b) => {
+        const currentRank = pkgRank(b.targetPackage);
+        const valid = ["Basic","Standard","Premium"].filter((n)=>n in map).map(pkgRank);
+        const maxRank = Math.max(...valid);
+        const newRank = Math.min(currentRank || 1, maxRank);
+        const cappedMonths = Math.min(b.months || 1, MAX_MONTHS);
+        return { ...b, targetPackage: newRank, months: cappedMonths };
+      });
+    } catch {
+      setPriceByPkg({});
+      setPkgOptions([]);
+    }
+  };
+
+  /* ---------- Password ---------- */
   const submitPassword = async () => {
     if (!canChangePwd || !userId) return;
     setLoading(true);
     setBanner({ kind: "", msg: "" });
     try {
-      // GET per your procedure
       const qp = new URLSearchParams({
         p_user_id: String(userId),
         p_password: String(pwd.next),
@@ -195,6 +343,7 @@ export default function Settings() {
     }
   };
 
+  /* ---------- Download ---------- */
   const handleDownloadData = async () => {
     try {
       const payload = {
@@ -230,7 +379,7 @@ export default function Settings() {
     }
   };
 
-  // Keep your custom logout redirect with ?p_school_id=<id>
+  /* ---------- Logout ---------- */
   const handleLogout = async () => {
     const ok = window.confirm("Are you sure you want to sign out?");
     if (!ok) return;
@@ -245,11 +394,12 @@ export default function Settings() {
   /* ---------- Derived ---------- */
   const isAdmin = isAdminFrom(roleRaw);
   const isHead  = isHeadFrom(roleRaw);
+  const currentPkgRank = pkgRank(plan.package);
   const pkgNum = Number(plan.package ?? 0);
-  const pkgName =
+  const currentPkgName =
     pkgNum === 1 ? "Basic" : pkgNum === 2 ? "Standard" : pkgNum === 3 ? "Premium" : String(plan.package ?? "—");
 
-  // === Branding helpers ===
+  // Branding helpers
   const extFromName = (name) => {
     const e = String(name || "").split(".").pop()?.toLowerCase();
     if (!e) return "jpg";
@@ -267,20 +417,18 @@ export default function Settings() {
     }
   };
 
-  // One robust updater to avoid nulling the other column
+  // Update branding
+  const encodeForm = (obj) =>
+    Object.entries(obj)
+      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+      .join("&");
+
   const updateSchoolBrandingRobust = async ({ logo, signature }) => {
     const params = {
       p_school_id: String(schoolId),
       p_logo_url: String(logo ?? logoUrl ?? ""),
       p_signature_url: String(signature ?? signatureUrl ?? ""),
     };
-
-    const encodeForm = (obj) =>
-      Object.entries(obj)
-        .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
-        .join("&");
-
-    // 1) POST form-urlencoded
     try {
       const r = await fetch(UPDATE_SCHOOL_API, {
         method: "POST",
@@ -289,15 +437,11 @@ export default function Settings() {
       });
       if (r.ok) return true;
     } catch {}
-
-    // 2) GET fallback
     try {
       const qp = new URLSearchParams(params).toString();
       const r = await fetch(`${UPDATE_SCHOOL_API}?${qp}`, { method: "GET", headers });
       if (r.ok) return true;
     } catch {}
-
-    // 3) POST JSON fallback
     const r = await fetch(UPDATE_SCHOOL_API, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
@@ -318,9 +462,7 @@ export default function Settings() {
       const key = `schools/${schoolId}/branding/logo.${ext}`;
       await putToOCI(file, key);
       const publicUrl = buildPublicUrl(key);
-
       await updateSchoolBrandingRobust({ logo: publicUrl, signature: undefined });
-
       setLogoUrl(publicUrl);
       setLogoMsg("Logo updated successfully.");
     } catch (e) {
@@ -339,9 +481,7 @@ export default function Settings() {
       const key = `schools/${schoolId}/branding/signature-ht.${ext}`;
       await putToOCI(file, key);
       const publicUrl = buildPublicUrl(key);
-
       await updateSchoolBrandingRobust({ logo: undefined, signature: publicUrl });
-
       setSignatureUrl(publicUrl);
       setSigMsg("Signature updated successfully.");
     } catch (e) {
@@ -351,6 +491,461 @@ export default function Settings() {
       setTimeout(() => setSigMsg(""), 3500);
     }
   };
+
+  // ===== Expiry & pricing =====
+  const currentExpiry = parseISODate(plan.expiry);
+  const nowUTC = new Date();
+
+  const targetPkgName =
+    billing.targetPackage === 1 ? "Basic" :
+    billing.targetPackage === 2 ? "Standard" :
+    billing.targetPackage === 3 ? "Premium" : "—";
+
+  const monthlyPrice = Number(priceByPkg?.[targetPkgName] ?? 0);
+  const months = Math.min(Number(billing.months) || 1, MAX_MONTHS);
+  const subtotal = monthlyPrice * months;
+  const discountRate = DISCOUNT_TIERS[months] || 0;
+  const discount = subtotal * discountRate;
+  const totalAmount = Math.max(0, subtotal - discount);
+
+  const action = pkgRank(billing.targetPackage) > currentPkgRank ? "UPGRADE" : "EXTEND";
+  const effectiveBase =
+    action === "EXTEND"
+      ? (currentExpiry && currentExpiry > nowUTC ? currentExpiry : nowUTC)
+      : nowUTC;
+  const previewExpiry = addMonthsUTC(effectiveBase, months);
+  const previewExpiryISO = formatISO(previewExpiry);
+
+  // ===== Paystack (inline only; fallback to same tab redirect) =====
+  const buildReference = () =>
+    `SCH-${schoolId || "NA"}-${Date.now()}-${Math.random().toString(36).slice(2,8)}`.replace(/[^a-zA-Z0-9.\-=]/g,"");
+
+  const persistPending = (ref, meta) => {
+    try { localStorage.setItem(LS_REF_KEY, ref); } catch {}
+    try { localStorage.setItem(LS_META_KEY, JSON.stringify(meta)); } catch {}
+    setPendingRef(ref);
+  };
+  const clearPending = () => {
+    try { localStorage.removeItem(LS_REF_KEY); } catch {}
+    try { localStorage.removeItem(LS_META_KEY); } catch {}
+    setPendingRef(null);
+    setPollCount(0);
+    setVerifying(false);
+  };
+  const readPendingMeta = () => {
+    try {
+      const s = localStorage.getItem(LS_META_KEY);
+      if (!s) return null;
+      return JSON.parse(s);
+    } catch { return null; }
+  };
+
+  const startPaystackPayment = async () => {
+    if (!schoolId) {
+      setBanner({ kind: "error", msg: "Missing school ID." });
+      return;
+    }
+    if (!email) {
+      setBanner({ kind: "error", msg: "Missing user email for Paystack." });
+      return;
+    }
+    if (!totalAmount || totalAmount <= 0) {
+      setBanner({ kind: "error", msg: "Invalid amount." });
+      return;
+    }
+
+    setBillingBusy(true);
+    try {
+      const reference = buildReference();
+      const currency = String(accountCurrency).toUpperCase();
+      const amountSubunit = toSubunit(totalAmount);
+
+      const meta = {
+        school_id: schoolId,
+        action,
+        months,
+        package: billing.targetPackage,
+        package_name: targetPkgName,
+        subtotal,
+        discount_rate: discountRate,
+        discount_amount: discount,
+        total: totalAmount,            // base units for DB
+        next_expiry: previewExpiryISO,
+        requested_by: userId || null,  // numeric preferred
+      };
+      persistPending(reference, meta);
+
+      // Try inline popup
+      await ensurePaystackScript();
+      if (!window.PaystackPop || typeof window.PaystackPop.setup !== "function") {
+        throw new Error("Inline popup unavailable.");
+      }
+
+      const handler = window.PaystackPop.setup({
+        key: PAYSTACK_PUBLIC_KEY,
+        email,
+        amount: amountSubunit,                 // subunits
+        currency,
+        ref: reference,
+        channels: channelsForCurrency(currency),
+        metadata: meta,
+        callback: async () => {
+          setBillingOpen(false); // close modal on success
+          setBanner({ kind: "success", msg: "Payment submitted. Verifying…" });
+          await verifyNow(reference);
+        },
+        onClose: () => {
+          setBanner({ kind: "error", msg: "Payment was not completed." });
+        },
+      });
+
+      handler.openIframe(); // SAME PAGE (no new tab)
+    } catch (e) {
+      // Fallback: same-tab redirect (still no new tab)
+      try {
+        const callback_url = `${window.location.origin}/settings?pscb=1`;
+        const payload = {
+          email,
+          amount: String(toSubunit(totalAmount)),
+          currency: String(accountCurrency).toUpperCase(),
+          channels: channelsForCurrency(String(accountCurrency).toUpperCase()),
+          reference: localStorage.getItem(LS_REF_KEY) || buildReference(),
+          callback_url,
+          metadata: JSON.stringify(readPendingMeta() || {}),
+        };
+        const initRes = await fetch("https://api.paystack.co/transaction/initialize", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+        const initJson = await initRes.json();
+        if (!initJson?.status) {
+          throw new Error(initJson?.message || "Failed to initialize payment.");
+        }
+        const authUrl = initJson?.data?.authorization_url;
+        if (!authUrl) throw new Error("No authorization URL returned by Paystack.");
+        setBillingOpen(false);
+        window.location.href = authUrl; // same tab
+      } catch (e2) {
+        setBanner({ kind: "error", msg: e2?.message || e?.message || "Unable to start payment." });
+        setTimeout(() => setBanner({ kind: "", msg: "" }), 5000);
+        setVerifying(false);
+        clearPending();
+      }
+    } finally {
+      setBillingBusy(false);
+    }
+  };
+
+  const sendReceiptEmail = async ({ reference, amount, currency, months, package_name, next_expiry, paid_at }) => {
+    try {
+      const lines = [
+        `Hi ${fullName || "there"},`,
+        ``,
+        `Payment received successfully.`,
+        ``,
+        `Reference: ${reference}`,
+        `Amount: ${currency} ${Number(amount || 0).toLocaleString()}`,
+        `Package: ${package_name}`,
+        `Duration: ${months} month(s)`,
+        `New Expiry: ${next_expiry}`,
+        `Paid At: ${String(paid_at).replace("T"," ").replace("Z","")}`,
+        ``,
+        `Thank you for using School Master Hub.`,
+      ].join("\n");
+
+      await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: [email],
+          subject: "Payment Receipt - School Master Hub",
+          message: lines,
+          fromName: schoolName || "School Master Hub",
+        }),
+      });
+    } catch {
+      // Silently ignore email errors on the client
+    }
+  };
+
+  // ===== [TXNS] Transactions state & helpers =====
+  const [txns, setTxns] = useState([]);
+  const [txLoading, setTxLoading] = useState(false);
+  const [txError, setTxError] = useState("");
+
+  const downloadBlob = (data, filename, mime) => {
+    const blob = new Blob([data], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const toCSV = (rows) => {
+    if (!rows?.length)
+      return "school_id,amount,currency,no_months,status,paystack_ref,next_expiry,paid_at,created_at\n";
+    const headers = [
+      "school_id",
+      "amount",
+      "currency",
+      "no_months",
+      "status",
+      "paystack_ref",
+      "next_expiry",
+      "paid_at",
+      "created_at",
+    ];
+    const esc = (v) => {
+      const s = String(v ?? "");
+      return /[\",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const lines = [headers.join(",")];
+    for (const r of rows) lines.push(headers.map((h) => esc(r[h])).join(","));
+    return lines.join("\n");
+  };
+
+  const downloadTxReport = (format = "csv") => {
+    if (!txns?.length) {
+      setBanner({ kind: "error", msg: "No transactions to download." });
+      setTimeout(() => setBanner({ kind: "", msg: "" }), 2500);
+      return;
+    }
+    const fnBase = `smh_transactions_${schoolId}_${new Date()
+      .toISOString()
+      .slice(0, 10)}`;
+    if (format === "json") {
+      downloadBlob(JSON.stringify(txns, null, 2), `${fnBase}.json`, "application/json");
+    } else {
+      downloadBlob(toCSV(txns), `${fnBase}.csv`, "text/csv");
+    }
+    setBanner({ kind: "success", msg: `Report downloaded (${format.toUpperCase()}).` });
+    setTimeout(() => setBanner({ kind: "", msg: "" }), 2500);
+  };
+
+  // ===== Payment verification =====
+  const verifyNow = async (forcedRef) => {
+    const ref = forcedRef || localStorage.getItem(LS_REF_KEY);
+    if (!ref) {
+      setBanner({ kind: "error", msg: "No pending payment reference found." });
+      setTimeout(() => setBanner({ kind: "", msg: "" }), 4000);
+      return;
+    }
+    setVerifying(true);
+    try {
+      // Verify with Paystack
+      const vRes = await fetch(
+        `https://api.paystack.co/transaction/verify/${encodeURIComponent(ref)}`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` },
+        }
+      );
+      const vJson = await vRes.json();
+      if (!vJson?.status) throw new Error(vJson?.message || "Verification failed.");
+      const data = vJson.data;
+      const status = data?.status;
+      if (status !== "success") {
+        setBanner({ kind: "error", msg: `Payment not successful (${status || "unknown"})` });
+        setTimeout(() => setBanner({ kind: "", msg: "" }), 6000);
+        return;
+      }
+
+      const paystack_txn_id = data?.id;
+      const paid_at = data?.paid_at || data?.paidAt || new Date().toISOString();
+      const message = data?.gateway_response || data?.message || "";
+      const paystack_ref = data?.reference || ref;
+
+      // Get meta (prefer Paystack's metadata, else local)
+      let meta = {};
+      if (data?.metadata) {
+        if (typeof data.metadata === "string") {
+          try {
+            meta = JSON.parse(data.metadata);
+          } catch {}
+        } else if (typeof data.metadata === "object") meta = data.metadata;
+      }
+      if (!meta || !meta.school_id) {
+        const localMeta = readPendingMeta();
+        if (localMeta) meta = localMeta;
+      }
+
+      const mMonths = Math.min(Number(meta?.months) || months, MAX_MONTHS);
+      const mPackage = Number(meta?.package) || billing.targetPackage;
+      const mPackageName =
+        meta?.package_name ||
+        (mPackage === 1
+          ? "Basic"
+          : mPackage === 2
+          ? "Standard"
+          : mPackage === 3
+          ? "Premium"
+          : "—");
+      const mTotal = Number(meta?.total) || totalAmount; // base units for DB
+      const mNextExpiry = meta?.next_expiry || previewExpiryISO;
+      const requestedByNumber = Number(userId || meta?.requested_by || 0) || null;
+
+      // Persist to DB via GET (as per PL/SQL)
+      const dbPayload = {
+        p_school_id: String(schoolId),
+        p_package: String(mPackage),
+        p_no_months: String(mMonths),
+        p_amount: String(mTotal), // base currency units
+        p_currency: String(accountCurrency).toUpperCase(),
+        p_paystack_ref: String(paystack_ref),
+        p_paystack_txn_id: String(paystack_txn_id || ""),
+        p_status: "Paid",
+        p_message: String(message || "Paid"),
+        p_requested_by: requestedByNumber != null ? String(requestedByNumber) : "",
+        p_paid_at: formatDateOnly(paid_at), // YYYY-MM-DD
+        p_next_expiry: mNextExpiry, // YYYY-MM-DD
+      };
+      const qp = new URLSearchParams(dbPayload).toString();
+      const resp = await fetch(`${SUBSCRIPTION_UPDATE_API}?${qp}`, {
+        method: "GET",
+        headers,
+      });
+      if (!resp.ok) {
+        const errText = await resp.text().catch(() => "");
+        throw new Error(errText || "Failed to update subscription in DB (GET).");
+      }
+
+      // Refresh plan
+      try {
+        const schools = await jarr(SCHOOLS_LIST_API);
+        if (schools?.length && schoolId) {
+          const s = schools.find(
+            (x) => String(x.school_id ?? x.SCHOOL_ID) === String(schoolId)
+          );
+          if (s) {
+            setPlan({
+              package: s.package ?? s.PACKAGE ?? null,
+              currency: s.currency ?? s.CURRENCY ?? "",
+              expiry: s.expiry ?? s.EXPIRY ?? "",
+              status: s.status ?? s.STATUS ?? "",
+            });
+          }
+        }
+      } catch {}
+
+      // Success result + email
+      const result = {
+        status: "success",
+        reference: paystack_ref,
+        amount: mTotal,
+        currency: String(accountCurrency).toUpperCase(),
+        months: mMonths,
+        package_name: mPackageName,
+        next_expiry: mNextExpiry,
+        paid_at,
+      };
+      setBillingResult(result);
+      setVerifying(false);
+      setBanner({ kind: "success", msg: "Payment verified and subscription updated." });
+
+      // Fire-and-forget email (don’t block UI)
+      sendReceiptEmail(result);
+
+      clearPending();
+
+      // Refresh transactions list after success
+      try {
+        if (schoolId) {
+          const url = `${TRANSACTIONS_API}?p_school_id=${encodeURIComponent(schoolId)}`;
+          const arr = await jarr(url);
+          const norm = (arr || []).map((x) => ({
+            school_id: x.school_id ?? x.SCHOOL_ID ?? null,
+            amount: Number(x.amount ?? x.AMOUNT ?? 0),
+            currency: String(x.currency ?? x.CURRENCY ?? "").toUpperCase(),
+            paystack_ref: x.paystack_ref ?? x.PAYSTACK_REF ?? "",
+            paystack_txn_id: x.paystack_txn_id ?? x.PAYSTACK_TXN_ID ?? "",
+            status: x.status ?? x.STATUS ?? "",
+            message: x.message ?? x.MESSAGE ?? "",
+            requested_by: x.requested_by ?? x.REQUESTED_BY ?? null,
+            paid_at: x.paid_at ?? x.PAID_AT ?? "",
+            created_at: x.created_at ?? x.CREATED_AT ?? "",
+            next_expiry: x.next_expiry ?? x.NEXT_EXPIRY ?? "",
+            no_months: Number(x.no_months ?? x.NO_MONTHS ?? 0),
+          }));
+          norm.sort(
+            (a, b) =>
+              String(b.created_at).localeCompare(String(a.created_at)) ||
+              String(b.paid_at).localeCompare(String(a.paid_at))
+          );
+          setTxns(norm);
+        }
+      } catch {}
+
+      setTimeout(() => setBanner({ kind: "", msg: "" }), 6000);
+    } catch (e) {
+      setBanner({ kind: "error", msg: e?.message || "Payment verification failed." });
+      setTimeout(() => setBanner({ kind: "", msg: "" }), 6000);
+    }
+  };
+
+  // Poll verification while in "waiting" state (every 6s up to ~5 mins)
+  useEffect(() => {
+    if (!verifying || !pendingRef) return;
+    if (pollCount > 50) return; // ~5 min at 6s
+    const t = setTimeout(async () => {
+      setPollCount((c) => c + 1);
+      await verifyNow();
+    }, 6000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [verifying, pendingRef, pollCount]);
+
+  // On load, resume any pending payment
+  useEffect(() => {
+    const ref = localStorage.getItem(LS_REF_KEY);
+    if (ref) {
+      setPendingRef(ref);
+      setBillingOpen(true);
+      setVerifying(true);
+    }
+  }, []);
+
+  // [TXNS] Fetch transactions for this school (initial load / auth change)
+  useEffect(() => {
+    if (!schoolId) return;
+    (async () => {
+      setTxLoading(true);
+      setTxError("");
+      try {
+        const url = `${TRANSACTIONS_API}?p_school_id=${encodeURIComponent(schoolId)}`;
+        const arr = await jarr(url);
+        const norm = (arr || []).map((x) => ({
+          school_id: x.school_id ?? x.SCHOOL_ID ?? null,
+          amount: Number(x.amount ?? x.AMOUNT ?? 0),
+          currency: String(x.currency ?? x.CURRENCY ?? "").toUpperCase(),
+          paystack_ref: x.paystack_ref ?? x.PAYSTACK_REF ?? "",
+          paystack_txn_id: x.paystack_txn_id ?? x.PAYSTACK_TXN_ID ?? "",
+          status: x.status ?? x.STATUS ?? "",
+          message: x.message ?? x.MESSAGE ?? "",
+          requested_by: x.requested_by ?? x.REQUESTED_BY ?? null,
+          paid_at: x.paid_at ?? x.PAID_AT ?? "",
+          created_at: x.created_at ?? x.CREATED_AT ?? "",
+          next_expiry: x.next_expiry ?? x.NEXT_EXPIRY ?? "",
+          no_months: Number(x.no_months ?? x.NO_MONTHS ?? 0),
+        }));
+        norm.sort(
+          (a, b) =>
+            String(b.created_at).localeCompare(String(a.created_at)) ||
+            String(b.paid_at).localeCompare(String(a.paid_at))
+        );
+        setTxns(norm);
+      } catch (e) {
+        setTxError(e?.message || "Failed to load transactions.");
+      } finally {
+        setTxLoading(false);
+      }
+    })();
+  }, [schoolId, token]); // re-run if auth changes
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-6 sm:py-8">
@@ -393,7 +988,9 @@ export default function Settings() {
                   className={`px-3 py-2 rounded-lg text-sm ${
                     banner.kind === "success"
                       ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                      : "bg-red-50 text-red-800 border border-red-200"
+                      : banner.kind === "error"
+                      ? "bg-red-50 text-red-800 border border-red-200"
+                      : "bg-indigo-50 text-indigo-800 border border-indigo-200"
                   }`}
                 >
                   {banner.msg}
@@ -490,8 +1087,16 @@ export default function Settings() {
                         {logoBusy ? "Uploading…" : "Upload Logo"}
                       </button>
                       {logoMsg && (
-                        <span className={`text-sm inline-flex items-center gap-1 ${/success|updated/i.test(logoMsg) ? "text-emerald-700" : "text-rose-700"}`}>
-                          {/updated|success/i.test(logoMsg) ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+                        <span
+                          className={`text-sm inline-flex items-center gap-1 ${
+                            /success|updated/i.test(logoMsg) ? "text-emerald-700" : "text-rose-700"
+                          }`}
+                        >
+                          {/updated|success/i.test(logoMsg) ? (
+                            <CheckCircle2 className="h-4 w-4" />
+                          ) : (
+                            <AlertCircle className="h-4 w-4" />
+                          )}
                           {logoMsg}
                         </span>
                       )}
@@ -505,7 +1110,7 @@ export default function Settings() {
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-sky-900 dark:text-sky-100 flex items-center gap-2">
                       <ImageIcon className="h-4 w-4" />
-                      Headteacher Signature (HT)
+                      Headteacher Signature
                     </h3>
                   </div>
 
@@ -536,8 +1141,16 @@ export default function Settings() {
                         {sigBusy ? "Uploading…" : "Upload Signature"}
                       </button>
                       {sigMsg && (
-                        <span className={`text-sm inline-flex items-center gap-1 ${/success|updated/i.test(sigMsg) ? "text-emerald-700" : "text-rose-700"}`}>
-                          {/updated|success/i.test(sigMsg) ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+                        <span
+                          className={`text-sm inline-flex items-center gap-1 ${
+                            /success|updated/i.test(sigMsg) ? "text-emerald-700" : "text-rose-700"
+                          }`}
+                        >
+                          {/updated|success/i.test(sigMsg) ? (
+                            <CheckCircle2 className="h-4 w-4" />
+                          ) : (
+                            <AlertCircle className="h-4 w-4" />
+                          )}
                           {sigMsg}
                         </span>
                       )}
@@ -558,7 +1171,7 @@ export default function Settings() {
                   <div className="rounded-lg bg-white dark:bg-gray-900 border border-indigo-200 dark:border-indigo-800 p-3">
                     <div className="text-xs uppercase tracking-wide text-gray-500">Package</div>
                     <div className="text-base font-semibold">
-                      {pkgName}
+                      {currentPkgName}
                       {plan.currency ? (
                         <span className="text-xs font-normal text-gray-500 ml-2">({plan.currency})</span>
                       ) : null}
@@ -572,25 +1185,139 @@ export default function Settings() {
                     <div className="text-xs uppercase tracking-wide text-gray-500 flex items-center gap-2">
                       <CalendarClock className="h-4 w-4" /> Expiry
                     </div>
-                    <div className="text-base font-semibold">{plan.expiry ? String(plan.expiry).slice(0, 10) : "—"}</div>
+                    <div className="text-base font-semibold">
+                      {plan.expiry ? String(plan.expiry).slice(0, 10) : "—"}
+                    </div>
                   </div>
                   <div className="rounded-lg bg-white dark:bg-gray-900 border border-indigo-200 dark:border-indigo-800 p-3">
                     <div className="text-xs uppercase tracking-wide text-gray-500 flex items-center gap-2">
                       <Banknote className="h-4 w-4" /> Currency
                     </div>
-                    <div className="text-base font-semibold">{plan.currency || "—"}</div>
+                    <div className="text-base font-semibold">{accountCurrency || "—"}</div>
                   </div>
                 </div>
 
                 <div className="mt-3 flex items-center gap-2">
                   <button
-                    onClick={() =>
-                      window.open(`${BILLING_BASE}?p_school_id=${encodeURIComponent(schoolId ?? "")}`, "_blank")
-                    }
+                    type="button"
+                    onClick={async (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      await loadPackages();
+                      setBillingResult(null);
+                      setVerifying(false);
+                      setPollCount(0);
+                      setBillingOpen(true);
+                    }}
                     className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
                   >
                     Upgrade / Extend Plan
                   </button>
+                </div>
+              </section>
+            )}
+
+            {/* [TXNS] Subscription Transactions */}
+            {isAdmin && (
+              <section className="mt-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                    <Package className="h-4 w-4" />
+                    Subscription Transactions
+                  </h3>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => downloadTxReport("csv")}
+                      className="px-3 py-1.5 rounded-lg border bg-white dark:bg-gray-900 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
+                    >
+                      Download CSV
+                    </button>
+                    <button
+                      onClick={() => downloadTxReport("json")}
+                      className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm"
+                    >
+                      Download JSON
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-4">
+                  {txLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading transactions…
+                    </div>
+                  ) : txError ? (
+                    <div className="flex items-center gap-2 text-sm text-rose-700">
+                      <AlertCircle className="h-4 w-4" />
+                      {txError}
+                    </div>
+                  ) : txns.length === 0 ? (
+                    <div className="text-sm text-gray-600 dark:text-gray-300">
+                      No transactions yet.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead className="text-xs uppercase text-gray-500">
+                          <tr className="text-left">
+                            <th className="py-2 pr-4">Paid&nbsp;At</th>
+                            <th className="py-2 pr-4">Amount</th>
+                            <th className="py-2 pr-4">Months</th>
+                            <th className="py-2 pr-4">Status</th>
+                            <th className="py-2 pr-4">Reference</th>
+                            <th className="py-2 pr-4">Next&nbsp;Expiry</th>
+                            <th className="py-2 pr-4">Created</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y dark:divide-gray-700">
+                          {txns.slice(0, 20).map((t, idx) => (
+                            <tr key={`${t.paystack_ref}-${idx}`} className="align-top">
+                              <td className="py-2 pr-4">
+                                {String(t.paid_at || "").slice(0, 10)}
+                              </td>
+                              <td className="py-2 pr-4 font-medium">
+                                {t.currency} {Number(t.amount || 0).toLocaleString()}
+                              </td>
+                              <td className="py-2 pr-4">{t.no_months || 0}</td>
+                              <td className="py-2 pr-4">
+                                <span
+                                  className={`px-2 py-0.5 rounded text-xs ${
+                                    /paid|success/i.test(t.status)
+                                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                      : /fail|declin|abandon/i.test(t.status)
+                                      ? "bg-rose-50 text-rose-700 border border-rose-200"
+                                      : "bg-gray-50 text-gray-700 border border-gray-200"
+                                  }`}
+                                >
+                                  {t.status || "—"}
+                                </span>
+                              </td>
+                              <td className="py-2 pr-4">
+                                <code className="text-xs break-all">
+                                  {t.paystack_ref || "—"}
+                                </code>
+                              </td>
+                              <td className="py-2 pr-4">
+                                {String(t.next_expiry || "").slice(0, 10) || "—"}
+                              </td>
+                              <td className="py-2 pr-4">
+                                {String(t.created_at || "")
+                                  .replace("T", " ")
+                                  .replace("Z", "")}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+
+                      {txns.length > 20 && (
+                        <div className="text-xs text-gray-500 mt-2">
+                          Showing the latest 20 of {txns.length}. Use Download to get the full report.
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </section>
             )}
@@ -607,7 +1334,9 @@ export default function Settings() {
                       <KeyRound className="h-5 w-5" />
                       Change Password
                     </span>
-                    <p className="text-sm text-blue-700 dark:text-blue-300">Update your account password</p>
+                    <p className="text-sm text-blue-700 dark:text-blue-300">
+                      Update your account password
+                    </p>
                   </div>
                   <Eye className="h-5 w-5 text-blue-600 dark:text-blue-300" />
                 </div>
@@ -623,7 +1352,9 @@ export default function Settings() {
                       <Download className="h-5 w-5" />
                       Download My Data
                     </span>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">Export your account information</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      Export your account information
+                    </p>
                   </div>
                 </div>
               </button>
@@ -643,70 +1374,294 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Change Password Modal */}
-        {pwdOpen && (
+        {/* Billing Modal */}
+        {billingOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md border border-gray-200 dark:border-gray-700">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-lg border border-gray-200 dark:border-gray-700">
               <div className="p-5 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-                  <KeyRound className="h-5 w-5" /> Change Password
+                  <Package className="h-5 w-5" />{" "}
+                  {billingResult?.status === "success"
+                    ? "Payment Successful"
+                    : verifying
+                    ? "Waiting for Payment"
+                    : "Plan Change"}
                 </h3>
                 <button
                   className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
-                  onClick={() => setPwdOpen(false)}
+                  onClick={() => {
+                    setBillingOpen(false);
+                    setBillingResult(null);
+                    setVerifying(false);
+                  }}
                   aria-label="Close"
                 >
                   <EyeOff className="h-4 w-4" />
                 </button>
               </div>
 
-              <div className="p-5 space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    New Password
-                  </label>
-                  <input
-                    type={pwd.show ? "text" : "password"}
-                    value={pwd.next}
-                    onChange={(e) => setPwd({ ...pwd, next: e.target.value })}
-                    className="w-full border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 bg-white dark:bg-gray-900"
-                    placeholder="Minimum 8 characters"
-                  />
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Your backend sets <code>PASSWORD_HASH</code> to this value.
-                  </p>
+              {/* Thank You view */}
+              {billingResult?.status === "success" ? (
+                <div className="p-6">
+                  <div className="flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-900/20">
+                    <CheckCircle2 className="h-6 w-6 text-emerald-600 mt-0.5" />
+                    <div>
+                      <div className="font-semibold text-emerald-800 dark:text-emerald-200">
+                        Thank you! Your payment was successful.
+                      </div>
+                      <div className="text-sm text-emerald-900/80 dark:text-emerald-200/80 mt-1">
+                        Your subscription has been updated. Details are below.
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-lg border p-3 bg-gray-50 dark:bg-gray-900 dark:border-gray-700 text-sm space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span>Reference</span>
+                      <span className="font-medium">{billingResult.reference}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Amount</span>
+                      <span className="font-medium">
+                        {billingResult.currency}{" "}
+                        {Number(billingResult.amount || 0).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Package</span>
+                      <span className="font-medium">{billingResult.package_name}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Duration</span>
+                      <span className="font-medium">{billingResult.months} month(s)</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>New Expiry</span>
+                      <span className="font-medium">{billingResult.next_expiry}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Paid At</span>
+                      <span className="font-medium">
+                        {String(billingResult.paid_at).replace("T", " ").replace("Z", "")}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 flex justify-end">
+                    <button
+                      onClick={() => {
+                        setBillingOpen(false);
+                        setBillingResult(null);
+                      }}
+                      className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
+                    >
+                      Close
+                    </button>
+                  </div>
                 </div>
+              ) : verifying ? (
+                // Waiting / Verify view
+                <>
+                  <div className="p-6">
+                    <div className="rounded-lg border p-3 bg-gray-50 dark:bg-gray-900 dark:border-gray-700">
+                      <div className="flex items-start gap-3">
+                        <Loader2 className="h-5 w-5 mt-0.5 animate-spin" />
+                        <div className="text-sm text-gray-700 dark:text-gray-300">
+                          <div className="font-medium">Complete your payment in the popup</div>
+                          <div className="mt-1">
+                            Once you’re done, click{" "}
+                            <span className="font-semibold">Verify Now</span> below.
+                            We’ll also check automatically every few seconds.
+                          </div>
+                          {pendingRef && (
+                            <div className="mt-2 text-xs text-gray-500">
+                              Reference: {pendingRef}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
 
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={pwd.show}
-                    onChange={(e) => setPwd({ ...pwd, show: e.target.checked })}
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span className="text-sm text-gray-700 dark:text-gray-300">Show password</span>
-                </label>
-              </div>
+                    <div className="mt-4 rounded-lg border p-3 bg-gray-50 dark:bg-gray-900 dark:border-gray-700 text-sm space-y-1.5">
+                      <Row label="Currency" value={String(accountCurrency).toUpperCase()} />
+                      <Row label="Package" value={targetPkgName} />
+                      <Row label="Duration" value={`${months} month(s)`} />
+                      <Row
+                        label="Subtotal"
+                        value={`${String(accountCurrency).toUpperCase()} ${Number(subtotal || 0).toLocaleString()}`}
+                      />
+                      {discountRate > 0 && (
+                        <Row
+                          label={`Discount (${Math.round(discountRate * 100)}%)`}
+                          value={`- ${String(accountCurrency).toUpperCase()} ${Number(discount || 0).toLocaleString()}`}
+                        />
+                      )}
+                      <div className="flex items-center justify-between border-t dark:border-gray-700 pt-2">
+                        <span>Total</span>
+                        <span className="font-semibold">
+                          {String(accountCurrency).toUpperCase()}{" "}
+                          {Number(totalAmount || 0).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="mt-2 pt-2 border-t dark:border-gray-700 flex items-center justify-between">
+                        <span>Next Expiry</span>
+                        <span className="font-semibold">{previewExpiryISO}</span>
+                      </div>
+                    </div>
+                  </div>
 
-              <div className="p-5 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-                <button
-                  onClick={() => setPwdOpen(false)}
-                  className="px-4 py-2 rounded-lg border bg-white dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={submitPassword}
-                  disabled={!canChangePwd || loading}
-                  className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {loading ? "Saving…" : "Update Password"}
-                </button>
-              </div>
+                  <div className="p-5 border-t border-gray-200 dark:border-gray-700 flex justify-between gap-3">
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => verifyNow()}
+                        className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
+                      >
+                        Verify Now
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                // Selection & summary view
+                <>
+                  <div className="p-5 space-y-5">
+                    {/* LOVs */}
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Package</label>
+                        <select
+                          className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-900 dark:border-gray-700"
+                          value={billing.targetPackage}
+                          onChange={(e) =>
+                            setBilling((b) => ({
+                              ...b,
+                              targetPackage: Number(e.target.value),
+                            }))
+                          }
+                        >
+                          {pkgOptions.includes("Basic") && <option value={1}>Basic (1)</option>}
+                          {pkgOptions.includes("Standard") && (
+                            <option value={2}>Standard (2)</option>
+                          )}
+                          {pkgOptions.includes("Premium") && (
+                            <option value={3}>Premium (3)</option>
+                          )}
+                        </select>
+                        <p className="text-xs text-gray-500 mt-1">Current: {currentPkgName}</p>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Duration (months)</label>
+                        <select
+                          className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-900 dark:border-gray-700"
+                          value={Math.min(billing.months, MAX_MONTHS)}
+                          onChange={(e) => {
+                            const m = Math.min(Number(e.target.value) || 1, MAX_MONTHS);
+                            setBilling((b) => ({ ...b, months: m }));
+                          }}
+                        >
+                          {[1, 3, 6, 12].map((m) => (
+                            <option key={m} value={m}>
+                              {m}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Summary */}
+                    <div className="rounded-lg border p-3 bg-gray-50 dark:bg-gray-900 dark:border-gray-700">
+                      <div className="text-sm text-gray-700 dark:text-gray-300 space-y-1.5">
+                        <Row
+                          label="Detected Action"
+                          value={
+                            pkgRank(billing.targetPackage) > currentPkgRank ? "UPGRADE" : "EXTEND"
+                          }
+                          emphasize
+                        />
+                        <Row label="Currency" value={String(accountCurrency).toUpperCase()} />
+                        <Row
+                          label="Monthly Price"
+                          value={`${String(accountCurrency).toUpperCase()} ${Number(
+                            monthlyPrice || 0
+                          ).toLocaleString()}`}
+                        />
+                        <Row label="Duration" value={`${months} month(s)`} />
+                        <Row
+                          label="Subtotal"
+                          value={`${String(accountCurrency).toUpperCase()} ${Number(
+                            subtotal || 0
+                          ).toLocaleString()}`}
+                        />
+                        {discountRate > 0 && (
+                          <Row
+                            label={`Discount (${Math.round(discountRate * 100)}%)`}
+                            value={`- ${String(accountCurrency).toUpperCase()} ${Number(
+                              discount || 0
+                            ).toLocaleString()}`}
+                          />
+                        )}
+                        <div className="flex items-center justify-between border-t dark:border-gray-700 pt-2">
+                          <span>Total</span>
+                          <span className="font-semibold">
+                            {String(accountCurrency).toUpperCase()}{" "}
+                            {Number(totalAmount || 0).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="mt-2 pt-2 border-t dark:border-gray-700 flex items-center justify-between">
+                          <span>
+                            {pkgRank(billing.targetPackage) > currentPkgRank
+                              ? "Next Expiry"
+                              : "New Expiry"}
+                          </span>
+                          <span className="font-semibold">{previewExpiryISO}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-gray-500">
+                      We'll use a secure Paystack popup on this page. If your browser blocks it,
+                      we'll redirect in this same tab.
+                    </p>
+                  </div>
+
+                  <div className="p-5 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
+                    <button
+                      onClick={() => {
+                        setBillingOpen(false);
+                        setBillingResult(null);
+                      }}
+                      className="px-4 py-2 rounded-lg border bg-white dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={startPaystackPayment}
+                      disabled={billingBusy}
+                      className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 inline-flex items-center gap-2"
+                    >
+                      {billingBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      {billingBusy ? "Starting…" : "Proceed to Billing"}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/* Small UI helper for rows */
+function Row({ label, value, emphasize }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span>{label}</span>
+      <span className={emphasize ? "font-semibold text-indigo-700" : "font-semibold"}>
+        {value}
+      </span>
     </div>
   );
 }

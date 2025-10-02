@@ -1,3 +1,4 @@
+// src/pages/ManageExamReportPage.js
 import React, { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../components/dashboard/DashboardLayout";
 import { useAuth } from "../AuthContext";
@@ -10,6 +11,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Filter,
+  X,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -23,6 +25,7 @@ const CLASS_TEACHER_CLASSES_API = `${HOST}/academic/class_teacher/class/`; // ?p
 const ACADEMIC_YEAR_API = `${HOST}/academic/get/academic_year/`;
 const ACADEMIC_TERM_API = `${HOST}/academic/get/term/`;
 const STUDENTS_API = `${HOST}/student/get/students/`;
+const SCHOOL_INFO_API = `${HOST}/academic/get/school/`;
 
 /* ------------ Exams ------------ */
 const STUDENT_REPORT_URL = ({ sid, yearId, termId, classId, studentId }) => {
@@ -132,6 +135,35 @@ function pickClassReopenDate(reviews) {
   return best;
 }
 
+/* NEW: ordinal renderer for positions (1st, 2nd, 3rd, …) */
+function ordinal(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return "";
+  const j = v % 10, k = v % 100;
+  if (j === 1 && k !== 11) return `${v}st`;
+  if (j === 2 && k !== 12) return `${v}nd`;
+  if (j === 3 && k !== 13) return `${v}rd`;
+  return `${v}th`;
+}
+
+/* ---- Plan helpers (same pattern as other pages) ---- */
+function isDateExpired(isoOrDateString) {
+  if (!isoOrDateString) return false;
+  const d = new Date(String(isoOrDateString));
+  if (Number.isNaN(d.getTime())) return false;
+  const today = new Date();
+  const todayFloor = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  return d.getTime() < todayFloor;
+}
+const PLAN_NAME_BY_CODE = (raw) => {
+  const v = String(raw ?? "").trim().toUpperCase();
+  if (v === "1" || v === "BASIC") return "BASIC";
+  if (v === "2" || v === "STANDARD") return "STANDARD";
+  if (v === "3" || v === "PREMIUM" || v === "PREMUIM") return "PREMIUM";
+  return "BASIC";
+};
+const HUMAN_PLAN = (code) => ({ BASIC: "Basic", STANDARD: "Standard", PREMIUM: "Premium" }[code] || "Basic");
+
 /* ------------ Component ------------ */
 export default function ManageExamReportPage() {
   const { user, token } = useAuth() || {};
@@ -145,9 +177,50 @@ export default function ManageExamReportPage() {
 
   const H = useMemo(() => (token ? { Authorization: `Bearer ${token}` } : {}), [token]);
 
+  /* ---------- Plan / expiry gating ---------- */
+  const fallbackPkg = Number(user?.school?.package ?? user?.package ?? user?.plan ?? 2);
+  const fallbackPlanCode = fallbackPkg === 1 ? "BASIC" : fallbackPkg === 3 ? "PREMIUM" : "STANDARD";
+
+  const [pkgName, setPkgName] = useState("");
+  const [expiryRaw, setExpiryRaw] = useState("");
+  const [pkgLoaded, setPkgLoaded] = useState(false);
+
+  const planBannerKey = `examreport_plan_banner_dismissed_${schoolId}`;
+  const [showPlan, setShowPlan] = useState(() => {
+    try { return localStorage.getItem(planBannerKey) !== "1"; } catch { return true; }
+  });
+  const dismissPlan = () => {
+    try { localStorage.setItem(planBannerKey, "1"); } catch {}
+    setShowPlan(false);
+  };
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await jarr(SCHOOL_INFO_API, H);
+        const s = rows.find(r => String(r.school_id ?? r.SCHOOL_ID) === String(schoolId));
+        const p = (s?.package ?? s?.PACKAGE ?? "").toString();
+        const exp = s?.expiry ?? s?.EXPIRY ?? "";
+        setPkgName(p);
+        setExpiryRaw(exp);
+      } catch {
+        setPkgName(fallbackPlanCode);
+        setExpiryRaw("");
+      } finally {
+        setPkgLoaded(true);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schoolId]);
+
+  const planCode = PLAN_NAME_BY_CODE(pkgName || fallbackPlanCode); // BASIC | STANDARD | PREMIUM
+  const PLAN = planCode.toLowerCase();
+  const planHuman = HUMAN_PLAN(planCode);
+  const isExpired = isDateExpired(expiryRaw);
+
   // LOVs
   const [classes, setClasses] = useState([]);
-  const [classId, setClassId] = useState(null);     // numbers to avoid 1/"1" mismatches
+  const [classId, setClassId] = useState(null);
   const [years, setYears] = useState([]);
   const [yearId, setYearId] = useState(null);
   const [terms, setTerms] = useState([]);
@@ -156,7 +229,7 @@ export default function ManageExamReportPage() {
   // Students in selected class
   const [students, setStudents] = useState([]);
 
-  // Reopen Date (Head teacher only section, but we prefill value here)
+  // Reopen Date
   const todayISO = new Date().toISOString().slice(0, 10);
   const [reopenDate, setReopenDate] = useState("");
 
@@ -184,18 +257,17 @@ export default function ManageExamReportPage() {
     }
     const k = `${schoolId}|${yearId}|${termId}|${classId}`;
     setScopeKey(k);
-    setRows([]); // clear immediately so UI doesn't show stale data
+    setRows([]);
   }, [schoolId, yearId, termId, classId]);
 
-  // Load LOVs once (years/terms + classes depending on role)
+  // Load LOVs once (years/terms + classes)
   useEffect(() => {
     if (!schoolId) return;
     (async () => {
       setLoadingLov(true);
       try {
-        // Classes by role:
+        // Classes by role
         if (isHT) {
-          // Head teacher: see ALL classes
           const cls = await jarr(`${ACADEMIC_CLASSES_API}?p_school_id=${encodeURIComponent(schoolId)}`, H);
           const normC = cls.map((r) => ({
             id: Number(r.class_id ?? r.CLASS_ID ?? r.id ?? r.ID),
@@ -204,7 +276,6 @@ export default function ManageExamReportPage() {
           setClasses(normC);
           if (!Number.isFinite(classId) && normC.length) setClassId(Number(normC[0].id));
         } else {
-          // Class teacher: only their class(es)
           const url = `${CLASS_TEACHER_CLASSES_API}?p_user_id=${encodeURIComponent(userId ?? "")}`;
           const rows = await jarr(url, H);
           const normC = rows.map((r) => ({
@@ -243,9 +314,9 @@ export default function ManageExamReportPage() {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schoolId, isHT, isTeacher, userId]);
+  }, [schoolId, isHT, userId]);
 
-  // Load students on class change (STRICT filter by selected class)
+  // Load students
   useEffect(() => {
     if (!schoolId || !Number.isFinite(classId)) { setStudents([]); return; }
     (async () => {
@@ -258,12 +329,7 @@ export default function ManageExamReportPage() {
           const cname = s.full_name ?? s.FULL_NAME ?? s.name ?? s.NAME ?? "";
           const idxNo = s.index_no ?? s.INDEX_NO ?? "";
           const cid = s.class_id ?? s.CLASS_ID ?? s.class ?? s.CLASS ?? null;
-          return {
-            id: Number(sid),
-            name: cname,
-            index_no: idxNo,
-            class_id: Number(cid),
-          };
+          return { id: Number(sid), name: cname, index_no: idxNo, class_id: Number(cid) };
         }).filter((x) => Number.isFinite(x.id));
 
         const onlySelected = normalized.filter((s) => Number(s.class_id) === Number(classId));
@@ -275,7 +341,7 @@ export default function ManageExamReportPage() {
     })();
   }, [schoolId, classId, H]);
 
-  // Build table (averages, ranking, merge reviews, attendance) + PREFILL reopen date
+  // Build table + ranking + attendance + reviews
   const buildTable = async () => {
     setErr("");
     setBanner({ type: "", text: "" });
@@ -292,9 +358,7 @@ export default function ManageExamReportPage() {
         students,
         6,
         async (s) => {
-          const url = STUDENT_REPORT_URL({
-            sid: schoolId, yearId, termId, classId, studentId: s.id,
-          });
+          const url = STUDENT_REPORT_URL({ sid: schoolId, yearId, termId, classId, studentId: s.id });
           const items = await jarr(url, H);
           const totals = items.map((r) => Number(r.total ?? r.TOTAL ?? 0));
           const cnt = totals.length;
@@ -305,10 +369,9 @@ export default function ManageExamReportPage() {
         }
       );
 
-      // Abort if scope changed
       if (scopeKey && scopeKey !== localKey) return;
 
-      // 2) ranking
+      // 2) ranking (numeric)
       const sorted = [...base].sort((a, b) => (b.avg || 0) - (a.avg || 0));
       let lastScore = null, lastRank = 0;
       sorted.forEach((r, i) => {
@@ -332,19 +395,16 @@ export default function ManageExamReportPage() {
         ])
       );
 
-      // PREFILL Reopen Date (most frequent non-empty in this class scope)
+      // PREFILL Reopen Date
       const classReopen = pickClassReopenDate(revArr);
       if (classReopen && isHT) {
         setReopenDate((prev) => prev || classReopen);
       }
 
-      // 4) attendance (strict class scope)
+      // 4) attendance
       let presentMap = new Map();
       try {
-        const att = await jarr(
-          ATTEND_SUMMARY_URL({ sid: schoolId, classId, yearId, termId }),
-          H
-        );
+        const att = await jarr(ATTEND_SUMMARY_URL({ sid: schoolId, classId, yearId, termId }), H);
         const rosterIds = new Set(students.map(s => String(s.id)));
         const normalized = (att || []).map((row) => ({
           student_id: row.student_id ?? row.STUDENT_ID ?? row.student ?? row.STUDENT,
@@ -372,7 +432,7 @@ export default function ManageExamReportPage() {
           name: r.name,
           index_no: r.index_no,
           avg: r.avg,
-          position: posMap.get(String(r.student_id)) || "",
+          position: posMap.get(String(r.student_id)) || "", // numeric for API
           present_days: Number.isFinite(presentDays) ? presentDays : Number(rv.attendance ?? 0),
           teacher_remarks: rv.teacher_remarks || "",
           head_remarks: rv.head_remarks || "",
@@ -393,15 +453,9 @@ export default function ManageExamReportPage() {
     }
   };
 
-  // Auto-compute whenever a complete scope + roster is ready (no need to press Compute)
+  // Auto-compute
   useEffect(() => {
-    if (
-      schoolId &&
-      Number.isFinite(yearId) &&
-      Number.isFinite(termId) &&
-      Number.isFinite(classId) &&
-      students.length
-    ) {
+    if (schoolId && Number.isFinite(yearId) && Number.isFinite(termId) && Number.isFinite(classId) && students.length) {
       buildTable();
     } else {
       setRows([]);
@@ -421,10 +475,11 @@ export default function ManageExamReportPage() {
     );
   }, [rows, q, showDirtyOnly]);
 
-  const canEditTeacher = isTeacher;
-  const canEditHead = isHT;
+  const canEditTeacher = isTeacher && !isExpired;
+  const canEditHead = isHT && !isExpired;
 
   const onChangeCell = (id, field, value) => {
+    if (isExpired) return;
     setRows((prev) =>
       prev.map((r) =>
         r.student_id === id ? { ...r, [field]: value, __dirty: true, __savedOk: false } : r
@@ -433,7 +488,7 @@ export default function ManageExamReportPage() {
   };
 
   const saveRow = async (r, withBanner = false, reopenOnly = false) => {
-    // Block reopen-only saves if not head teacher
+    if (isExpired) return;
     if (reopenOnly && !isHT) {
       setBanner({ type: "error", text: "Only Head Teacher can set Reopen Date." });
       setTimeout(() => setBanner({ type: "", text: "" }), 2000);
@@ -450,7 +505,7 @@ export default function ManageExamReportPage() {
       p_teacher_remarks: r.teacher_remarks ?? "",
       p_head_remarks: r.head_remarks ?? "",
       p_overall_score: String(r.avg ?? ""),
-      p_overall_position: String(r.position ?? ""),
+      p_overall_position: String(r.position ?? ""), // stays numeric
       p_attendance: String(r.present_days ?? ""),
       p_reopen_date: (reopenOnly ? reopenDate : r.reopen_date) ? (reopenOnly ? reopenDate : r.reopen_date).trim() : "",
     };
@@ -484,6 +539,7 @@ export default function ManageExamReportPage() {
   };
 
   const saveAll = async () => {
+    if (isExpired) return;
     const dirty = rows.filter((r) => r.__dirty);
     if (!dirty.length) {
       setBanner({ type: "info", text: "No changes to save." });
@@ -502,6 +558,7 @@ export default function ManageExamReportPage() {
   };
 
   const applyReopenToAll = async () => {
+    if (isExpired) return;
     if (!isHT) {
       setBanner({ type: "error", text: "Only Head Teacher can set Reopen Date." });
       setTimeout(() => setBanner({ type: "", text: "" }), 2000);
@@ -514,7 +571,7 @@ export default function ManageExamReportPage() {
     }
     try {
       for (const r of rows) {
-        await saveRow(r, false, true); // reopenOnly=true
+        await saveRow(r, false, true);
       }
       setBanner({ type: "success", text: `Reopen date applied to ${rows.length} student${rows.length === 1 ? "" : "s"}.` });
       setTimeout(() => setBanner({ type: "", text: "" }), 2500);
@@ -523,7 +580,7 @@ export default function ManageExamReportPage() {
     }
   };
 
-  // Export current view to Excel
+  // Export current view to Excel (Position as ordinal text)
   const exportToExcel = () => {
     try {
       const cls = classes.find((c) => Number(c.id) === Number(classId));
@@ -536,11 +593,11 @@ export default function ManageExamReportPage() {
         Student: r.name,
         "Index No": r.index_no || "",
         "Overall Score": r.avg,
-        Position: r.position,
+        Position: ordinal(r.position), // <-- ordinal here
         "Present Days": r.present_days ?? 0,
         "Teacher Remarks": r.teacher_remarks || "",
         "Head Remarks": r.head_remarks || "",
-        "Reopen Date": isHT ? (reopenDate || r.reopen_date || "") : "", // only HT sees/export
+        "Reopen Date": isHT ? (reopenDate || r.reopen_date || "") : "",
       }));
 
       const ws = XLSX.utils.json_to_sheet(out);
@@ -555,10 +612,35 @@ export default function ManageExamReportPage() {
   const unsavedCount = rows.filter((r) => r.__dirty).length;
 
   return (
-    <DashboardLayout
-      title="Manage Exam Report"
-      subtitle=""
-    >
+    <DashboardLayout title={`Manage Exam Report (${PLAN.toUpperCase()})`} subtitle="">
+      {/* Plan status banner */}
+      {pkgLoaded && showPlan && (
+        <div
+          className={`mb-4 rounded-lg border p-3 text-sm ${
+            isExpired
+              ? "bg-rose-50 border-rose-200 text-rose-700"
+              : "bg-gray-50 border-gray-200 text-gray-700"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <AlertCircle className={`h-4 w-4 ${isExpired ? "text-rose-600" : "text-gray-500"}`} />
+            <span>
+              Plan: <strong>{planHuman || "—"}</strong>
+              {expiryRaw ? <> · Expires: <strong>{String(expiryRaw).slice(0,10)}</strong></> : null}
+              {isExpired && <> · <strong>Expired</strong></>}
+            </span>
+            <button
+              onClick={dismissPlan}
+              className="ml-auto p-1 rounded hover:bg-black/5"
+              aria-label="Dismiss plan banner"
+              type="button"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -630,7 +712,7 @@ export default function ManageExamReportPage() {
             />
           </div>
 
-          {/* Refresh / Recompute */}
+          {/* Refresh */}
           <button
             onClick={buildTable}
             disabled={loadingBuild || !Number.isFinite(classId) || !Number.isFinite(termId) || !Number.isFinite(yearId)}
@@ -653,23 +735,13 @@ export default function ManageExamReportPage() {
           {/* Save All */}
           <button
             onClick={saveAll}
-            disabled={unsavedCount === 0}
-            className="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
-            title="Save all edited remarks"
+            disabled={unsavedCount === 0 || isExpired}
+            title={isExpired ? "Plan expired" : "Save all edited remarks"}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 ${isExpired ? "cursor-not-allowed" : ""}`}
           >
             <Save size={16} /> Save All {unsavedCount ? `(${unsavedCount})` : ""}
           </button>
         </div>
-
-        {/* Dirty filter */}
-        <button
-          onClick={() => setShowDirtyOnly((s) => !s)}
-          className={`inline-flex items-center gap-2 px-3 py-2 rounded-md border text-sm ${showDirtyOnly ? "bg-indigo-50 dark:bg-indigo-900/30" : "bg-white dark:bg-gray-900"}`}
-          title="Show edited rows only"
-        >
-          <Filter size={16} />
-          {showDirtyOnly ? "Showing edited only" : "Show edited only"}
-        </button>
       </div>
 
       {/* Banners */}
@@ -733,7 +805,7 @@ export default function ManageExamReportPage() {
                   <td className="px-4 py-2">{r.name}</td>
                   <td className="px-4 py-2">{r.index_no || "-"}</td>
                   <td className="px-4 py-2">{r.avg}</td>
-                  <td className="px-4 py-2">{r.position}</td>
+                  <td className="px-4 py-2">{ordinal(r.position)}</td>{/* <- ordinal in UI */}
                   <td className="px-4 py-2">
                     <span className="inline-block min-w-[3ch] text-center">{r.present_days ?? 0}</span>
                   </td>
@@ -742,9 +814,8 @@ export default function ManageExamReportPage() {
                       value={r.teacher_remarks || ""}
                       onChange={(e) => onChangeCell(r.student_id, "teacher_remarks", e.target.value)}
                       disabled={!canEditTeacher}
-                      className={`w-64 min-h-[60px] px-2 py-1 rounded-md border bg-white dark:bg-gray-800 ${
-                        !canEditTeacher ? "opacity-60 cursor-not-allowed" : ""
-                      }`}
+                      title={!canEditTeacher ? (isExpired ? "Plan expired" : "Not allowed for your role") : "Teacher remarks…"}
+                      className={`w-64 min-h-[60px] px-2 py-1 rounded-md border bg-white dark:bg-gray-800 ${!canEditTeacher ? "opacity-60 cursor-not-allowed" : ""}`}
                       placeholder={canEditTeacher ? "Teacher remarks…" : "Read-only"}
                     />
                   </td>
@@ -753,17 +824,17 @@ export default function ManageExamReportPage() {
                       value={r.head_remarks || ""}
                       onChange={(e) => onChangeCell(r.student_id, "head_remarks", e.target.value)}
                       disabled={!canEditHead}
-                      className={`w-64 min-h-[60px] px-2 py-1 rounded-md border bg-white dark:bg-gray-800 ${
-                        !canEditHead ? "opacity-60 cursor-not-allowed" : ""
-                      }`}
+                      title={!canEditHead ? (isExpired ? "Plan expired" : "Head Teacher only") : "Head teacher remarks…"}
+                      className={`w-64 min-h-[60px] px-2 py-1 rounded-md border bg-white dark:bg-gray-800 ${!canEditHead ? "opacity-60 cursor-not-allowed" : ""}`}
                       placeholder={canEditHead ? "Head teacher remarks…" : "Read-only"}
                     />
                   </td>
                   <td className="px-4 py-2 text-right">
                     <button
                       onClick={() => saveRow(r, true)}
-                      disabled={!r.__dirty}
-                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+                      disabled={!r.__dirty || isExpired}
+                      title={isExpired ? "Plan expired" : "Save this row"}
+                      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 ${isExpired ? "cursor-not-allowed" : ""}`}
                     >
                       {r.__savedOk ? <CheckCircle2 size={14} /> : <Save size={14} />}
                       {r.__savedOk ? "Saved" : "Save"}
@@ -782,21 +853,24 @@ export default function ManageExamReportPage() {
           <div className="text-sm text-gray-700 dark:text-gray-300">
             <div className="font-medium">Reopen Date (applies to all students)</div>
             <div className="text-xs text-gray-500 dark:text-gray-400">
-              {reopenDate ? "Loaded existing class reopen date. You can change it below." : "Pick a date, then click “Apply to All & Save”."
-              }
+              {reopenDate ? "Loaded existing class reopen date. You can change it below." : "Pick a date, then click “Apply to All & Save”."}
             </div>
           </div>
           <div className="flex items-center gap-3">
             <input
               type="date"
-              className="px-3 py-2 rounded-md text-sm border bg-white dark:bg-gray-900"
+              className={`px-3 py-2 rounded-md text-sm border bg-white dark:bg-gray-900 ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
               value={reopenDate}
               max={todayISO}
               onChange={(e) => setReopenDate(e.target.value)}
+              disabled={isExpired}
+              title={isExpired ? "Plan expired" : "Pick reopen date"}
             />
             <button
               onClick={applyReopenToAll}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition bg-indigo-600 text-white hover:bg-indigo-700"
+              disabled={isExpired}
+              title={isExpired ? "Plan expired" : "Apply to all & save"}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 ${isExpired ? "cursor-not-allowed" : ""}`}
             >
               <Save size={16} /> Apply to All & Save
             </button>

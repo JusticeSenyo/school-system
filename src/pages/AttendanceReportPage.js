@@ -16,18 +16,16 @@ import {
 } from "lucide-react";
 
 /**
- * AttendanceReportPage (HeadTeacher)
- * Replaces MOCK_* with live ORDS endpoints:
+ * AttendanceReportPage (HeadTeacher) — RANGE VIEW
+ * Endpoints used:
  * - Classes:           student/get/classes/?p_school_id
  * - Roster (students): student/get/students/?p_school_id&p_class_id
- * - Attendance (day):  report/get/attendance/?p_school_id&p_class_id&p_date
- *
- * Notes:
- * - Date range fetch is N calls (one per day); capped (default 60 days) for UX.
- * - API returns status like 'PRESENT' / 'ABSENT' (and possibly 'TARDY').
+ * - Attendance (day):  report/get/attendance/?p_school_id&p_class_id&p_academic_year&p_term&p_date
+ *   NOTE: p_academic_year and p_term are IDs (numbers), but LOVs show names.
+ * - Terms:             academic/get/terms/?p_school_id
+ * - Years:             academic/get/years/?p_school_id
  */
 
-// ================= ORDS base + helpers (same style as AttendancePage.js) =================
 const BASE =
   "https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/";
 
@@ -40,10 +38,12 @@ const buildUrl = (path, params) => {
   return url.toString();
 };
 
-// Endpoints reused from your other pages
-const CLASSES_API = "student/get/classes/";     // ?p_school_id
-const ROSTER_API = "student/get/students/";     // ?p_school_id&p_class_id
-const DAILY_ATT_API = "report/get/attendance/"; // ?p_school_id&p_class_id&p_date
+// Endpoints
+const CLASSES_API = "student/get/classes/";      // ?p_school_id
+const ROSTER_API = "student/get/students/";      // ?p_school_id&p_class_id
+const DAILY_ATT_API = "report/get/attendance/";  // ?p_school_id&p_class_id&p_academic_year&p_term&p_date
+const TERMS_API = "academic/get/terms/";         // ?p_school_id
+const YEARS_API = "academic/get/years/";         // ?p_school_id
 
 // ================= Local helpers =================
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -80,26 +80,25 @@ const listDatesInclusive = (from, to) => {
   return out;
 };
 
-// ================= Page =================
-const RANGE_MAX_DAYS = 60; // safety cap to avoid hammering the API
-
-// Static until you wire year/term endpoints
-const YEARS = ["2025/26", "2024/25"];
-const TERMS = ["Term 1", "Term 2", "Term 3"];
+const RANGE_MAX_DAYS = 60; // safety cap
 
 export default function AttendanceReportPage() {
   // If you have AuthContext, replace SCHOOL_ID below with user.schoolId
   const SCHOOL_ID = 1;
 
-  // LOV
+  // LOV - classes
   const [classes, setClasses] = useState([]); // [{class_id, class_name}]
   const [klass, setKlass] = useState("");     // selected class_id (string)
   const [classesLoading, setClassesLoading] = useState(false);
   const [classesErr, setClassesErr] = useState("");
 
-  // Year/Term (kept local; APIs not provided in this page)
-  const [year, setYear] = useState(YEARS[0]);
-  const [term, setTerm] = useState(TERMS[0]);
+  // Year/Term from APIs (show names, pass IDs)
+  const [years, setYears] = useState([]); // [{id,name,status}]
+  const [terms, setTerms] = useState([]); // [{id,name,status}]
+  const [yearId, setYearId] = useState("");   // academic_year_id (string/number)
+  const [termId, setTermId] = useState("");   // term_id (string/number)
+  const [ytErr, setYtErr] = useState("");
+  const [ytLoading, setYtLoading] = useState(false);
 
   // Date range
   const [from, setFrom] = useState(addDaysISO(todayISO(), -14));
@@ -161,6 +160,46 @@ export default function AttendanceReportPage() {
 
   useEffect(() => { loadClasses(); /* eslint-disable-next-line */ }, []);
 
+  // ========== Load Years & Terms (LOVs) ==========
+  const loadYearsTerms = async () => {
+    setYtErr(""); setYtLoading(true);
+    try {
+      // Years
+      const yUrl = buildUrl(YEARS_API, { p_school_id: SCHOOL_ID });
+      const yRes = await fetch(yUrl, { headers: { Accept: "application/json" } });
+      const { json: yJson } = await parseMaybeJson(yRes);
+      const yArr = Array.isArray(yJson) ? yJson : Array.isArray(yJson?.items) ? yJson.items : [];
+      const yNorm = yArr.map(y => ({
+        id: y.academic_year_id ?? y.ACADEMIC_YEAR_ID,
+        name: y.academic_year_name ?? y.ACADEMIC_YEAR_NAME,
+        status: y.status ?? y.STATUS ?? null,
+      })).filter(x => x.id != null && x.name);
+      setYears(yNorm);
+      const yDefault = yNorm.find(x => String(x.status).toUpperCase() === "CURRENT") || yNorm[0];
+      if (!yearId && yDefault) setYearId(String(yDefault.id));
+
+      // Terms
+      const tUrl = buildUrl(TERMS_API, { p_school_id: SCHOOL_ID });
+      const tRes = await fetch(tUrl, { headers: { Accept: "application/json" } });
+      const { json: tJson } = await parseMaybeJson(tRes);
+      const tArr = Array.isArray(tJson) ? tJson : Array.isArray(tJson?.items) ? tJson.items : [];
+      const tNorm = tArr.map(t => ({
+        id: t.term_id ?? t.TERM_ID,
+        name: t.term_name ?? t.TERM_NAME,
+        status: t.status ?? t.STATUS ?? null,
+      })).filter(x => x.id != null && x.name);
+      setTerms(tNorm);
+      const tDefault = tNorm.find(x => String(x.status).toUpperCase() === "CURRENT") || tNorm[0];
+      if (!termId && tDefault) setTermId(String(tDefault.id));
+    } catch (e) {
+      setYtErr(e?.message || "Failed to load academic years/terms");
+    } finally {
+      setYtLoading(false);
+    }
+  };
+
+  useEffect(() => { loadYearsTerms(); /* eslint-disable-next-line */ }, []);
+
   // ========== Load roster for selected class ==========
   const loadRoster = async () => {
     if (!klass) { setRoster([]); return; }
@@ -187,9 +226,8 @@ export default function AttendanceReportPage() {
   // ========== Load attendance for each day in range ==========
   const loadAttendanceRange = async () => {
     setErr(""); setDaily([]); setRangeWarn("");
-    if (!klass) return;
+    if (!klass || !yearId || !termId) return;
 
-    // Cap the range
     const dates = listDatesInclusive(from, to);
     if (!dates.length) { setDaily([]); return; }
     if (dates.length > RANGE_MAX_DAYS) {
@@ -203,12 +241,13 @@ export default function AttendanceReportPage() {
         const url = buildUrl(DAILY_ATT_API, {
           p_school_id: SCHOOL_ID,
           p_class_id: klass,
+          p_academic_year: yearId, // pass ID
+          p_term: termId,          // pass ID
           p_date: d,
         });
         const res = await fetch(url, { headers: { Accept: "application/json" } });
         const { json } = await parseMaybeJson(res);
         const items = Array.isArray(json) ? json : Array.isArray(json?.items) ? json.items : [];
-        // normalize per item
         const norm = items.map(r => ({
           student_id: r.student_id ?? r.STUDENT_ID ?? null,
           full_name: r.full_name ?? r.FULL_NAME ?? "",
@@ -228,21 +267,17 @@ export default function AttendanceReportPage() {
   };
 
   useEffect(() => { loadAttendanceRange(); /* eslint-disable-next-line */ }, [klass, from, to]);
+  useEffect(() => { loadAttendanceRange(); /* eslint-disable-next-line */ }, [yearId, termId]);
 
   // ========== Aggregate ==========
-
-  // Flatten all records with date stamp
   const allRecords = useMemo(() => {
     const out = [];
     for (const day of daily) {
-      for (const it of day.items) {
-        out.push({ ...it, date: day.date });
-      }
+      for (const it of day.items) out.push({ ...it, date: day.date });
     }
     return out;
   }, [daily]);
 
-  // Build map by date for trend
   const dailyMap = useMemo(() => {
     const map = {};
     for (const d of daily) {
@@ -251,7 +286,6 @@ export default function AttendanceReportPage() {
       const T = d.items.filter(i => i.status === "TARDY").length;
       map[d.date] = { P, A, T };
     }
-    // expand to include empty days in range for consistent bars
     const days = [];
     for (let d = from; d <= to; d = addDaysISO(d, 1)) {
       const row = map[d] || { P: 0, A: 0, T: 0 };
@@ -263,10 +297,8 @@ export default function AttendanceReportPage() {
 
   const spark = sparkline(dailyMap.map(d => d.present));
 
-  // Aggregate per student using roster as the base
   const studentsAgg = useMemo(() => {
     const baseMap = new Map();
-    // Start with roster if available
     roster.forEach(s => {
       const key = s.student_id ? String(s.student_id) : s.full_name;
       baseMap.set(key, {
@@ -278,8 +310,6 @@ export default function AttendanceReportPage() {
         days: 0,
       });
     });
-
-    // Also include any students found in attendance even if not in roster
     for (const rec of allRecords) {
       const key = rec.student_id ? String(rec.student_id) : rec.full_name || "unknown";
       if (!baseMap.has(key)) {
@@ -295,18 +325,15 @@ export default function AttendanceReportPage() {
       const obj = baseMap.get(key);
       if (rec.status === "PRESENT") obj.present += 1;
       else if (rec.status === "TARDY") obj.tardy += 1;
-      else obj.absent += 1; // treat unknown as absent
-      obj.days += 1; // days with a recorded mark
+      else obj.absent += 1;
+      obj.days += 1;
     }
-
-    // finalize rate
     return [...baseMap.values()].map(v => ({
       ...v,
       rate: v.days ? Math.round((v.present / v.days) * 1000) / 10 : 0,
     }));
   }, [roster, allRecords]);
 
-  // Totals / KPIs
   const totals = useMemo(() => {
     const present = allRecords.filter(r => r.status === "PRESENT").length;
     const absent = allRecords.filter(r => r.status === "ABSENT").length;
@@ -316,7 +343,6 @@ export default function AttendanceReportPage() {
     return { present, absent, tardy, sessions, rate };
   }, [allRecords]);
 
-  // Filter + sort table rows
   const rows = useMemo(() => {
     const termQ = q.trim().toLowerCase();
     const base = studentsAgg.filter(s =>
@@ -335,38 +361,45 @@ export default function AttendanceReportPage() {
     return sorted;
   }, [studentsAgg, q, sortKey, sortDir]);
 
-  // Quick range helpers
   const setRange = (days) => {
     setFrom(addDaysISO(to, -days + 1));
   };
 
-  // Export CSV
   const exportCSV = () => {
     const cls = classes.find(c => String(c.class_id) === String(klass));
     const clsName = (cls?.class_name || `Class-${klass}`).replace(/[\\/:*?"<>|]/g, "-");
+    const yName = years.find(y => String(y.id) === String(yearId))?.name || yearId;
+    const tName = terms.find(t => String(t.id) === String(termId))?.name || termId;
     const header = "StudentID,StudentName,Present,Absent,Tardy,Days,AttendanceRate%\n";
     const lines = rows
       .map(r => `${r.id},${r.name},${r.present},${r.absent},${r.tardy},${r.days},${r.rate}`)
       .join("\n");
-    downloadText(`${clsName}_Attendance_${from}_to_${to}.csv`, header + lines, "text/csv");
+    downloadText(`${clsName}_Attendance_${yName}_${tName}_${from}_to_${to}.csv`, header + lines, "text/csv");
   };
 
-  // Print
   const doPrint = () => window.print();
 
-  // UI labels
   const classOptions = classes.map(c => ({ label: c.class_name, value: String(c.class_id) }));
 
   return (
-    <DashboardLayout
-      title="Attendance Report"
-      subtitle=""
-    >
+    <DashboardLayout title="Attendance Report" subtitle="">
       {/* Filters */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 p-4 mb-6">
         <div className="grid lg:grid-cols-12 gap-3">
-          <Select label="Year" value={year} onChange={setYear} options={YEARS} className="lg:col-span-2" />
-          <Select label="Term" value={term} onChange={setTerm} options={TERMS} className="lg:col-span-2" />
+          <Select
+            label="Academic Year"
+            value={yearId}
+            onChange={setYearId}
+            options={years.map(y => ({ label: y.name + (String(y.status).toUpperCase() === "CURRENT" ? " (CURRENT)" : ""), value: String(y.id) }))}
+            className="lg:col-span-2"
+          />
+          <Select
+            label="Term"
+            value={termId}
+            onChange={setTermId}
+            options={terms.map(t => ({ label: t.name + (String(t.status).toUpperCase() === "CURRENT" ? " (CURRENT)" : ""), value: String(t.id) }))}
+            className="lg:col-span-2"
+          />
 
           {/* Class from API */}
           <label className="text-sm grid gap-1 lg:col-span-2">
@@ -385,7 +418,7 @@ export default function AttendanceReportPage() {
                 <option>No classes found</option>
               )}
             </select>
-            {classesErr && <div className="text-xs text-rose-600 mt-1">{classesErr}</div>}
+            {(classesErr || ytErr) && <div className="text-xs text-rose-600 mt-1">{classesErr || ytErr}</div>}
           </label>
 
           <DateInput label="From" value={from} onChange={setFrom} className="lg:col-span-3" />
@@ -513,7 +546,7 @@ export default function AttendanceReportPage() {
               <span className="text-sm">{err}</span>
             </div>
           )}
-          {!err && (classesLoading || rosterLoading || loadingReport) && (
+          {!err && (classesLoading || rosterLoading || loadingReport || ytLoading) && (
             <div className="mb-3 p-3 rounded border bg-gray-50 text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200">
               Loading…
             </div>

@@ -795,10 +795,11 @@ export default function ManageExamReportPage() {
 
       {/* Toolbar */}
       <div className="mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Left side (filters + search + actions) */}
+        <div className="flex flex-wrap items-center gap-2 w-full">
           {/* Class */}
           <select
-            className="px-4 py-2 rounded-md text-sm border bg-white dark:bg-gray-900"
+            className="flex-1 min-w-[140px] px-3 py-2 rounded-md text-xs sm:text-sm border bg-white dark:bg-gray-900 dark:text-gray-100"
             value={Number.isFinite(classId) ? String(classId) : ""}
             onChange={(e) => setClassId(Number(e.target.value))}
             disabled={loadingLov || classes.length === 0}
@@ -819,7 +820,7 @@ export default function ManageExamReportPage() {
 
           {/* Term */}
           <select
-            className="px-4 py-2 rounded-md text-sm border bg-white dark:bg-gray-900"
+            className="flex-1 min-w-[120px] px-3 py-2 rounded-md text-xs sm:text-sm border bg-white dark:bg-gray-900 dark:text-gray-100"
             value={Number.isFinite(termId) ? String(termId) : ""}
             onChange={(e) => setTermId(Number(e.target.value))}
             disabled={loadingLov || terms.length === 0}
@@ -837,7 +838,7 @@ export default function ManageExamReportPage() {
 
           {/* Year */}
           <select
-            className="px-4 py-2 rounded-md text-sm border bg-white dark:bg-gray-900"
+            className="flex-1 min-w-[120px] px-3 py-2 rounded-md text-xs sm:text-sm border bg-white dark:bg-gray-900 dark:text-gray-100"
             value={Number.isFinite(yearId) ? String(yearId) : ""}
             onChange={(e) => setYearId(Number(e.target.value))}
             disabled={loadingLov || years.length === 0}
@@ -854,34 +855,39 @@ export default function ManageExamReportPage() {
           </select>
 
           {/* Search */}
-          <div className="relative">
+          <div className="relative flex-1 min-w-[180px] sm:min-w-[220px]">
             <SearchIcon className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search student / Index No…"
-              className="pl-9 pr-3 py-2 w-72 rounded-md text-sm border bg-white dark:bg-gray-900"
+              className="pl-9 pr-3 py-2 w-full rounded-md text-xs sm:text-sm border bg-white dark:bg-gray-900 dark:text-gray-100"
             />
           </div>
 
           {/* Refresh */}
           <button
             onClick={buildTable}
-            disabled={loadingBuild || !Number.isFinite(classId) || !Number.isFinite(termId) || !Number.isFinite(yearId)}
-            className="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition border bg-gray-100 text-gray-900 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700 dark:hover:bg-gray-700"
+            disabled={
+              loadingBuild ||
+              !Number.isFinite(classId) ||
+              !Number.isFinite(termId) ||
+              !Number.isFinite(yearId)
+            }
+            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition border bg-gray-100 text-gray-900 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700 dark:hover:bg-gray-700 w-full sm:w-auto"
             title="Recompute averages, positions & attendance"
           >
-            <RotateCcw size={16} />
+            <RotateCcw size={14} />
             {loadingBuild ? "Computing…" : "Refresh"}
           </button>
 
           {/* Export */}
           <button
             onClick={exportToExcel}
-            className="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition bg-emerald-600 text-white hover:bg-emerald-700"
+            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition bg-emerald-600 text-white hover:bg-emerald-700 w-full sm:w-auto"
             title="Download Excel of current table view"
           >
-            <Download size={16} /> Download Excel
+            <Download size={14} /> Excel
           </button>
 
           {/* Save All */}
@@ -889,25 +895,27 @@ export default function ManageExamReportPage() {
             onClick={saveAll}
             disabled={unsavedCount === 0 || isExpired}
             title={isExpired ? "Plan expired" : "Save all edited remarks"}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 ${isExpired ? "cursor-not-allowed" : ""}`}
+            className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 w-full sm:w-auto ${isExpired ? "cursor-not-allowed" : ""
+              }`}
           >
-            <Save size={16} /> Save All {unsavedCount ? `(${unsavedCount})` : ""}
+            <Save size={14} /> Save {unsavedCount ? `(${unsavedCount})` : ""}
           </button>
 
-          {/* Promote / Repeat (HT only, more visible) */}
+          {/* Promote / Repeat (HT only) */}
           {isHT && (
             <button
               onClick={openPromoteModal}
-              className="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold transition bg-fuchsia-600 text-white hover:bg-fuchsia-700"
+              className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs sm:text-sm font-semibold transition bg-fuchsia-600 text-white hover:bg-fuchsia-700 w-full sm:w-auto"
               type="button"
               title="Promote or repeat students"
             >
-              <Filter size={16} />
+              <Filter size={14} />
               Promote / Repeat
             </button>
           )}
         </div>
       </div>
+
 
       {/* Banners */}
       {banner.text && (
@@ -940,7 +948,8 @@ export default function ManageExamReportPage() {
       )}
 
       {/* Table */}
-      <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm">
+{/* // Desktop Table View (hidden on mobile) */}
+      <div className="hidden lg:block overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm">
         <table className="min-w-full text-sm">
           <thead className="bg-indigo-100 dark:bg-gray-800">
             <tr>
@@ -970,7 +979,7 @@ export default function ManageExamReportPage() {
                   <td className="px-4 py-2">{r.name}</td>
                   <td className="px-4 py-2">{r.index_no || "-"}</td>
                   <td className="px-4 py-2">{r.avg}</td>
-                  <td className="px-4 py-2">{ordinal(r.position)}</td>{/* <- ordinal in UI */}
+                  <td className="px-4 py-2">{ordinal(r.position)}</td>
                   <td className="px-4 py-2">
                     <span className="inline-block min-w-[3ch] text-center">{r.present_days ?? 0}</span>
                   </td>
@@ -1012,33 +1021,118 @@ export default function ManageExamReportPage() {
         </table>
       </div>
 
+      {/* Mobile Card View (visible on tablets and below) */}
+      <div className="lg:hidden space-y-4">
+        {filtered.length === 0 ? (
+          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm px-4 py-8 text-center text-gray-500">
+            {loadingBuild ? "Computing…" : "No students/records match your filters."}
+          </div>
+        ) : (
+          filtered.map((r) => (
+            <div
+              key={r.student_id}
+              className={`rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm p-4 ${r.__dirty ? "border-yellow-400 bg-yellow-50/40 dark:bg-yellow-900/10" : ""}`}
+            >
+              {/* Header with name and save button */}
+              <div className="flex items-start justify-between mb-3 pb-3 border-b border-gray-200 dark:border-gray-700">
+                <div className="flex-1">
+                  <h3 className="font-semibold text-base text-gray-900 dark:text-white">{r.name}</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Index: {r.index_no || "-"}</p>
+                </div>
+                <button
+                  onClick={() => saveRow(r, true)}
+                  disabled={!r.__dirty || isExpired}
+                  title={isExpired ? "Plan expired" : "Save this row"}
+                  className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 ${isExpired ? "cursor-not-allowed" : ""}`}
+                >
+                  {r.__savedOk ? <CheckCircle2 size={14} /> : <Save size={14} />}
+                  {r.__savedOk ? "Saved" : "Save"}
+                </button>
+              </div>
+
+              {/* Stats Grid */}
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Score</p>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">{r.avg}</p>
+                </div>
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Position</p>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">{ordinal(r.position)}</p>
+                </div>
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Present Days</p>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">{r.present_days ?? 0}</p>
+                </div>
+              </div>
+
+              {/* Remarks Section */}
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Teacher Remarks
+                  </label>
+                  <textarea
+                    value={r.teacher_remarks || ""}
+                    onChange={(e) => onChangeCell(r.student_id, "teacher_remarks", e.target.value)}
+                    disabled={!canEditTeacher}
+                    title={!canEditTeacher ? (isExpired ? "Plan expired" : "Not allowed for your role") : "Teacher remarks…"}
+                    className={`w-full min-h-[70px] px-3 py-2 rounded-md border bg-white dark:bg-gray-800 text-sm ${!canEditTeacher ? "opacity-60 cursor-not-allowed" : ""}`}
+                    placeholder={canEditTeacher ? "Teacher remarks…" : "Read-only"}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Head Teacher Remarks
+                  </label>
+                  <textarea
+                    value={r.head_remarks || ""}
+                    onChange={(e) => onChangeCell(r.student_id, "head_remarks", e.target.value)}
+                    disabled={!canEditHead}
+                    title={!canEditHead ? (isExpired ? "Plan expired" : "Head Teacher only") : "Head teacher remarks…"}
+                    className={`w-full min-h-[70px] px-3 py-2 rounded-md border bg-white dark:bg-gray-800 text-sm ${!canEditHead ? "opacity-60 cursor-not-allowed" : ""}`}
+                    placeholder={canEditHead ? "Head teacher remarks…" : "Read-only"}
+                  />
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+
       {/* Reopen Date — Head Teacher only */}
       {isHT && (
-        <div className="mt-5 p-4 rounded-xl border bg-white dark:bg-gray-900 dark:border-gray-700 flex flex-col sm:flex-row sm:items-center gap-3">
-          <div className="text-sm text-gray-700 dark:text-gray-300">
-            <div className="font-medium">Reopen Date (applies to all students)</div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">
-              {reopenDate ? "Loaded existing class reopen date. You can change it below." : "Pick a date, then click “Apply to All & Save”."}
+        <div className="mt-5 p-4 rounded-xl border bg-white dark:bg-gray-900 dark:border-gray-700">
+          <div className="flex flex-col gap-3">
+            {/* Info Text */}
+            <div className="text-sm text-gray-700 dark:text-gray-300">
+              <div className="font-medium">Reopen Date (applies to all students)</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {reopenDate ? "Loaded existing class reopen date. You can change it below." : "Pick a date, then click Apply to All & Save."}
+              </div>
             </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <input
-              type="date"
-              className={`px-3 py-2 rounded-md text-sm border bg-white dark:bg-gray-900 ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
-              value={reopenDate}
-              max={todayISO}
-              onChange={(e) => setReopenDate(e.target.value)}
-              disabled={isExpired}
-              title={isExpired ? "Plan expired" : "Pick reopen date"}
-            />
-            <button
-              onClick={applyReopenToAll}
-              disabled={isExpired}
-              title={isExpired ? "Plan expired" : "Apply to all & save"}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 ${isExpired ? "cursor-not-allowed" : ""}`}
-            >
-              <Save size={16} /> Apply to All & Save
-            </button>
+
+            {/* Date Input & Button */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+              <input
+                type="date"
+                className={`flex-1 sm:flex-none px-3 py-2 rounded-md text-sm border bg-white dark:bg-gray-900 dark:border-gray-700 ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+                value={reopenDate}
+                max={todayISO}
+                onChange={(e) => setReopenDate(e.target.value)}
+                disabled={isExpired}
+                title={isExpired ? "Plan expired" : "Pick reopen date"}
+              />
+              <button
+                onClick={applyReopenToAll}
+                disabled={isExpired}
+                title={isExpired ? "Plan expired" : "Apply to all & save"}
+                className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap ${isExpired ? "cursor-not-allowed" : ""}`}
+              >
+                <Save size={16} /> Apply to All & Save
+              </button>
+            </div>
           </div>
         </div>
       )}

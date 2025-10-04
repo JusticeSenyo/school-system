@@ -13,6 +13,7 @@ import {
   Inbox,
   Mail,
   MessageSquare,
+  CalendarDays,
 } from "lucide-react";
 import { useAuth } from "../AuthContext";
 import { getMenusForRole } from "../constants/roleBasedMenus";
@@ -22,12 +23,13 @@ const HOST =
   "https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools";
 
 /* ===== Endpoints (live) ===== */
-const DASHBOARD_API  = `${HOST}/get/admin/dashboard/`;       // ?user_id=
-const CLASSES_API    = `${HOST}/academic/get/classes/`;      // ?p_school_id=
-const TEACHERS_API   = `${HOST}/staff/get/staff/`;           // ?p_school_id=&p_role=TE
-const STAFF_API      = `${HOST}/staff/get/staff/`;           // ?p_school_id=
-const STUDENTS_API   = `${HOST}/student/get/students/`;      // ?p_school_id=
-const COMMS_SENT_API = `${HOST}/comms/dashboard/sent/`;      // ?p_school_id=&p_role= (role-targeted + we’ll also fetch general)
+const DASHBOARD_API  = `${HOST}/get/admin/dashboard/`;        // ?user_id=
+const CLASSES_API    = `${HOST}/academic/get/classes/`;       // ?p_school_id=
+const TEACHERS_API   = `${HOST}/staff/get/staff/`;            // ?p_school_id=&p_role=TE
+const STAFF_API      = `${HOST}/staff/get/staff/`;            // ?p_school_id=
+const STUDENTS_API   = `${HOST}/student/get/students/`;       // ?p_school_id=
+const COMMS_SENT_API = `${HOST}/comms/dashboard/sent/`;       // ?p_school_id=
+const EVENTS_GET_API = `${HOST}/academic/get/event/`;         // ?p_school_id=
 
 /* ===== helpers ===== */
 const jtxt = async (u, init) => {
@@ -48,11 +50,7 @@ const jarr = async (u, init) => {
 const jobject = async (u, init) => {
   const t = await jtxt(u, init).catch(() => "");
   if (!t) return {};
-  try {
-    return JSON.parse(t) || {};
-  } catch {
-    return {};
-  }
+  try { return JSON.parse(t) || {}; } catch { return {}; }
 };
 const fmtNum = (n) => (typeof n === "number" ? n.toLocaleString() : "—");
 const fmtPct = (n) => (n == null || Number.isNaN(Number(n)) ? "—" : `${Number(n).toFixed(2)}%`);
@@ -110,8 +108,78 @@ function roleToCode(userType) {
   if (["ac", "accountant"].includes(r))                    return "AC";
   if (["te", "tr", "teacher"].includes(r))                 return "TE";
   if (["owner", "schoolowner", "school owner", "ow"].includes(r)) return "OW";
-  // fallback: first two letters uppercased (covers ETC)
   return r.slice(0, 2).toUpperCase();
+}
+
+/* ===== Simple dependency-free monthly calendar ===== */
+function BigCalendar({ monthStart, events }) {
+  const y = monthStart.getFullYear();
+  const m = monthStart.getMonth(); // 0..11
+  const first = new Date(y, m, 1);
+  const startDay = (first.getDay() + 6) % 7; // Mon=0
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const daysPrev = startDay;
+  const totalCells = Math.ceil((daysPrev + daysInMonth) / 7) * 7;
+
+  const byDate = new Map();
+  (events || []).forEach((e) => {
+    const d = dateOnly(e.event_date);
+    if (!byDate.has(d)) byDate.set(d, []);
+    byDate.get(d).push(e);
+  });
+
+  const cells = [];
+  for (let i = 0; i < totalCells; i++) {
+    const dayNum = i - daysPrev + 1;
+    const dateObj = new Date(y, m, dayNum);
+    const inMonth = dayNum >= 1 && dayNum <= daysInMonth;
+    const iso = dateObj.toISOString().slice(0, 10);
+    const e = byDate.get(iso) || [];
+    cells.push({ iso, dayNum: dateObj.getDate(), inMonth, events: e });
+  }
+
+  return (
+    <div className="grid grid-cols-7 gap-1 sm:gap-2">
+      {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+        <div key={d} className="text-xs font-medium text-gray-600 dark:text-gray-300 px-2 py-1">
+          {d}
+        </div>
+      ))}
+      {cells.map((c, idx) => (
+        <div
+          key={idx}
+          className={`min-h-[104px] rounded-lg border p-2 overflow-hidden ${
+            c.inMonth
+              ? "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700"
+              : "bg-gray-50 dark:bg-gray-800/50 border-gray-200/60 dark:border-gray-700/60 opacity-70"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+              {c.dayNum}
+            </div>
+            {c.iso === todayISO() && (
+              <span className="text-[10px] px-1 rounded bg-indigo-600 text-white">Today</span>
+            )}
+          </div>
+          <div className="mt-1 space-y-1">
+            {c.events.slice(0, 3).map((ev) => (
+              <div
+                key={ev.event_id}
+                className="text-[11px] px-2 py-1 rounded bg-indigo-50 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-100 border border-indigo-100 dark:border-indigo-800 truncate"
+                title={ev.event_name}
+              >
+                • {ev.event_name}
+              </div>
+            ))}
+            {c.events.length > 3 && (
+              <div className="text-[11px] text-gray-500">+{c.events.length - 3} more…</div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export default function HeadTeacherDashboard() {
@@ -130,9 +198,9 @@ export default function HeadTeacherDashboard() {
   );
 
   // KPIs
-  const [attendanceRate, setAttendanceRate] = useState(0); // from DASHBOARD_API (auth user id)
-  const [presentToday, setPresentToday] = useState(null);   // optional if API exposes
-  const [totalToday, setTotalToday] = useState(null);       // optional if API exposes
+  const [attendanceRate, setAttendanceRate] = useState(0);
+  const [presentToday, setPresentToday] = useState(null);
+  const [totalToday, setTotalToday] = useState(null);
 
   const [totalClasses, setTotalClasses] = useState(null);
   const [totalStudents, setTotalStudents] = useState(null);
@@ -144,41 +212,46 @@ export default function HeadTeacherDashboard() {
 
   // Announcements + classes
   const [classes, setClasses] = useState([]);
+
+  // Communications
+  const [annAll, setAnnAll] = useState([]);
+  const [annToday, setAnnToday] = useState([]);
+  const [showAll, setShowAll] = useState(false);
   const [annLoading, setAnnLoading] = useState(false);
   const [annErr, setAnnErr] = useState("");
-  const [announcements, setAnnouncements] = useState([]);
+
+  // Events (calendar)
+  const [events, setEvents] = useState([]); // [{event_id,event_name,event_date}]
+  const [calMonth, setCalMonth] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
 
   // --- Load LIVE using AUTH USER ID for attendance rate ---
   const loadLive = async () => {
     if (!userId) return;
     setRefreshing(true);
 
-    // 1) consolidated stats by auth user id
     try {
       const stats = await jobject(`${DASHBOARD_API}?user_id=${encodeURIComponent(userId)}`, H);
 
-      // Attendance rate (required)
       const ar = pickNum(stats, ["attendanceRate", "attendance_rate"]);
       if (ar != null) setAttendanceRate(ar);
 
-      // Optional present/total if provided by your API
       const pres = pickNum(stats, ["present", "present_count", "presentToday", "present_today"]);
       const tot  = pickNum(stats, ["total", "enrolled", "enrolled_count", "totalToday", "total_today"]);
       if (pres != null) setPresentToday(pres);
       if (tot  != null) setTotalToday(tot);
 
-      // Other KPIs if available
       const tc = pickNum(stats, ["totalClasses", "total_class", "totalClass"]);
       const ts = pickNum(stats, ["totalStudents", "total_students"]);
       const tt = pickNum(stats, ["totalTeachers", "total_teachers"]);
       if (tc != null) setTotalClasses(tc);
       if (ts != null) setTotalStudents(ts);
       if (tt != null) setTotalTeachers(tt);
-    } catch {
-      // keep defaults; we’ll fill gaps below
-    }
+    } catch { /* keep defaults */ }
 
-    // 2) fallbacks for other KPIs (not attendance rate)
+    // Fallback fills
     try {
       if (schoolId != null && totalClasses == null) {
         const rows = await jarr(`${CLASSES_API}?p_school_id=${encodeURIComponent(schoolId)}`, H);
@@ -238,48 +311,56 @@ export default function HeadTeacherDashboard() {
     })();
   }, [schoolId, H]);
 
-  // Today’s Announcements (Dashboard only) using new endpoint with p_role = AUTH ROLE
+  // Announcements
   useEffect(() => {
     if (!schoolId) return;
     (async () => {
       try {
         setAnnLoading(true); setAnnErr("");
+        const allRows = await jarr(`${COMMS_SENT_API}?p_school_id=${encodeURIComponent(schoolId)}`, H);
+        const isGeneral = (v) => {
+          const s = String(v ?? "").trim().toUpperCase();
+          return s === "" || s === "NULL" || s === "ALL";
+        };
+        const filtered = (allRows || [])
+          .filter((m) => {
+            const tr = (m.target_role ?? m.TARGET_ROLE ?? "").toString().toUpperCase();
+            return tr === String(roleCode || "").toUpperCase() || isGeneral(tr);
+          })
+          .sort((a, b) => new Date(b.created_at ?? b.CREATED_AT) - new Date(a.created_at ?? a.CREATED_AT));
 
-        // 1) role-targeted
-        const targetedUrl =
-          `${COMMS_SENT_API}?p_school_id=${encodeURIComponent(schoolId)}${roleCode ? `&p_role=${encodeURIComponent(roleCode)}` : ""}`;
-        const targeted = await jarr(targetedUrl, H);
-
-        // 2) general (where target_role is NULL) — get all & filter locally
-        const allUrl = `${COMMS_SENT_API}?p_school_id=${encodeURIComponent(schoolId)}`;
-        const allRows = await jarr(allUrl, H);
-        const general = allRows.filter((m) => m.target_role == null || String(m.target_role).trim() === "");
-
-        // merge + de-dupe
-        const byId = new Map();
-        [...targeted, ...general].forEach((m) => {
-          const id = m.message_id ?? m.MESSAGE_ID ?? `${m.subject}-${m.created_at}`;
-          if (!byId.has(id)) byId.set(id, m);
-        });
-        const merged = Array.from(byId.values());
-
-        // today only
         const today = todayISO();
-        const todays = merged.filter((m) => dateOnly(m.created_at ?? m.CREATED_AT) === today);
+        const todays = filtered.filter((m) => dateOnly(m.created_at ?? m.CREATED_AT) === today);
 
-        // newest first
-        const sorted = todays.sort(
-          (a, b) => new Date(b.created_at ?? b.CREATED_AT) - new Date(a.created_at ?? a.CREATED_AT)
-        );
-
-        setAnnouncements(sorted.slice(0, 5));
+        setAnnAll(filtered);
+        setAnnToday(todays);
       } catch (e) {
-        setAnnouncements([]); setAnnErr(e?.message || "Failed to load announcements");
+        setAnnAll([]); setAnnToday([]); setAnnErr(e?.message || "Failed to load announcements");
       } finally {
         setAnnLoading(false);
       }
     })();
   }, [schoolId, roleCode, H]);
+
+  // Events — load for calendar
+  useEffect(() => {
+    if (!schoolId) return;
+    (async () => {
+      try {
+        const rows = await jarr(`${EVENTS_GET_API}?p_school_id=${encodeURIComponent(schoolId)}`, H);
+        const norm = (rows || [])
+          .map((e) => ({
+            event_id: e.event_id ?? e.EVENT_ID,
+            event_name: e.event_name ?? e.EVENT_NAME,
+            event_date: e.event_date ?? e.EVENT_DATE,
+          }))
+          .filter((e) => e.event_date && e.event_name);
+        setEvents(norm);
+      } catch {
+        setEvents([]);
+      }
+    })();
+  }, [schoolId, H]);
 
   /* Quick Actions from role menus */
   const quickActions = useMemo(() => {
@@ -432,71 +513,123 @@ export default function HeadTeacherDashboard() {
         </>
       )}
 
-      {/* Today's Announcements */}
-
-      {annLoading ? (
-        <div className="rounded-xl border border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 text-sm text-gray-600 dark:text-gray-300 mb-8">
-          Loading announcements…
-        </div>
-      ) : annErr ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-700 p-4 text-sm mb-8">
-          {annErr}
-        </div>
-      ) : announcements.length === 0 ? (
-        <div className="rounded-xl border border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 text-sm text-gray-600 dark:text-gray-300 mb-8">
-          No dashboard announcements today.
-        </div>
-      ) : (
-        <div className="space-y-4 mb-8">
-          {announcements.map((m) => {
-            const subject = m.subject ?? m.SUBJECT ?? "(No subject)";
-            const body = m.body ?? m.BODY ?? "";
-            const createdAt = m.created_at ?? m.CREATED_AT;
-            const targetType = m.target_type ?? m.TARGET_TYPE;
-            const classId = m.class_id ?? m.CLASS_ID;
-
-            return (
-              <div
-                key={m.message_id ?? m.MESSAGE_ID ?? `${subject}-${createdAt}`}
-                className="flex items-start gap-3 bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700"
-              >
-                <div className="flex-shrink-0">
-                  <Megaphone className="h-6 w-6 text-orange-500" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="font-medium text-gray-900 dark:text-gray-100 truncate">
-                      {subject}
-                    </div>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-100 border border-indigo-100 dark:border-indigo-700">
-                      {readableAudience(targetType, classId, classes)}
-                    </span>
-                    <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-                      <Inbox className="h-3.5 w-3.5" /> Dashboard
-                      {String(m.has_email ?? m.HAS_EMAIL ?? "N").toUpperCase() === "Y" && (
-                        <span className="inline-flex items-center gap-1 ml-2 opacity-60">
-                          <Mail className="h-3.5 w-3.5" /> Email
-                        </span>
-                      )}
-                      {String(m.has_sms ?? m.HAS_SMS ?? "N").toUpperCase() === "Y" && (
-                        <span className="inline-flex items-center gap-1 ml-2 opacity-60">
-                          <MessageSquare className="h-3.5 w-3.5" /> SMS
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="text-sm text-gray-700 dark:text-gray-200 mt-1 line-clamp-2">
-                    {safeText(body, 240)}
-                  </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Sent on: {fmtWhen(createdAt)}
-                  </div>
-                </div>
+      {/* Calendar + Communications */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        {/* Calendar (2 cols) */}
+        <div className="lg:col-span-2">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="inline-flex items-center gap-2">
+                <CalendarDays className="h-5 w-5 text-indigo-500" />
+                <h3 className="font-semibold">Upcoming Events</h3>
               </div>
-            );
-          })}
+              <div className="flex items-center gap-2">
+                <button
+                  className="px-2 py-1 rounded border text-sm"
+                  onClick={() =>
+                    setCalMonth(new Date(calMonth.getFullYear(), calMonth.getMonth() - 1, 1))
+                  }
+                >
+                  ‹ Prev
+                </button>
+                <div className="text-sm font-medium">
+                  {calMonth.toLocaleString(undefined, { month: "long", year: "numeric" })}
+                </div>
+                <button
+                  className="px-2 py-1 rounded border text-sm"
+                  onClick={() =>
+                    setCalMonth(new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 1))
+                  }
+                >
+                  Next ›
+                </button>
+              </div>
+            </div>
+
+            <BigCalendar monthStart={calMonth} events={events} />
+          </div>
         </div>
-      )}
+
+        {/* Communications — today-only by default with inline toggle */}
+        <div className="lg:col-span-1">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
+              {showAll ? "All Time Communications " : "Today’s Communications"}
+            </h3>
+            <button
+              type="button"
+              onClick={() => setShowAll((v) => !v)}
+              className="text-sm text-indigo-600 hover:underline"
+            >
+              {showAll ? "Show Today Only" : "View All"}
+            </button>
+          </div>
+
+          {annLoading ? (
+            <div className="rounded-xl border border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 text-sm text-gray-600 dark:text-gray-300">
+              Loading announcements…
+            </div>
+          ) : annErr ? (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-700 p-4 text-sm">
+              {annErr}
+            </div>
+          ) : (showAll ? annAll : annToday).length === 0 ? (
+            <div className="rounded-xl border border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 text-sm text-gray-600 dark:text-gray-300">
+              {showAll ? "No communications yet." : "No dashboard announcements today."}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {(showAll ? annAll : annToday).map((m) => {
+                const subject = m.subject ?? m.SUBJECT ?? "(No subject)";
+                const body = m.body ?? m.BODY ?? "";
+                const createdAt = m.created_at ?? m.CREATED_AT;
+                const targetType = m.target_type ?? m.TARGET_TYPE;
+                const classId = m.class_id ?? m.CLASS_ID;
+
+                return (
+                  <div
+                    key={m.message_id ?? m.MESSAGE_ID ?? `${subject}-${createdAt}`}
+                    className="flex items-start gap-3 bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700"
+                  >
+                    <div className="flex-shrink-0">
+                      <Megaphone className="h-6 w-6 text-orange-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="font-medium text-gray-900 dark:text-gray-100 truncate">
+                          {subject}
+                        </div>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-100 border border-indigo-100 dark:border-indigo-700">
+                          {readableAudience(targetType, classId, classes)}
+                        </span>
+                        <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                          <Inbox className="h-3.5 w-3.5" /> Dashboard
+                          {String(m.has_email ?? m.HAS_EMAIL ?? "N").toUpperCase() === "Y" && (
+                            <span className="inline-flex items-center gap-1 ml-2 opacity-60">
+                              <Mail className="h-3.5 w-3.5" /> Email
+                            </span>
+                          )}
+                          {String(m.has_sms ?? m.HAS_SMS ?? "N").toUpperCase() === "Y" && (
+                            <span className="inline-flex items-center gap-1 ml-2 opacity-60">
+                              <MessageSquare className="h-3.5 w-3.5" /> SMS
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-sm text-gray-700 dark:text-gray-200 mt-1 line-clamp-2">
+                        {safeText(body, 240)}
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Sent on: {fmtWhen(createdAt)}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
     </DashboardLayout>
   );
 }

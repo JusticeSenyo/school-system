@@ -3,6 +3,10 @@ export const roleBasedMenus = Object.freeze({
   admin: [
     { label: "Dashboard", path: "/dashboard" },
     { label: "Communication", path: "/dashboard/communication" },
+
+    // ✅ Only AD & HT can see/manage events
+    { label: "Manage Events", path: "/dashboard/manage-events" },
+
     { label: "Manage Staff", path: "/dashboard/manage-staff" },
     { label: "Manage Students", path: "/dashboard/manage-students" },
     {
@@ -41,6 +45,10 @@ export const roleBasedMenus = Object.freeze({
   headteacher: [
     { label: "Dashboard", path: "/dashboard" },
     { label: "Communication", path: "/dashboard/communication" },
+
+    // ✅ Only AD & HT can see/manage events
+    { label: "Manage Events", path: "/dashboard/manage-events" },
+
     // Removed: { label: "Manage Staff", path: "/dashboard/manage-staff" },
     { label: "Manage Students", path: "/dashboard/manage-students" },
     {
@@ -57,7 +65,7 @@ export const roleBasedMenus = Object.freeze({
     { label: "Settings", path: "/settings" },
   ],
 
-  // Accountant: NO Communication, NO Manage Students
+  // Accountant: NO Communication, NO Manage Students, NO Manage Events
   accountant: [
     { label: "Dashboard", path: "/dashboard" },
     {
@@ -71,6 +79,7 @@ export const roleBasedMenus = Object.freeze({
     { label: "Settings", path: "/settings" },
   ],
 
+  // Teacher: NO Manage Events
   teacher: [
     { label: "Dashboard", path: "/dashboard" },
     {
@@ -80,6 +89,7 @@ export const roleBasedMenus = Object.freeze({
     { label: "Settings", path: "/settings" },
   ],
 
+  // Owner: NO Manage Events (per your requirement)
   owner: [
     { label: "Dashboard", path: "/dashboard" },
     { label: "Communication", path: "/dashboard/communication" },

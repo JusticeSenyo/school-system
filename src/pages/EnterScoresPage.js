@@ -621,7 +621,7 @@ export default function EnterScoresPage() {
       {/* Plan status banner (dismissable; red if expired) */}
       {pkgLoaded && showPlan && (
         <div
-          className={`mb-4 rounded-lg border p-3 text-sm ${
+          className={`mb-4 w-full rounded-lg border p-3 text-sm ${
             isExpired
               ? "bg-rose-50 border-rose-200 text-rose-700"
               : "bg-gray-50 border-gray-200 text-gray-700"
@@ -647,7 +647,7 @@ export default function EnterScoresPage() {
       )}
 
       {/* Filters */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 p-4 mb-4 grid md:grid-cols-5 gap-3">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 p-4 mb-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         <LabeledSelect label="Academic Year" value={yearId ?? ""} onChange={(v) => setYearId(Number(v))}>
           {years.map((y) => (
             <option key={y.id} value={y.id}>
@@ -655,6 +655,7 @@ export default function EnterScoresPage() {
             </option>
           ))}
         </LabeledSelect>
+
         <LabeledSelect label="Term" value={termId ?? ""} onChange={(v) => setTermId(Number(v))}>
           {terms.map((t) => (
             <option key={t.id} value={t.id}>
@@ -687,12 +688,13 @@ export default function EnterScoresPage() {
           )}
         </LabeledSelect>
 
-        <div className="flex items-end gap-2">
+        {/* Buttons section adapts */}
+        <div className="flex flex-col sm:flex-row md:flex-col lg:flex-row items-stretch sm:items-end gap-2">
           <button
             type="button"
             onClick={refreshAll}
             disabled={!canQuery || loading || isExpired}
-            className={`inline-flex items-center gap-2 px-3 py-2 border rounded-lg bg-white dark:bg-gray-900 dark:border-gray-700 disabled:opacity-50 ${isExpired ? "cursor-not-allowed" : ""}`}
+            className={`inline-flex items-center justify-center gap-2 px-3 py-2 border rounded-lg bg-white dark:bg-gray-900 dark:border-gray-700 disabled:opacity-50 ${isExpired ? "cursor-not-allowed" : ""}`}
             title={isExpired ? "Plan expired" : "Reload marks"}
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
@@ -700,7 +702,7 @@ export default function EnterScoresPage() {
           <button
             onClick={saveAll}
             disabled={saving || !canQuery || unsavedCount === 0 || isExpired}
-            className={`inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50 ${isExpired ? "cursor-not-allowed" : ""}`}
+            className={`inline-flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50 ${isExpired ? "cursor-not-allowed" : ""}`}
             title={isExpired ? "Plan expired" : "Save all edited rows"}
           >
             <Save className="h-4 w-4" /> Save All {unsavedCount ? `(${unsavedCount})` : ""}
@@ -764,7 +766,7 @@ export default function EnterScoresPage() {
 
       {/* Table */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm hidden md:table">
           <thead>
             <tr className="text-left text-gray-600 dark:text-gray-300 border-b dark:border-gray-700">
               <th className="p-2">Student</th>
@@ -798,12 +800,10 @@ export default function EnterScoresPage() {
               filteredRows.map((r) => (
                 <tr
                   key={r.id}
-                  className={`border-b last:border-0 dark:border-gray-700 ${
-                    r._dirty ? "bg-yellow-50/50 dark:bg-yellow-900/10" : ""
-                  }`}
+                  className={`border-b last:border-0 dark:border-gray-700 ${r._dirty ? "bg-yellow-50/50 dark:bg-yellow-900/10" : ""
+                    }`}
                 >
                   <td className="p-2">{r.name}</td>
-                  {/* READ-ONLY Index No */}
                   <td className="p-2">{r.index_no || "—"}</td>
                   <td className="p-2 text-right">
                     <input
@@ -857,7 +857,61 @@ export default function EnterScoresPage() {
             )}
           </tbody>
         </table>
+
+        {/* Mobile card view */}
+        <div className="md:hidden space-y-3">
+          {loading ? (
+            <div className="p-6 text-center">
+              <Loader2 className="h-4 w-4 animate-spin mx-auto" /> Loading…
+            </div>
+          ) : filteredRows.length === 0 ? (
+            <div className="p-6 text-center text-gray-500">
+              {noAssignments ? "No teaching assignments found." : "No students/records match your filters."}
+            </div>
+          ) : (
+            filteredRows.map((r) => (
+              <div
+                key={r.id}
+                className={`p-3 border rounded-lg dark:border-gray-700 ${r._dirty ? "bg-yellow-50/50 dark:bg-yellow-900/10" : "bg-white dark:bg-gray-800"
+                  }`}
+              >
+                <div className="flex justify-between">
+                  <span className="font-medium">{r.name}</span>
+                  <span className="text-sm text-gray-500">{r.index_no || "—"}</span>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                  <div>Class Score: {r.class_score}</div>
+                  <div>Exam Score: {r.exam_score}</div>
+                  <div>Total: {r.total}</div>
+                  <div>Grade: {r.grade}</div>
+                  <div>Remark: {r.meaning}</div>
+                  <div>Position: {r.position}</div>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => saveRow(r, true)}
+                    disabled={!r._dirty || saving || isExpired}
+                    className={`flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 ${isExpired ? "cursor-not-allowed" : ""}`}
+                  >
+                    {r._savedOk ? <CheckCircle2 className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+                    {r._savedOk ? "Saved" : "Save"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeRow(r)}
+                    className={`flex-1 p-2 rounded-md border text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30 ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+                    disabled={isExpired}
+                  >
+                    <Trash2 className="h-4 w-4 mx-auto" />
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
+
 
       {/* Footer actions & toasts */}
       <div className="mt-3 flex items-center gap-3 flex-wrap">

@@ -962,6 +962,21 @@ export default function ManageStaffPage() {
               <span className="hidden xs:inline lg:hidden">Excel</span>
             </button>
           </div>
+
+          <button
+            onClick={openBulk}
+            disabled={planExpired || (isFinite(planMax) && remaining <= 0)}
+            title={
+              planExpired
+                ? 'Plan expired — renew to use this feature'
+                : (isFinite(planMax) && remaining <= 0)
+                  ? `Reached ${planHuman} plan staff limit`
+                  : 'Import staff from Excel'
+            }
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-sky-600 text-white text-sm rounded-md hover:bg-sky-700 disabled:opacity-60 sm:hidden"
+          >
+            <Upload size={16} /> Bulk Import
+          </button>
         </div>
       </div>
 

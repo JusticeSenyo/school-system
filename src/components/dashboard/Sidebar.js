@@ -189,23 +189,30 @@ const Sidebar = ({ isCollapsed, onExpand, role: roleProp, menus: menusProp }) =>
 
   return (
     <aside
-      className={`bg-white dark:bg-gray-800 border-r dark:border-gray-700 p-4 transition-all duration-300
+      className={`bg-white   dark:bg-gray-800 border-r dark:border-gray-700 p-4 transition-all duration-300
         ${isCollapsed ? "w-20" : "w-64"} min-h-screen flex flex-col`}
     >
       {/* Logo / Title */}
-      {!isCollapsed ? (
-        <div className="flex items-center justify-center mb-6">
-          <h1 className="text-xl font-bold text-indigo-600 dark:text-white truncate max-w-full tracking-wide" title={displaySchoolName}>
-            {displaySchoolName}
-          </h1>
-        </div>
-      ) : (
-        <div className="flex items-center justify-center mb-6">
-          <div className="h-9 w-9 rounded-lg bg-indigo-600 text-white grid place-items-center font-semibold" title={displaySchoolName}>
-            {displaySchoolName.slice(0, 2)}
-          </div>
-        </div>
-      )}
+{!isCollapsed ? (
+  <div className="hidden xl:flex items-center justify-center mb-6 ">
+    <h1
+      className="text-xl font-bold text-indigo-600 dark:text-white truncate max-w-full tracking-wide"
+      title={displaySchoolName}
+    >
+      {displaySchoolName}
+    </h1>
+  </div>
+) : (
+  <div className="flex items-center justify-center mb-6">
+    <div
+      className="h-9 w-9 rounded-lg bg-indigo-600 text-white grid place-items-center font-semibold"
+      title={displaySchoolName}
+    >
+      {displaySchoolName.slice(0, 2)}
+    </div>
+  </div>
+)}
+
 
       {/* Navigation */}
       <nav className="flex-1 space-y-2 overflow-y-auto">

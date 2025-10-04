@@ -384,8 +384,9 @@ export default function AttendanceReportPage() {
   return (
     <DashboardLayout title="Attendance Report" subtitle="">
       {/* Filters */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 p-4 mb-6">
-        <div className="grid lg:grid-cols-12 gap-3">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 p-4 sm:p-6 mb-6">
+        {/* Filters Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 sm:gap-4">
           <Select
             label="Academic Year"
             value={yearId}
@@ -400,7 +401,6 @@ export default function AttendanceReportPage() {
             options={terms.map(t => ({ label: t.name + (String(t.status).toUpperCase() === "CURRENT" ? " (CURRENT)" : ""), value: String(t.id) }))}
             className="lg:col-span-2"
           />
-
           {/* Class from API */}
           <label className="text-sm grid gap-1 lg:col-span-2">
             <span className="text-gray-700 dark:text-gray-300">Class</span>
@@ -420,58 +420,76 @@ export default function AttendanceReportPage() {
             </select>
             {(classesErr || ytErr) && <div className="text-xs text-rose-600 mt-1">{classesErr || ytErr}</div>}
           </label>
-
           <DateInput label="From" value={from} onChange={setFrom} className="lg:col-span-3" />
           <DateInput label="To" value={to} onChange={(v) => setTo(v > todayISO() ? todayISO() : v)} className="lg:col-span-3" />
         </div>
 
-        <div className="mt-3 flex flex-wrap gap-2 items-center">
-          <span className="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2">
-            <Filter className="h-4 w-4" />
-            Quick ranges:
-          </span>
-          <QuickButton onClick={() => setRange(7)} label="Last 7 days" />
-          <QuickButton onClick={() => setRange(14)} label="Last 14 days" />
-          <QuickButton onClick={() => setRange(30)} label="Last 30 days" />
-          <div className="ml-auto flex gap-2">
-            <button onClick={exportCSV} className="inline-flex items-center gap-2 px-3 py-2 border rounded-lg">
-              <Download className="h-4 w-4" /> Export CSV
+        {/* Quick Ranges and Actions */}
+        <div className="mt-4 sm:mt-5 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+          {/* Quick Ranges */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2">
+              <Filter className="h-4 w-4" />
+              <span className="hidden sm:inline">Quick ranges:</span>
+              <span className="sm:hidden">Quick:</span>
+            </span>
+            <QuickButton onClick={() => setRange(7)} label="Last 7 days" />
+            <QuickButton onClick={() => setRange(14)} label="Last 14 days" />
+            <QuickButton onClick={() => setRange(30)} label="Last 30 days" />
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex gap-2 sm:ml-auto w-full sm:w-auto">
+            <button
+              onClick={exportCSV}
+              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition text-sm"
+            >
+              <Download className="h-4 w-4" />
+              <span className="hidden sm:inline">Export CSV</span>
+              <span className="sm:hidden">Export</span>
             </button>
-            <button onClick={doPrint} className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg">
-              <Printer className="h-4 w-4" /> Print
+            <button
+              onClick={doPrint}
+              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition text-sm"
+            >
+              <Printer className="h-4 w-4" />
+              <span className="hidden sm:inline">Print</span>
+              <span className="sm:hidden">Print</span>
             </button>
           </div>
         </div>
 
+        {/* Warning Message */}
         {!!rangeWarn && (
-          <div className="mt-3 inline-flex items-center gap-2 text-amber-700 bg-amber-50 dark:bg-amber-900/30 dark:text-amber-200 px-3 py-2 rounded-lg text-sm">
-            <AlertTriangle className="h-4 w-4" /> {rangeWarn}
+          <div className="mt-3 inline-flex items-start sm:items-center gap-2 text-amber-700 bg-amber-50 dark:bg-amber-900/30 dark:text-amber-200 px-3 py-2 rounded-lg text-sm">
+            <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5 sm:mt-0" />
+            <span>{rangeWarn}</span>
           </div>
         )}
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4 mb-6">
         <KpiCard
-          icon={<TrendingUp className="h-6 w-6 text-indigo-600" />}
+          icon={<TrendingUp className="h-5 w-5 sm:h-6 sm:w-6 text-indigo-600" />}
           label="Attendance Rate"
           value={`${totals.rate}%`}
           sub={`${totals.sessions} attendance marks`}
         />
         <KpiCard
-          icon={<CheckCircle2 className="h-6 w-6 text-emerald-600" />}
+          icon={<CheckCircle2 className="h-5 w-5 sm:h-6 sm:w-6 text-emerald-600" />}
           label="Present"
           value={totals.present}
           barValue={pct(totals.present, totals.sessions)}
         />
         <KpiCard
-          icon={<XCircle className="h-6 w-6 text-rose-600" />}
+          icon={<XCircle className="h-5 w-5 sm:h-6 sm:w-6 text-rose-600" />}
           label="Absent"
           value={totals.absent}
           barValue={pct(totals.absent, totals.sessions)}
         />
         <KpiCard
-          icon={<Clock className="h-6 w-6 text-amber-600" />}
+          icon={<Clock className="h-5 w-5 sm:h-6 sm:w-6 text-amber-600" />}
           label="Tardy"
           value={totals.tardy}
           barValue={pct(totals.tardy, totals.sessions)}
@@ -524,16 +542,18 @@ export default function AttendanceReportPage() {
 
       {/* Table */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700">
-        <div className="p-4 border-b dark:border-gray-700 flex items-center gap-2">
-          <Users className="h-4 w-4 text-indigo-500" />
-          <div className="font-semibold">Students</div>
-
-          <div className="ml-auto relative">
+        {/* Header */}
+        <div className="p-4 border-b dark:border-gray-700 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Users className="h-4 w-4 text-indigo-500" />
+            <div className="font-semibold">Students</div>
+          </div>
+          <div className="relative w-full sm:w-auto sm:ml-auto">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              className="pl-9 pr-3 py-2 w-72 border rounded-lg bg-white dark:bg-gray-900 text-sm"
+              className="pl-9 pr-3 py-2 w-full sm:w-72 border rounded-lg bg-white dark:bg-gray-900 text-sm"
               placeholder="Search by name or ID"
             />
           </div>
@@ -542,57 +562,106 @@ export default function AttendanceReportPage() {
         {/* Status / alerts */}
         <div className="px-4 pt-4">
           {err && (
-            <div className="mb-4 flex items-start gap-2 text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-3">
-              <span className="text-sm">{err}</span>
+            <div className="mb-4 flex items-start gap-2 text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-3 text-sm">
+              <span>{err}</span>
             </div>
           )}
           {!err && (classesLoading || rosterLoading || loadingReport || ytLoading) && (
-            <div className="mb-3 p-3 rounded border bg-gray-50 text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200">
+            <div className="mb-3 p-3 rounded border bg-gray-50 text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200 text-sm">
               Loading…
             </div>
           )}
           {!err && !loadingReport && rows.length === 0 && (
-            <div className="p-3 rounded border bg-gray-50 text-gray-600 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-300">
+            <div className="p-3 rounded border bg-gray-50 text-gray-600 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-300 text-sm">
               No attendance records match your filters.
             </div>
           )}
         </div>
 
+        {/* Desktop Table View */}
         {rows.length > 0 && (
-          <div className="overflow-x-auto p-4">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-gray-600 dark:text-gray-300 border-b dark:border-gray-700">
-                  <Th label="Student" sortKey="name" sortKeyState={sortKey} sortDir={sortDir} setSortKey={setSortKey} setSortDir={setSortDir} />
-                  <Th label="Present" sortKey="present" sortKeyState={sortKey} sortDir={sortDir} setSortKey={setSortKey} setSortDir={setSortDir} />
-                  <Th label="Absent" sortKey="absent" sortKeyState={sortKey} sortDir={sortDir} setSortKey={setSortKey} setSortDir={setSortDir} />
-                  <Th label="Tardy" sortKey="tardy" sortKeyState={sortKey} sortDir={sortDir} setSortKey={setSortKey} setSortDir={setSortDir} />
-                  <Th label="Rate %" sortKey="rate" sortKeyState={sortKey} sortDir={sortDir} setSortKey={setSortKey} setSortDir={setSortDir} />
-                  <th className="py-2 w-40">Health</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((s) => (
-                  <tr key={s.id} className="border-b last:border-0 dark:border-gray-700">
-                    <td className="py-2">{s.name}</td>
-                    <td className="py-2">{s.present}</td>
-                    <td className="py-2">{s.absent}</td>
-                    <td className="py-2">{s.tardy}</td>
-                    <td className="py-2">{s.rate}</td>
-                    <td className="py-2">
-                      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded h-2 overflow-hidden">
-                        <div
-                          className={`h-2 ${s.rate >= 95 ? "bg-emerald-500" : s.rate >= 85 ? "bg-amber-500" : "bg-rose-500"}`}
-                          style={{ width: `${Math.min(100, s.rate)}%` }}
-                          title={`${s.rate}%`}
-                        />
-                      </div>
-                    </td>
+          <>
+            <div className="hidden md:block overflow-x-auto p-4">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-600 dark:text-gray-300 border-b dark:border-gray-700">
+                    <Th label="Student" sortKey="name" sortKeyState={sortKey} sortDir={sortDir} setSortKey={setSortKey} setSortDir={setSortDir} />
+                    <Th label="Present" sortKey="present" sortKeyState={sortKey} sortDir={sortDir} setSortKey={setSortKey} setSortDir={setSortDir} />
+                    <Th label="Absent" sortKey="absent" sortKeyState={sortKey} sortDir={sortDir} setSortKey={setSortKey} setSortDir={setSortDir} />
+                    <Th label="Tardy" sortKey="tardy" sortKeyState={sortKey} sortDir={sortDir} setSortKey={setSortKey} setSortDir={setSortDir} />
+                    <Th label="Rate %" sortKey="rate" sortKeyState={sortKey} sortDir={sortDir} setSortKey={setSortKey} setSortDir={setSortDir} />
+                    <th className="py-2 w-40">Health</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {rows.map((s) => (
+                    <tr key={s.id} className="border-b last:border-0 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750">
+                      <td className="py-2">{s.name}</td>
+                      <td className="py-2">{s.present}</td>
+                      <td className="py-2">{s.absent}</td>
+                      <td className="py-2">{s.tardy}</td>
+                      <td className="py-2">{s.rate}</td>
+                      <td className="py-2">
+                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded h-2 overflow-hidden">
+                          <div
+                            className={`h-2 ${s.rate >= 95 ? "bg-emerald-500" : s.rate >= 85 ? "bg-amber-500" : "bg-rose-500"}`}
+                            style={{ width: `${Math.min(100, s.rate)}%` }}
+                            title={`${s.rate}%`}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Card View */}
+            <div className="md:hidden px-4 pb-4 space-y-3">
+              {rows.map((s) => (
+                <div
+                  key={s.id}
+                  className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-900"
+                >
+                  {/* Student Name */}
+                  <div className="font-semibold text-base text-gray-900 dark:text-white mb-3">
+                    {s.name}
+                  </div>
+
+                  {/* Stats Grid */}
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    <div className="text-center p-2 bg-white dark:bg-gray-800 rounded">
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Present</div>
+                      <div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">{s.present}</div>
+                    </div>
+                    <div className="text-center p-2 bg-white dark:bg-gray-800 rounded">
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Absent</div>
+                      <div className="text-lg font-semibold text-rose-600 dark:text-rose-400">{s.absent}</div>
+                    </div>
+                    <div className="text-center p-2 bg-white dark:bg-gray-800 rounded">
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Tardy</div>
+                      <div className="text-lg font-semibold text-amber-600 dark:text-amber-400">{s.tardy}</div>
+                    </div>
+                  </div>
+
+                  {/* Attendance Rate */}
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs text-gray-600 dark:text-gray-400">Attendance Rate</span>
+                      <span className="text-sm font-semibold text-gray-900 dark:text-white">{s.rate}%</span>
+                    </div>
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
+                      <div
+                        className={`h-3 transition-all ${s.rate >= 95 ? "bg-emerald-500" : s.rate >= 85 ? "bg-amber-500" : "bg-rose-500"}`}
+                        style={{ width: `${Math.min(100, s.rate)}%` }}
+                        title={`${s.rate}%`}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
 

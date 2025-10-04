@@ -369,7 +369,7 @@ const ManageAttendancePage = () => {
   const excelDisabled = loading || marked.length === 0;
 
   return (
-    <DashboardLayout title={`Manage Attendance (${PLAN.toUpperCase()})`} subtitle="">
+    <DashboardLayout title={` Attendance (${PLAN.toUpperCase()})`} subtitle="">
       {/* Plan status banner */}
       {pkgLoaded && showPlan && (
         <div
@@ -399,7 +399,7 @@ const ManageAttendancePage = () => {
       )}
 
       {/* Top Bar */}
-      <div className="mb-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+      <div className="mb-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
         {/* Class (class-teacher-only LOV) */}
         <div className="flex items-center gap-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-3 shadow-sm">
           <Users className="w-5 h-5" />
@@ -414,11 +414,12 @@ const ManageAttendancePage = () => {
               {!classesLoading && classes.length === 0 && (
                 <option value="">No classes found</option>
               )}
-              {!classesLoading && classes.map(c => (
-                <option key={c.class_id} value={c.class_id}>
-                  {c.class_name || `Class ${c.class_id}`}
-                </option>
-              ))}
+              {!classesLoading &&
+                classes.map((c) => (
+                  <option key={c.class_id} value={c.class_id}>
+                    {c.class_name || `Class ${c.class_id}`}
+                  </option>
+                ))}
             </select>
             {classesErr && (
               <div className="mt-1 text-xs text-rose-600">{classesErr}</div>
@@ -434,7 +435,7 @@ const ManageAttendancePage = () => {
             <input
               type="date"
               value={date}
-              max={today}                // prevent beyond today
+              max={today} // prevent beyond today
               onChange={handleDateChange}
               className="w-full mt-0.5 px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
             />
@@ -450,10 +451,12 @@ const ManageAttendancePage = () => {
               value={currentYearId}
               disabled
               title="Current year (read-only)"
-              onChange={() => {}}
+              onChange={() => { }}
               className="w-full mt-0.5 px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 text-gray-700 dark:text-gray-300 cursor-not-allowed"
             >
-              <option value={currentYearId}>{currentYearName || '—'}</option>
+              <option value={currentYearId}>
+                {currentYearName || '—'}
+              </option>
             </select>
           </div>
         </div>
@@ -467,98 +470,246 @@ const ManageAttendancePage = () => {
               value={currentTermId}
               disabled
               title="Current term (read-only)"
-              onChange={() => {}}
+              onChange={() => { }}
               className="w-full mt-0.5 px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 text-gray-700 dark:text-gray-300 cursor-not-allowed"
             >
-              <option value={currentTermId}>{currentTermName || '—'}</option>
+              <option value={currentTermId}>
+                {currentTermName || '—'}
+              </option>
             </select>
           </div>
         </div>
       </div>
 
+
       {/* Editable UNMARKED list */}
       <div className="mb-6">
-        <div className="flex items-center gap-2 mb-2">
+        {/* Header */}
+        <div className="flex flex-wrap items-center gap-2 mb-2">
           <ListChecks className="w-5 h-5" />
           <h3 className="text-lg font-semibold">Students not marked today</h3>
           <span className="text-sm text-gray-500">({date})</span>
         </div>
 
+        {/* Table container */}
         <div className="overflow-x-auto bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-200 dark:border-gray-700">
-          <table className="min-w-full">
-            <thead className="bg-gray-50 dark:bg-gray-700">
-              <tr>
-                <th className="p-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-200">Student</th>
-                <th className="p-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-200">Status</th>
-                <th className="p-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-200">Quick</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan="3" className="p-6 text-center text-gray-500">Loading…</td></tr>
-              ) : unmarked.length === 0 ? (
-                <tr><td colSpan="3" className="p-6 text-center text-gray-500">All students are marked for today 🎉</td></tr>
-              ) : unmarked.map((s, idx) => {
-                const value = attendance[s.student_id] || '';
-                return (
-                  <tr key={s.student_id ?? s.full_name + idx} className={idx % 2 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50/40 dark:bg-gray-900/20'}>
-                    <td className="p-3 border-t border-gray-100 dark:border-gray-700">
-                      <div className="font-medium">{s.full_name}</div>
-                    </td>
-                    <td className="p-3 border-t border-gray-100 dark:border-gray-700">
-                      <div className="flex items-center gap-2">
-                        <select
-                          value={value}
-                          onChange={(e) => handleAttendanceChange(s.student_id, e.target.value)}
-                          disabled={isExpired}
-                          title={isExpired ? "Plan expired" : "Select attendance"}
-                          className={`px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
-                        >
-                          <option value="">Select</option>
-                          <option value="present">Present</option>
-                          <option value="absent">Absent</option>
-                        </select>
-                        {value === 'present' && (
-                          <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 dark:text-emerald-300 px-2 py-1 rounded-full text-xs">
-                            <CheckCircle className="w-3 h-3" /> Present
-                          </span>
-                        )}
-                        {value === 'absent' && (
-                          <span className="inline-flex items-center gap-1 text-rose-700 bg-rose-50 dark:bg-rose-900/30 dark:text-rose-300 px-2 py-1 rounded-full text-xs">
-                            <XCircle className="w-3 h-3" /> Absent
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="p-3 border-t border-gray-100 dark:border-gray-700">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleAttendanceChange(s.student_id, 'present')}
-                          disabled={isExpired}
-                          title={isExpired ? "Plan expired" : "Mark Present"}
-                          className={`px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60 ${isExpired ? "cursor-not-allowed" : ""}`}
-                        >
-                          Present
-                        </button>
-                        <button
-                          onClick={() => handleAttendanceChange(s.student_id, 'absent')}
-                          disabled={isExpired}
-                          title={isExpired ? "Plan expired" : "Mark Absent"}
-                          className={`px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-60 ${isExpired ? "cursor-not-allowed" : ""}`}
-                        >
-                          Absent
-                        </button>
-                      </div>
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50 dark:bg-gray-700">
+                <tr>
+                  <th className="p-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-200">
+                    Student
+                  </th>
+                  <th className="p-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-200">
+                    Status
+                  </th>
+                  <th className="p-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-200">
+                    Quick
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan="3" className="p-6 text-center text-gray-500">
+                      Loading…
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                ) : unmarked.length === 0 ? (
+                  <tr>
+                    <td colSpan="3" className="p-6 text-center text-gray-500">
+                      All students are marked for today 🎉
+                    </td>
+                  </tr>
+                ) : (
+                  unmarked.map((s, idx) => {
+                    const value = attendance[s.student_id] || "";
+                    return (
+                      <tr
+                        key={s.student_id ?? s.full_name + idx}
+                        className={
+                          idx % 2
+                            ? "bg-white dark:bg-gray-800"
+                            : "bg-gray-50/40 dark:bg-gray-900/20"
+                        }
+                      >
+                        {/* Student name */}
+                        <td className="p-3 border-t border-gray-100 dark:border-gray-700">
+                          <div className="font-medium">{s.full_name}</div>
+                        </td>
 
-          {/* Footer actions for UNMARKED */}
-          <div className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-2 text-sm">
+                        {/* Status select + tags */}
+                        <td className="p-3 border-t border-gray-100 dark:border-gray-700">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <select
+                              value={value}
+                              onChange={(e) =>
+                                handleAttendanceChange(s.student_id, e.target.value)
+                              }
+                              disabled={isExpired}
+                              title={
+                                isExpired ? "Plan expired" : "Select attendance"
+                              }
+                              className={`px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 ${isExpired
+                                ? "opacity-60 cursor-not-allowed"
+                                : ""
+                                }`}
+                            >
+                              <option value="">Select</option>
+                              <option value="present">Present</option>
+                              <option value="absent">Absent</option>
+                            </select>
+
+                            {value === "present" && (
+                              <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 dark:text-emerald-300 px-2 py-1 rounded-full text-xs">
+                                <CheckCircle className="w-3 h-3" /> Present
+                              </span>
+                            )}
+                            {value === "absent" && (
+                              <span className="inline-flex items-center gap-1 text-rose-700 bg-rose-50 dark:bg-rose-900/30 dark:text-rose-300 px-2 py-1 rounded-full text-xs">
+                                <XCircle className="w-3 h-3" /> Absent
+                              </span>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Quick action buttons */}
+                        <td className="p-3 border-t border-gray-100 dark:border-gray-700">
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() =>
+                                handleAttendanceChange(s.student_id, "present")
+                              }
+                              disabled={isExpired}
+                              title={isExpired ? "Plan expired" : "Mark Present"}
+                              className={`px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60 ${isExpired ? "cursor-not-allowed" : ""
+                                }`}
+                            >
+                              Present
+                            </button>
+                            <button
+                              onClick={() =>
+                                handleAttendanceChange(s.student_id, "absent")
+                              }
+                              disabled={isExpired}
+                              title={isExpired ? "Plan expired" : "Mark Absent"}
+                              className={`px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-60 ${isExpired ? "cursor-not-allowed" : ""
+                                }`}
+                            >
+                              Absent
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Card View */}
+          <div className="md:hidden space-y-3">
+            {loading ? (
+              <div className="p-6 text-center text-gray-500 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                Loading…
+              </div>
+            ) : unmarked.length === 0 ? (
+              <div className="p-6 text-center text-gray-500 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                All students are marked for today 🎉
+              </div>
+            ) : (
+              unmarked.map((s, idx) => {
+                const value = attendance[s.student_id] || "";
+                return (
+                  <div
+                    key={s.student_id ?? s.full_name + idx}
+                    className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm"
+                  >
+                    {/* Student Name */}
+                    <div className="font-semibold text-base mb-3 text-gray-900 dark:text-white">
+                      {s.full_name}
+                    </div>
+
+                    {/* Status Dropdown */}
+                    <div className="mb-3">
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
+                        Attendance Status
+                      </label>
+                      <select
+                        value={value}
+                        onChange={(e) =>
+                          handleAttendanceChange(s.student_id, e.target.value)
+                        }
+                        disabled={isExpired}
+                        title={
+                          isExpired ? "Plan expired" : "Select attendance"
+                        }
+                        className={`w-full px-3 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm ${isExpired
+                          ? "opacity-60 cursor-not-allowed"
+                          : ""
+                          }`}
+                      >
+                        <option value="">Select Status</option>
+                        <option value="present">Present</option>
+                        <option value="absent">Absent</option>
+                      </select>
+                    </div>
+
+                    {/* Status Badge */}
+                    {value && (
+                      <div className="mb-3">
+                        {value === "present" && (
+                          <span className="inline-flex items-center gap-1.5 text-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 dark:text-emerald-300 px-3 py-1.5 rounded-full text-sm font-medium">
+                            <CheckCircle className="w-4 h-4" /> Marked Present
+                          </span>
+                        )}
+                        {value === "absent" && (
+                          <span className="inline-flex items-center gap-1.5 text-rose-700 bg-rose-50 dark:bg-rose-900/30 dark:text-rose-300 px-3 py-1.5 rounded-full text-sm font-medium">
+                            <XCircle className="w-4 h-4" /> Marked Absent
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Quick Action Buttons */}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() =>
+                          handleAttendanceChange(s.student_id, "present")
+                        }
+                        disabled={isExpired}
+                        title={isExpired ? "Plan expired" : "Mark Present"}
+                        className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60 font-medium text-sm ${isExpired ? "cursor-not-allowed" : ""
+                          }`}
+                      >
+                        <CheckCircle className="w-4 h-4" />
+                        Present
+                      </button>
+                      <button
+                        onClick={() =>
+                          handleAttendanceChange(s.student_id, "absent")
+                        }
+                        disabled={isExpired}
+                        title={isExpired ? "Plan expired" : "Mark Absent"}
+                        className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-60 font-medium text-sm ${isExpired ? "cursor-not-allowed" : ""
+                          }`}
+                      >
+                        <XCircle className="w-4 h-4" />
+                        Absent
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Footer actions */}
+          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 p-4">
+            {/* Stats */}
+            <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700">
                 <Users className="w-3 h-3" /> {stats.total} unmarked
               </span>
@@ -573,40 +724,44 @@ const ManageAttendancePage = () => {
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
+            {/* Action buttons */}
+            <div className="flex flex-wrap gap-2  max-sm:text-[12px]">
               <button
-                onClick={() => markAll('present')}
+                onClick={() => markAll("present")}
                 disabled={isExpired || unmarked.length === 0}
-                title={isExpired ? "Plan expired" : "Mark all Present"}
-                className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-60 ${isExpired ? "cursor-not-allowed" : ""}`}
+                className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-60 ${isExpired ? "cursor-not-allowed" : ""
+                  }`}
               >
                 <CheckSquare className="w-4 h-4" /> Mark all Present
               </button>
               <button
-                onClick={() => markAll('absent')}
+                onClick={() => markAll("absent")}
                 disabled={isExpired || unmarked.length === 0}
-                title={isExpired ? "Plan expired" : "Mark all Absent"}
-                className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-60 ${isExpired ? "cursor-not-allowed" : ""}`}
+                className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-60 ${isExpired ? "cursor-not-allowed" : ""
+                  }`}
               >
                 <XCircle className="w-4 h-4" /> Mark all Absent
               </button>
               <button
                 onClick={resetMarks}
                 disabled={isExpired || unmarked.length === 0}
-                title={isExpired ? "Plan expired" : "Reset selections"}
-                className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-60 ${isExpired ? "cursor-not-allowed" : ""}`}
+                className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-60 ${isExpired ? "cursor-not-allowed" : ""
+                  }`}
               >
                 <RefreshCcw className="w-4 h-4" /> Reset
               </button>
-
               <button
                 onClick={submitAttendance}
                 disabled={submitting || unmarked.length === 0 || isExpired}
-                title={isExpired ? "Plan expired" : "Submit attendance"}
-                className={`inline-flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-60 ${isExpired ? "cursor-not-allowed" : ""}`}
+                className={`inline-flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-60 ${isExpired ? "cursor-not-allowed" : ""
+                  }`}
               >
-                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                {submitting ? 'Submitting…' : 'Submit Attendance'}
+                {submitting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                {submitting ? "Submitting…" : "Submit Attendance"}
               </button>
             </div>
           </div>
@@ -614,7 +769,7 @@ const ManageAttendancePage = () => {
           {/* Messages */}
           {result.ok === true && (
             <div className="mx-4 mb-4 rounded-xl bg-emerald-50 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-200 px-4 py-3">
-              {result.msg || 'Attendance submitted successfully.'}
+              {result.msg || "Attendance submitted successfully."}
             </div>
           )}
           {result.ok === false && (
@@ -624,6 +779,7 @@ const ManageAttendancePage = () => {
           )}
         </div>
       </div>
+
 
       {/* Read-only MARKED TODAY list */}
       <div className="mb-10">

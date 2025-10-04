@@ -1129,6 +1129,20 @@ export default function ManageStudentsPage() {
               <span className="hidden xs:inline lg:hidden">Excel</span>
             </button>
           </div>
+          <button
+            onClick={openBulk}
+            disabled={planExpired || (isFinite(planMax) && remaining <= 0)}
+            title={
+              planExpired
+                ? 'Plan expired — renew to use this feature'
+                : (isFinite(planMax) && remaining <= 0)
+                  ? `Reached ${planHuman} plan student limit`
+                  : 'Import students from Excel'
+            }
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-sky-600 text-white text-sm rounded-md hover:bg-sky-700 disabled:opacity-60 sm:hidden"
+          >
+            <Upload size={16} /> Bulk Import
+          </button>
         </div>
       </div>
 
@@ -1556,54 +1570,59 @@ export default function ManageStudentsPage() {
 
       {/* Info Dialog */}
       {isInfoOpen && infoStudent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-3xl rounded-2xl bg-white dark:bg-gray-900 shadow-2xl border border-gray-200 dark:border-gray-700 max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
-              <div className="flex items-center gap-3">
-                <Avatar urls={infoStudent.photo_urls} name={infoStudent.full_name} size={80} />
-                <div>
-                  <div className="text-lg font-semibold">{infoStudent.full_name}</div>
-                  <div className="text-xs text-gray-500">{getClassName(infoStudent.class_id)}</div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-2 sm:p-4">
+          <div className="w-full max-w-3xl rounded-xl sm:rounded-2xl bg-white dark:bg-gray-900 shadow-2xl border border-gray-200 dark:border-gray-700 max-h-[95vh] sm:max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 dark:border-gray-800 gap-3">
+              <div className="flex items-center gap-3 w-full sm:w-auto">
+                <Avatar urls={infoStudent.photo_urls} name={infoStudent.full_name} size={50} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm sm:text-base font-semibold truncate">{infoStudent.full_name}</div>
+                  <div className="text-xs text-gray-500 truncate">{getClassName(infoStudent.class_id)}</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
                 <span className="px-2 py-1 rounded-md text-xs bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
                   {infoStudent.status}
                 </span>
-                <button
-                  onClick={() => window.print()}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800"
-                  title="Print"
-                >
-                  <Printer size={16} /> Print
-                </button>
-                <button
-                  onClick={() => setIsInfoOpen(false)}
-                  className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
-                  aria-label="Close"
-                >
-                  <X size={18} />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => window.print()}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800 text-xs sm:text-sm"
+                    title="Print"
+                  >
+                    <Printer size={16} className="sm:mr-1" />
+                    <span className="hidden sm:inline">Print</span>
+                  </button>
+                  <button
+                    onClick={() => setIsInfoOpen(false)}
+                    className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
+                    aria-label="Close"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
               </div>
             </div>
 
             {/* Body */}
-            <div className="px-6 py-5 overflow-y-auto">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="px-4 sm:px-6 py-4 sm:py-5 overflow-y-auto">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
                 {/* Profile */}
-                <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+                <div className="rounded-lg sm:rounded-xl border border-gray-200 dark:border-gray-800 p-3 sm:p-4">
                   <div className="flex items-center gap-2 mb-3">
-                    <UserCircle2 className="h-4 w-4 text-indigo-600" />
+                    <UserCircle2 className="h-4 w-4 text-indigo-600 flex-shrink-0" />
                     <h4 className="text-sm font-semibold">Profile</h4>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-2.5 sm:gap-3">
                     <InfoLine label="Full Name" value={infoStudent.full_name} />
                     <InfoLine
                       label="Gender"
                       value={
                         infoStudent.gender === 'M' ? 'Male'
                           : infoStudent.gender === 'F' ? 'Female'
-                          : infoStudent.gender
+                            : infoStudent.gender
                       }
                     />
                     <InfoLine label="Date of Birth" value={infoStudent.dob} />
@@ -1614,12 +1633,12 @@ export default function ManageStudentsPage() {
                 </div>
 
                 {/* Class & IDs */}
-                <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+                <div className="rounded-lg sm:rounded-xl border border-gray-200 dark:border-gray-800 p-3 sm:p-4">
                   <div className="flex items-center gap-2 mb-3">
-                    <Hash className="h-4 w-4 text-indigo-600" />
+                    <Hash className="h-4 w-4 text-indigo-600 flex-shrink-0" />
                     <h4 className="text-sm font-semibold">Class & IDs</h4>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-2.5 sm:gap-3">
                     <InfoLine label="Class" value={getClassName(infoStudent.class_id)} />
                     <InfoLine label="Admission #" value={infoStudent.admission_no} />
                     <InfoLine label="Index #" value={infoStudent.index_no} />
@@ -1627,178 +1646,251 @@ export default function ManageStudentsPage() {
                 </div>
 
                 {/* Student Contact */}
-                <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+                <div className="rounded-lg sm:rounded-xl border border-gray-200 dark:border-gray-800 p-3 sm:p-4">
                   <div className="flex items-center gap-2 mb-3">
-                    <Phone className="h-4 w-4 text-indigo-600" />
+                    <Phone className="h-4 w-4 text-indigo-600 flex-shrink-0" />
                     <h4 className="text-sm font-semibold">Student Contact</h4>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-2.5 sm:gap-3">
                     <InfoLine label="Phone" value={infoStudent.phone} />
                     <InfoLine label="Email" value={infoStudent.email} />
                   </div>
                 </div>
 
                 {/* Parents & Guardians */}
-                <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+                <div className="rounded-lg sm:rounded-xl border border-gray-200 dark:border-gray-800 p-3 sm:p-4">
                   <div className="flex items-center gap-2 mb-3">
-                    <Users className="h-4 w-4 text-indigo-600" />
+                    <Users className="h-4 w-4 text-indigo-600 flex-shrink-0" />
                     <h4 className="text-sm font-semibold">Parents & Guardians</h4>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <InfoLine label="Father's Name" value={infoStudent.father_name} />
-                          <InfoLine label="Father's Phone" value={infoStudent.father_phone} />
-                          <InfoLine label="Mother's Name" value={infoStudent.mother_name} />
-                          <InfoLine label="Mother's Phone" value={infoStudent.mother_phone} />
-                          <InfoLine label="Guardian's Name" value={infoStudent.guardian_name} />
-                          <InfoLine label="Guardian's Phone" value={infoStudent.guardian_phone} />
-                          </div>
-                        </div>
-                        </div>
-                      </div>
+                  <div className="grid grid-cols-1 gap-2.5 sm:gap-3">
+                    <InfoLine label="Father's Name" value={infoStudent.father_name} />
+                    <InfoLine label="Father's Phone" value={infoStudent.father_phone} />
+                    <InfoLine label="Mother's Name" value={infoStudent.mother_name} />
+                    <InfoLine label="Mother's Phone" value={infoStudent.mother_phone} />
+                    <InfoLine label="Guardian's Name" value={infoStudent.guardian_name} />
+                    <InfoLine label="Guardian's Phone" value={infoStudent.guardian_phone} />
+                  </div>
+                </div>
+              </div>
+            </div>
 
-                      <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-end">
-                        <button
-                        onClick={() => setIsInfoOpen(false)}
-                        className="px-4 py-2 rounded-md border bg-white hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800"
-                        >
-                        Close
-                        </button>
-                      </div>
-                      </div>
-                    </div>
-                    )}
+            {/* Footer */}
+            <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-end">
+              <button
+                onClick={() => setIsInfoOpen(false)}
+                className="w-full sm:w-auto px-4 py-2 rounded-md border bg-white hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800 text-sm"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
                     {/* Bulk Import Dialog */}
-                    {bulkOpen && (
-                    <div className="fixed inset-0 z-50">
-                      <div className="absolute inset-0 bg-black/40" onClick={() => (bulkBusy || importing) ? null : setBulkOpen(false)} />
-                      <div className="relative z-10 h-full overflow-y-auto">
-                      <div className="flex min-h-full items-center justify-center p-4">
-                        <div className="w-full max-w-4xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col max-h-[90vh]">
-                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
-                          <h3 className="text-lg font-semibold">Bulk Import Students</h3>
-                          <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" onClick={() => (bulkBusy || importing) ? null : setBulkOpen(false)}>
-                          <X className="h-5 w-5" />
-                          </button>
+      {bulkOpen && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/40" onClick={() => (bulkBusy || importing) ? null : setBulkOpen(false)} />
+          <div className="relative z-10 h-full overflow-y-auto">
+            <div className="flex min-h-full items-center justify-center p-2 sm:p-4">
+              <div className="w-full max-w-4xl bg-white dark:bg-gray-900 rounded-xl sm:rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col max-h-[95vh] sm:max-h-[90vh]">
+                {/* Header */}
+                <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 dark:border-gray-800">
+                  <h3 className="text-base sm:text-lg font-semibold">Bulk Import Students</h3>
+                  <button
+                    className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+                    onClick={() => (bulkBusy || importing) ? null : setBulkOpen(false)}
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+
+                {/* Body */}
+                <div className="px-4 sm:px-6 py-4 space-y-4 overflow-y-auto">
+                  {/* Info Box */}
+                  <div className="rounded-lg border p-3 text-xs sm:text-sm bg-indigo-50/60 dark:bg-indigo-900/20 dark:border-indigo-900/40">
+                    <div className="flex items-start gap-2">
+                      <Info className="h-4 w-4 mt-0.5 text-indigo-600 flex-shrink-0" />
+                      <div className="space-y-2">
+                        <div>
+                          Upload an <strong>.xlsx</strong> file with headers: <code className="text-xs">full_name</code>, <code className="text-xs">class_id</code>, <code className="text-xs">status</code>, <code className="text-xs">email</code>, <code className="text-xs">gender</code> (M/F), <code className="text-xs">dob</code> (YYYY-MM-DD), and optional contact fields.
                         </div>
-
-                        <div className="px-6 py-4 space-y-4 overflow-y-auto">
-                          <div className="rounded-lg border p-3 text-sm bg-indigo-50/60 dark:bg-indigo-900/20 dark:border-indigo-900/40">
-                          <div className="flex items-start gap-2">
-                            <Info className="h-4 w-4 mt-0.5 text-indigo-600" />
-                            <div>
-                            <div>
-                              Upload an <strong>.xlsx</strong> file with headers: <code>full_name</code>, <code>class_id</code>, <code>status</code>, <code>email</code>, <code>gender</code> (M/F), <code>dob</code> (YYYY-MM-DD), and optional contact fields.
-                            </div>
-                            <div className="mt-1">
-                              <b>Important:</b> Please use the <strong>class ID</strong> (not the class name) in the <code>class_id</code> column of your Excel file. See the list below for available class IDs.
-                            </div>
-                            <div className="mt-1">
-                              <b>Available Classes:</b>
-                              <ul className="ml-4 list-disc">
-                              {classes.map((c) => (
-                                <li key={String(c.class_id ?? '')}>
+                        <div>
+                          <b>Important:</b> Please use the <strong>class ID</strong> (not the class name) in the <code className="text-xs">class_id</code> column of your Excel file. See the list below for available class IDs.
+                        </div>
+                        <div>
+                          <b>Available Classes:</b>
+                          <ul className="ml-4 list-disc mt-1">
+                            {classes.map((c) => (
+                              <li key={String(c.class_id ?? '')}>
                                 <b>{c.class_id}</b> - {c.class_name}
-                                </li>
-                              ))}
-                              </ul>
-                            </div>
-                            <div className="mt-1">Your plan: <strong>{planHuman}</strong>. Remaining capacity: <strong>{isFinite(remaining) ? remaining : 'unlimited'}</strong>.</div>
-                            </div>
-                          </div>
-                          </div>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div>
+                          Your plan: <strong>{planHuman}</strong>. Remaining capacity: <strong>{isFinite(remaining) ? remaining : 'unlimited'}</strong>.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
 
-                          <div className="flex items-center gap-2">
-                          <button
-                            onClick={downloadTemplate}
-                            className="inline-flex items-center gap-2 px-3 py-2 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800"
-                          >
-                            <Download size={16} /> Download Template
-                          </button>
+                  {/* File Upload Buttons */}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <button
+                      onClick={downloadTemplate}
+                      className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border hover:bg-gray-50 dark:hover:bg-gray-800 text-sm"
+                    >
+                      <Download size={16} /> Download Template
+                    </button>
 
-                          <label className="inline-flex items-center gap-2 px-3 py-2 rounded-md border bg-white hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800 cursor-pointer">
-                            <Upload size={16} /> Choose File
-                            <input type="file" accept=".xlsx" className="hidden" onChange={handleBulkFile} />
-                          </label>
+                    <label className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border bg-white hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800 cursor-pointer text-sm">
+                      <Upload size={16} /> Choose File
+                      <input type="file" accept=".xlsx" className="hidden" onChange={handleBulkFile} />
+                    </label>
 
-                          {bulkFileName && <span className="text-sm text-gray-600">Selected: {bulkFileName}</span>}
-                          </div>
+                    {bulkFileName && (
+                      <span className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 px-2 py-1 truncate">
+                        Selected: {bulkFileName}
+                      </span>
+                    )}
+                  </div>
 
-                          {bulkErr && (
-                          <div className="flex items-start gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
-                            <AlertCircle className="mt-0.5 h-4 w-4" />
-                            <span className="text-sm">{bulkErr}</span>
-                          </div>
-                          )}
-                          {bulkOk && (
-                          <div className="flex items-start gap-2 text-emerald-700 bg-emerald-50 border-emerald-200 rounded-lg p-3">
-                            <CheckCircle2 className="mt-0.5 h-4 w-4" />
-                            <span className="text-sm">{bulkOk}</span>
-                          </div>
-                          )}
+                  {/* Error Message */}
+                  {bulkErr && (
+                    <div className="flex items-start gap-2 text-red-700 bg-red-50 border border-red-200 dark:bg-red-900/20 dark:border-red-900/40 dark:text-red-400 rounded-lg p-3">
+                      <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                      <span className="text-xs sm:text-sm">{bulkErr}</span>
+                    </div>
+                  )}
 
-                          {/* Preview table */}
+                  {/* Success Message */}
+                  {bulkOk && (
+                    <div className="flex items-start gap-2 text-emerald-700 bg-emerald-50 border border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-900/40 dark:text-emerald-400 rounded-lg p-3">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                      <span className="text-xs sm:text-sm">{bulkOk}</span>
+                    </div>
+                  )}
+
+                  {/* Preview Table - Desktop */}
                   {previewRows.length > 0 && (
-                    <div className="overflow-x-auto rounded-lg border">
-                      <table className="min-w-full text-xs">
-                        <thead className="bg-gray-50 dark:bg-gray-800">
-                          <tr>
-                            <th className="px-3 py-2 text-left">#</th>
-                            <th className="px-3 py-2 text-left">Full Name</th>
-                            <th className="px-3 py-2 text-left">Class ID</th>
-                            <th className="px-3 py-2 text-left">Email</th>
-                            <th className="px-3 py-2 text-left">Status</th>
-                            <th className="px-3 py-2 text-left">Gender</th>
-                            <th className="px-3 py-2 text-left">Result</th>
-                            <th className="px-3 py-2 text-left">Import?</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {previewRows.map((r) => (
-                            <tr key={r.idx} className="border-t">
-                              <td className="px-3 py-2">{r.idx}</td>
-                              <td className="px-3 py-2">{r.full_name}</td>
-                              <td className="px-3 py-2">{r.class_id}</td>
-                              <td className="px-3 py-2">{r.email}</td>
-                              <td className="px-3 py-2">{r.status}</td>
-                              <td className="px-3 py-2">{r.gender}</td>
-                              <td className="px-3 py-2">
-                                {r.message ? (
-                                  <span className={`inline-flex text-[11px] px-2 py-0.5 rounded ${/imported/i.test(r.message) ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                    <>
+                      <div className="hidden md:block overflow-x-auto rounded-lg border">
+                        <table className="min-w-full text-xs">
+                          <thead className="bg-gray-50 dark:bg-gray-800">
+                            <tr>
+                              <th className="px-3 py-2 text-left">#</th>
+                              <th className="px-3 py-2 text-left">Full Name</th>
+                              <th className="px-3 py-2 text-left">Class ID</th>
+                              <th className="px-3 py-2 text-left">Email</th>
+                              <th className="px-3 py-2 text-left">Status</th>
+                              <th className="px-3 py-2 text-left">Gender</th>
+                              <th className="px-3 py-2 text-left">Result</th>
+                              <th className="px-3 py-2 text-left">Import?</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {previewRows.map((r) => (
+                              <tr key={r.idx} className="border-t dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
+                                <td className="px-3 py-2">{r.idx}</td>
+                                <td className="px-3 py-2">{r.full_name}</td>
+                                <td className="px-3 py-2">{r.class_id}</td>
+                                <td className="px-3 py-2">{r.email}</td>
+                                <td className="px-3 py-2">{r.status}</td>
+                                <td className="px-3 py-2">{r.gender}</td>
+                                <td className="px-3 py-2">
+                                  {r.message ? (
+                                    <span className={`inline-flex text-[11px] px-2 py-0.5 rounded ${/imported/i.test(r.message) ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
+                                      {r.message}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-500">—</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={!!r.toImport}
+                                    onChange={(e) => {
+                                      setPreviewRows(prev => prev.map(x => x.idx === r.idx ? { ...x, toImport: e.target.checked && x.valid } : x));
+                                    }}
+                                    disabled={!r.valid || importing}
+                                    className="h-4 w-4 rounded border-gray-300"
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Preview Cards - Mobile */}
+                      <div className="md:hidden space-y-3">
+                        {previewRows.map((r) => (
+                          <div
+                            key={r.idx}
+                            className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-gray-50 dark:bg-gray-800"
+                          >
+                            <div className="flex items-start justify-between mb-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="font-semibold text-sm truncate">{r.full_name}</div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400">Row #{r.idx}</div>
+                              </div>
+                              <input
+                                type="checkbox"
+                                checked={!!r.toImport}
+                                onChange={(e) => {
+                                  setPreviewRows(prev => prev.map(x => x.idx === r.idx ? { ...x, toImport: e.target.checked && x.valid } : x));
+                                }}
+                                disabled={!r.valid || importing}
+                                className="h-5 w-5 rounded border-gray-300 mt-1"
+                              />
+                            </div>
+
+                            <div className="space-y-1.5 text-xs">
+                              <div className="flex justify-between">
+                                <span className="text-gray-600 dark:text-gray-400">Class ID:</span>
+                                <span className="font-medium">{r.class_id}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-600 dark:text-gray-400">Email:</span>
+                                <span className="font-medium truncate ml-2">{r.email}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-600 dark:text-gray-400">Status:</span>
+                                <span className="font-medium">{r.status}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-600 dark:text-gray-400">Gender:</span>
+                                <span className="font-medium">{r.gender}</span>
+                              </div>
+                              {r.message && (
+                                <div className="pt-1 mt-1 border-t border-gray-200 dark:border-gray-700">
+                                  <span className={`inline-flex text-[11px] px-2 py-1 rounded ${/imported/i.test(r.message) ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
                                     {r.message}
                                   </span>
-                                ) : (
-                                  <span className="text-gray-500">—</span>
-                                )}
-                              </td>
-                              <td className="px-3 py-2">
-                                <input
-                                  type="checkbox"
-                                  checked={!!r.toImport}
-                                  onChange={(e) => {
-                                    setPreviewRows(prev => prev.map(x => x.idx === r.idx ? { ...x, toImport: e.target.checked && x.valid } : x));
-                                  }}
-                                  disabled={!r.valid || importing}
-                                />
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
                   )}
                 </div>
 
-                <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-end gap-2">
+                {/* Footer */}
+                <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-gray-200 dark:border-gray-800 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2">
                   <button
-                    className="px-4 py-2 rounded-lg border"
+                    className="px-4 py-2 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-800 text-sm"
                     onClick={() => (bulkBusy || importing) ? null : setBulkOpen(false)}
                     disabled={bulkBusy || importing}
                   >
                     Close
                   </button>
                   <button
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-60"
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-60 text-sm"
                     onClick={doImport}
                     disabled={importing || previewRows.filter(r => r.toImport && r.valid).length === 0}
                   >

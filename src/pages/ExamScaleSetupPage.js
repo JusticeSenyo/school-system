@@ -1,7 +1,7 @@
 // src/pages/ExamScaleSetupPage.js
 import React, { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../components/dashboard/DashboardLayout";
-import { Plus, Save, Trash2, Loader2, Building2, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Plus, Save, Trash2, Loader2, Building2, AlertCircle, CheckCircle2, Edit3 } from "lucide-react";
 import { useAuth } from "../AuthContext";
 
 /* ------------ ORDS base ------------ */
@@ -289,9 +289,20 @@ export default function ExamScaleSetupPage() {
                       <td className="py-2">{r.remarks}</td>
                       <td className="py-2 text-right">
                         <div className="inline-flex items-center gap-2">
-                          <button className="px-2 py-1 border rounded-lg" onClick={() => onEdit(r)}>Edit</button>
+                          <button className="px-2 py-1 border rounded-lg sm:hidden" onClick={() => onEdit(r)}>
+                            <Edit3 className="h-4 w-4 inline-block mr-1" />
+                            </button>
+                          <button className="px-2 py-1 border rounded-lg max-sm:hidden" onClick={() => onEdit(r)}>
+                            <Edit3 className="h-4 w-4 inline-block mr-1" />
+                            Edit</button>
                           <button
-                            className="px-2 py-1 border rounded-lg text-rose-600"
+                            className="px-2 py-1 border rounded-lg text-rose-600 sm:hidden"
+                            onClick={() => onDelete(r)}
+                          >
+                            <Trash2 className="h-4 w-4 inline-block mr-1" /> 
+                          </button>
+                          <button
+                            className="px-2 py-1 border rounded-lg text-rose-600 max-sm:hidden"
                             onClick={() => onDelete(r)}
                           >
                             <Trash2 className="h-4 w-4 inline-block mr-1" /> Delete

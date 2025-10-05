@@ -40,20 +40,19 @@ const RESET_PASSWORD_API = `${HOST}/staff/reset_password/`; // GET ?p_user_id=&p
 const UPDATE_SCHOOL_API = `${HOST}/academic/update/school/`; // expects p_school_id, p_logo_url, p_signature_url
 const PACKAGES_API = `${HOST}/academic/get/packages/`;
 const SUBSCRIPTION_UPDATE_API = `${HOST}/academic/update/subscription/`; // GET
-// [TXNS] Transactions endpoint
 const TRANSACTIONS_API = `${HOST}/academic/get/transactions/`; // ?p_school_id=
 
 /* ------------ External login (redirect after logout) ------------ */
 const LOGIN_BASE = "https://app.schoolmasterhub.net//login/";
 
-/* ------------ Paystack PUBLIC key from env (client) ------------ */
-const PAYSTACK_PUBLIC_KEY =
-  process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY ||
+/* ------------ Paystack PUBLIC key (compile-time first, then runtime) ------------ */
+const COMPILED_PS_PUBLIC =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_PAYSTACK_PUBLIC_KEY) ||
   process.env.REACT_APP_PAYSTACK_PUBLIC_KEY ||
-  (typeof import.meta !== "undefined" ? import.meta.env?.VITE_PAYSTACK_PUBLIC_KEY : "") ||
+  process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY ||
   "";
 
-/* ------------ Role helpers ------------ */
+/* ------------ Role helpers & misc ------------ */
 const roleLabelFrom = (raw) => {
   const v = String(raw || "").trim().toUpperCase();
   if (v === "AD" || v.includes("ADMIN")) return "Administrator";
@@ -159,6 +158,23 @@ export default function Settings() {
     }),
     [token]
   );
+
+  // ===== NEW: Runtime Paystack key fallback =====
+  const [psKey, setPsKey] = useState(COMPILED_PS_PUBLIC || "");
+  const [psKeyLoaded, setPsKeyLoaded] = useState(!!COMPILED_PS_PUBLIC);
+
+  useEffect(() => {
+    // If not baked in at build time, fetch it from serverless at runtime.
+    if (!COMPILED_PS_PUBLIC) {
+      fetch("/api/paystack/public")
+        .then((r) => r.json())
+        .then((j) => setPsKey(j?.key || ""))
+        .catch(() => setPsKey(""))
+        .finally(() => setPsKeyLoaded(true));
+    } else {
+      setPsKeyLoaded(true);
+    }
+  }, []);
 
   // IDs
   const schoolId =
@@ -322,12 +338,15 @@ export default function Settings() {
 
   /* ---------- Password ---------- */
   const submitPassword = async () => {
-    if (!canChangePwd || !userId) return;
+    const userIdVal =
+      user?.id ?? user?.userId ?? user?.USER_ID ?? user?.staff_id ?? user?.STAFF_ID ?? null;
+
+    if (!canChangePwd || !userIdVal) return;
     setLoading(true);
     setBanner({ kind: "", msg: "" });
     try {
       const qp = new URLSearchParams({
-        p_user_id: String(userId),
+        p_user_id: String(userIdVal),
         p_password: String(pwd.next),
       });
       const url = `${RESET_PASSWORD_API}?${qp.toString()}`;
@@ -555,7 +574,14 @@ export default function Settings() {
       setBanner({ kind: "error", msg: "Invalid amount." });
       return;
     }
-    if (!PAYSTACK_PUBLIC_KEY) {
+
+    // Use runtime-fetched key if compile-time key missing
+    const publicKey = psKey;
+    if (!psKeyLoaded) {
+      setBanner({ kind: "error", msg: "Loading billing… please try again in a moment." });
+      return;
+    }
+    if (!publicKey) {
       setBanner({ kind: "error", msg: "Missing Paystack public key (env)." });
       return;
     }
@@ -588,7 +614,7 @@ export default function Settings() {
       }
 
       const handler = window.PaystackPop.setup({
-        key: PAYSTACK_PUBLIC_KEY,
+        key: publicKey,
         email,
         amount: amountSubunit,                 // subunits
         currency,
@@ -605,7 +631,7 @@ export default function Settings() {
         },
       });
 
-      handler.openIframe(); // SAME PAGE (no new tab)
+      handler.openIframe(); // SAME PAGE
     } catch (e) {
       // Fallback: same-tab redirect via our serverless init (secret stays server-side)
       try {
@@ -908,6 +934,7 @@ export default function Settings() {
   }, []);
 
   // [TXNS] Fetch transactions for this school (initial load / auth change)
+  const [txLoading2, setTxLoading2] = useState(false); // keep original names intact
   useEffect(() => {
     if (!schoolId) return;
     (async () => {
@@ -942,7 +969,7 @@ export default function Settings() {
         setTxLoading(false);
       }
     })();
-  }, [schoolId, token]); // re-run if auth changes
+  }, [schoolId, token]);
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-6 sm:py-8">
@@ -1045,6 +1072,17 @@ export default function Settings() {
                 />
               </label>
             </div>
+
+            {/* ===== Dev hint for public key ===== */}
+            {!psKey && psKeyLoaded && (
+              <div className="mt-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3 text-sm">
+                <div className="font-medium">Paystack key not found.</div>
+                <div className="mt-1">
+                  Set <code>VITE_PAYSTACK_PUBLIC_KEY</code> or <code>REACT_APP_PAYSTACK_PUBLIC_KEY</code> in Vercel env and redeploy,
+                  or ensure <code>/api/paystack/public</code> returns a value.
+                </div>
+              </div>
+            )}
 
             {/* === Branding (logo & signature) === */}
             <div className="mt-6 grid gap-4">

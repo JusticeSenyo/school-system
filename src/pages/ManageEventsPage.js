@@ -1,5 +1,5 @@
 // src/pages/ManageEvents.js
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import DashboardLayout from "../components/dashboard/DashboardLayout";
 import { useAuth } from "../AuthContext";
 import {
@@ -17,45 +17,13 @@ import {
 const HOST =
   "https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools";
 
-/* ===== Endpoints ===== */
-const EVENTS_GET_API    = `${HOST}/academic/get/event/`;     // ?p_school_id
-const EVENT_ADD_API     = `${HOST}/academic/add/event/`;     // POST form: p_school_id, p_event_name, p_event_date
-const EVENT_UPDATE_API  = `${HOST}/academic/update/event/`;  // POST form: p_event_id, p_school_id, p_event_name, p_event_date
-const EVENT_DELETE_API  = `${HOST}/academic/delete/event/`;  // POST/GET:  p_event_id
+/* ===== Endpoints (GET only) ===== */
+const EVENTS_GET_API    = `${HOST}/academic/get/event/`;     // GET  ?p_school_id
+const EVENT_ADD_API     = `${HOST}/academic/add/event/`;     // GET  ?p_school_id=&p_event_name=&p_event_date=
+const EVENT_UPDATE_API  = `${HOST}/academic/update/event/`;  // GET  ?p_event_id=&p_school_id=&p_event_name=&p_event_date=
+const EVENT_DELETE_API  = `${HOST}/academic/delete/event/`;  // GET  ?p_event_id=
 
 /* ===== helpers ===== */
-const parseJsonArray = (raw) => {
-  try {
-    const d = JSON.parse(raw);
-    return Array.isArray(d) ? d : Array.isArray(d.items) ? d.items : [];
-  } catch {
-    return [];
-  }
-};
-const jtxt = async (u, init) => {
-  const r = await fetch(u, {
-    cache: "no-store",
-    headers: { Accept: "application/json", ...(init?.headers || {}) },
-    ...init,
-  });
-  const txt = (await r.text())?.trim();
-  if (!r.ok) throw new Error(`HTTP ${r.status} — ${txt?.slice(0, 160) || ""}`);
-  return txt;
-};
-const jarr = async (u, init) => parseJsonArray(await jtxt(u, init).catch(() => "[]"));
-const postForm = async (url, data, headers = {}) => {
-  const body = new URLSearchParams();
-  Object.entries(data || {}).forEach(([k, v]) => {
-    if (v !== undefined && v !== null) body.set(k, String(v));
-  });
-  const txt = await jtxt(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", ...headers },
-    body,
-  });
-  // Some blocks don’t return JSON; that’s okay.
-  return txt;
-};
 const toISODate = (v) => {
   if (!v) return "";
   const d = new Date(v);
@@ -63,18 +31,35 @@ const toISODate = (v) => {
   return d.toISOString().slice(0, 10);
 };
 
+const buildUrl = (base, params) => {
+  const qs = new URLSearchParams();
+  Object.entries(params || {}).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && String(v).length) qs.set(k, String(v));
+  });
+  return `${base}?${qs.toString()}`;
+};
+
+// GET fetch that avoids custom headers (to prevent CORS preflight)
+const getText = async (url) => {
+  const res = await fetch(url, { method: "GET", cache: "no-store" });
+  const txt = (await res.text())?.trim();
+  if (!res.ok) throw new Error(`HTTP ${res.status} — ${(txt || "").slice(0, 160)}`);
+  return txt;
+};
+
+const parseArray = (rawText) => {
+  try {
+    const d = JSON.parse(rawText);
+    return Array.isArray(d) ? d : Array.isArray(d.items) ? d.items : [];
+  } catch {
+    return [];
+  }
+};
+
 export default function ManageEvents() {
-  const { user, token } = useAuth() || {};
+  const { user } = useAuth() || {};
   const schoolId =
     user?.schoolId ?? user?.school_id ?? user?.school?.id ?? null;
-
-  const H = useMemo(
-    () =>
-      token
-        ? { headers: { Authorization: `Bearer ${token}` } }
-        : {},
-    [token]
-  );
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -103,8 +88,8 @@ export default function ManageEvents() {
     setRefreshing(true);
     setErr("");
     try {
-      const url = `${EVENTS_GET_API}?p_school_id=${encodeURIComponent(schoolId)}`;
-      const rows = await jarr(url, H);
+      const url = buildUrl(EVENTS_GET_API, { p_school_id: schoolId });
+      const rows = parseArray(await getText(url));
       const norm = rows
         .map((r) => ({
           event_id: r.event_id ?? r.EVENT_ID,
@@ -127,7 +112,7 @@ export default function ManageEvents() {
     setLoading(true);
     loadEvents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schoolId, token]);
+  }, [schoolId]);
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -136,26 +121,22 @@ export default function ManageEvents() {
     setErr("");
     try {
       if (editingId) {
-        await postForm(
-          EVENT_UPDATE_API,
-          {
-            p_event_id: editingId,
-            p_school_id: schoolId,
-            p_event_name: eventName.trim(),
-            p_event_date: eventDate,
-          },
-          H.headers
-        );
+        // UPDATE (GET)
+        const url = buildUrl(EVENT_UPDATE_API, {
+          p_event_id: editingId,
+          p_school_id: schoolId,
+          p_event_name: eventName.trim(),
+          p_event_date: eventDate, // YYYY-MM-DD
+        });
+        await getText(url);
       } else {
-        await postForm(
-          EVENT_ADD_API,
-          {
-            p_school_id: schoolId,
-            p_event_name: eventName.trim(),
-            p_event_date: eventDate,
-          },
-          H.headers
-        );
+        // ADD (GET)
+        const url = buildUrl(EVENT_ADD_API, {
+          p_school_id: schoolId,
+          p_event_name: eventName.trim(),
+          p_event_date: eventDate, // YYYY-MM-DD
+        });
+        await getText(url);
       }
       resetForm();
       await loadEvents();
@@ -175,12 +156,9 @@ export default function ManageEvents() {
     if (!window.confirm(`Delete event "${ev.event_name}"?`)) return;
     setErr("");
     try {
-      // ORDS block supports DELETE via provided PL/SQL; POST is safe for CORS
-      await postForm(
-        EVENT_DELETE_API,
-        { p_event_id: ev.event_id },
-        H.headers
-      );
+      // DELETE (GET)
+      const url = buildUrl(EVENT_DELETE_API, { p_event_id: ev.event_id });
+      await getText(url);
       await loadEvents();
     } catch (e1) {
       setErr(e1?.message || "Failed to delete event.");

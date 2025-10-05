@@ -33,6 +33,7 @@ const ManageStaffPage = lazy(() => import('./pages/ManageStaffPage'));
 const ManageStudentsPage = lazy(() => import('./pages/ManageStudentsPage'));
 const AttendancePage = lazy(() => import('./pages/AttendancePage'));
 const ManageAttendancePage = lazy(() => import('./pages/ManageAttendancePage'));
+const ManageEventsPage = lazy(() => import('./pages/ManageEventsPage'));
 
 // Fees pages
 const ManageFeesPage = lazy(() => import('./pages/ManageFeesPage'));
@@ -97,6 +98,7 @@ const RoleRoute = ({ allowed = [], children }) => {
   }
   return children;
 };
+
 
 // Extra feature-gate for "class teacher only" pages when role is teacher
 const FeatureRoute = ({ requireClassTeacher = false, children }) => {
@@ -197,6 +199,21 @@ const AppRoutes = () => {
     </ProtectedRoute>
   }
 />
+
+{/* Manage Events: Admin + Headteacher only */}
+<Route
+  path="/dashboard/manage-events"
+  element={
+    <ProtectedRoute>
+      <RoleRoute allowed={['admin', 'headteacher']}>
+        <Suspense fallback={<DashboardLoading />}>
+          <ManageEventsPage />
+        </Suspense>
+      </RoleRoute>
+    </ProtectedRoute>
+  }
+/>
+
 
 
       {/* Manage Staff (same as before) */}

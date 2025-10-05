@@ -46,10 +46,12 @@ const TRANSACTIONS_API = `${HOST}/academic/get/transactions/`; // ?p_school_id=
 /* ------------ External login (redirect after logout) ------------ */
 const LOGIN_BASE = "https://app.schoolmasterhub.net//login/";
 
-/* ------------ Paystack (TEST KEYS) ------------ */
-/* ⚠️ Test only. Move SECRET to backend for production. */
-const PAYSTACK_PUBLIC_KEY = "pk_test_35edc9a2e57cde6ac30c218013addc08f108365c";
-const PAYSTACK_SECRET_KEY = "sk_test_1b800a192fa1015a486636be538d8dae94588e49";
+/* ------------ Paystack PUBLIC key from env (client) ------------ */
+const PAYSTACK_PUBLIC_KEY =
+  process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY ||
+  process.env.REACT_APP_PAYSTACK_PUBLIC_KEY ||
+  (typeof import.meta !== "undefined" ? import.meta.env?.VITE_PAYSTACK_PUBLIC_KEY : "") ||
+  "";
 
 /* ------------ Role helpers ------------ */
 const roleLabelFrom = (raw) => {
@@ -215,7 +217,7 @@ export default function Settings() {
   const [pendingRef, setPendingRef] = useState(null);
   const [verifying, setVerifying] = useState(false);
   const [pollCount, setPollCount] = useState(0);
-  const [billingResult, setBillingResult] = useState(null); // thank-you view (kept per your file)
+  const [billingResult, setBillingResult] = useState(null);
 
   // Currency from auth (authoritative)
   const accountCurrency =
@@ -516,7 +518,7 @@ export default function Settings() {
   const previewExpiry = addMonthsUTC(effectiveBase, months);
   const previewExpiryISO = formatISO(previewExpiry);
 
-  // ===== Paystack (inline only; fallback to same tab redirect) =====
+  // ===== Paystack (inline) + fallback via Vercel API =====
   const buildReference = () =>
     `SCH-${schoolId || "NA"}-${Date.now()}-${Math.random().toString(36).slice(2,8)}`.replace(/[^a-zA-Z0-9.\-=]/g,"");
 
@@ -551,6 +553,10 @@ export default function Settings() {
     }
     if (!totalAmount || totalAmount <= 0) {
       setBanner({ kind: "error", msg: "Invalid amount." });
+      return;
+    }
+    if (!PAYSTACK_PUBLIC_KEY) {
+      setBanner({ kind: "error", msg: "Missing Paystack public key (env)." });
       return;
     }
 
@@ -601,7 +607,7 @@ export default function Settings() {
 
       handler.openIframe(); // SAME PAGE (no new tab)
     } catch (e) {
-      // Fallback: same-tab redirect (still no new tab)
+      // Fallback: same-tab redirect via our serverless init (secret stays server-side)
       try {
         const callback_url = `${window.location.origin}/settings?pscb=1`;
         const payload = {
@@ -611,14 +617,11 @@ export default function Settings() {
           channels: channelsForCurrency(String(accountCurrency).toUpperCase()),
           reference: localStorage.getItem(LS_REF_KEY) || buildReference(),
           callback_url,
-          metadata: JSON.stringify(readPendingMeta() || {}),
+          metadata: readPendingMeta() || {},
         };
-        const initRes = await fetch("https://api.paystack.co/transaction/initialize", {
+        const initRes = await fetch("/api/paystack/init", {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
         const initJson = await initRes.json();
@@ -738,14 +741,8 @@ export default function Settings() {
     }
     setVerifying(true);
     try {
-      // Verify with Paystack
-      const vRes = await fetch(
-        `https://api.paystack.co/transaction/verify/${encodeURIComponent(ref)}`,
-        {
-          method: "GET",
-          headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` },
-        }
-      );
+      // Verify via our serverless function (secret stays server-side)
+      const vRes = await fetch(`/api/paystack/verify?ref=${encodeURIComponent(ref)}`);
       const vJson = await vRes.json();
       if (!vJson?.status) throw new Error(vJson?.message || "Verification failed.");
       const data = vJson.data;
@@ -775,7 +772,7 @@ export default function Settings() {
         if (localMeta) meta = localMeta;
       }
 
-      const mMonths = Math.min(Number(meta?.months) || months, MAX_MONTHS);
+      const mMonths = Math.min(Number(meta?.months) ||  months, MAX_MONTHS);
       const mPackage = Number(meta?.package) || billing.targetPackage;
       const mPackageName =
         meta?.package_name ||
@@ -803,7 +800,7 @@ export default function Settings() {
         p_message: String(message || "Paid"),
         p_requested_by: requestedByNumber != null ? String(requestedByNumber) : "",
         p_paid_at: formatDateOnly(paid_at), // YYYY-MM-DD
-        p_next_expiry: mNextExpiry, // YYYY-MM-DD
+        p_next_expiry: mNextExpiry,         // YYYY-MM-DD
       };
       const qp = new URLSearchParams(dbPayload).toString();
       const resp = await fetch(`${SUBSCRIPTION_UPDATE_API}?${qp}`, {
@@ -815,7 +812,7 @@ export default function Settings() {
         throw new Error(errText || "Failed to update subscription in DB (GET).");
       }
 
-      // Refresh plan
+      // Refresh plan (ignore errors)
       try {
         const schools = await jarr(SCHOOLS_LIST_API);
         if (schools?.length && schoolId) {
@@ -848,7 +845,7 @@ export default function Settings() {
       setVerifying(false);
       setBanner({ kind: "success", msg: "Payment verified and subscription updated." });
 
-      // Fire-and-forget email (don’t block UI)
+      // Fire-and-forget email
       sendReceiptEmail(result);
 
       clearPending();
@@ -1574,31 +1571,23 @@ export default function Settings() {
                       <div className="text-sm text-gray-700 dark:text-gray-300 space-y-1.5">
                         <Row
                           label="Detected Action"
-                          value={
-                            pkgRank(billing.targetPackage) > currentPkgRank ? "UPGRADE" : "EXTEND"
-                          }
+                          value={pkgRank(billing.targetPackage) > currentPkgRank ? "UPGRADE" : "EXTEND"}
                           emphasize
                         />
                         <Row label="Currency" value={String(accountCurrency).toUpperCase()} />
                         <Row
                           label="Monthly Price"
-                          value={`${String(accountCurrency).toUpperCase()} ${Number(
-                            monthlyPrice || 0
-                          ).toLocaleString()}`}
+                          value={`${String(accountCurrency).toUpperCase()} ${Number(monthlyPrice || 0).toLocaleString()}`}
                         />
                         <Row label="Duration" value={`${months} month(s)`} />
                         <Row
                           label="Subtotal"
-                          value={`${String(accountCurrency).toUpperCase()} ${Number(
-                            subtotal || 0
-                          ).toLocaleString()}`}
+                          value={`${String(accountCurrency).toUpperCase()} ${Number(subtotal || 0).toLocaleString()}`}
                         />
                         {discountRate > 0 && (
                           <Row
                             label={`Discount (${Math.round(discountRate * 100)}%)`}
-                            value={`- ${String(accountCurrency).toUpperCase()} ${Number(
-                              discount || 0
-                            ).toLocaleString()}`}
+                            value={`- ${String(accountCurrency).toUpperCase()} ${Number(discount || 0).toLocaleString()}`}
                           />
                         )}
                         <div className="flex items-center justify-between border-t dark:border-gray-700 pt-2">

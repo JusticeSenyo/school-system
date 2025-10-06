@@ -56,7 +56,7 @@ const COMPILED_PS_PUBLIC =
 const SUPPORT_EMAIL =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPPORT_EMAIL) ||
   process.env.REACT_APP_SUPPORT_EMAIL ||
-  "support@schoolmasterhub.net";
+  "info@schoolmasterhub.net";
 
 /* ------------ Role helpers & misc ------------ */
 const roleLabelFrom = (raw) => {
@@ -1545,7 +1545,7 @@ export default function Settings() {
 
                   <div className="mt-4 rounded-lg border p-3 bg-gray-50 dark:bg-gray-900 dark:border-gray-700 text-sm space-y-1.5">
                     <Row label="Requester" value={`${fullName || "—"} (${email || "—"})`} />
-                    <Row label="School" value={`${schoolName || "—"} (ID: ${schoolId || "—"})`} />
+                    <Row label="School" value={`${schoolName || "—"} `} />
                     <Row label="Requested Package" value="Premium" />
                     <Row label="Duration" value={`${months} month(s)`} />
                     <Row label="Currency" value={String(accountCurrency).toUpperCase()} />

@@ -52,6 +52,12 @@ const COMPILED_PS_PUBLIC =
   process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY ||
   "";
 
+/* ------------ Support email for Premium requests ------------ */
+const SUPPORT_EMAIL =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPPORT_EMAIL) ||
+  process.env.REACT_APP_SUPPORT_EMAIL ||
+  "support@schoolmasterhub.net";
+
 /* ------------ Role helpers & misc ------------ */
 const roleLabelFrom = (raw) => {
   const v = String(raw || "").trim().toUpperCase();
@@ -229,11 +235,15 @@ export default function Settings() {
     months: 12,
   });
 
-  // Payment flow states
+  // Payment/request flow states
   const [pendingRef, setPendingRef] = useState(null);
   const [verifying, setVerifying] = useState(false);
   const [pollCount, setPollCount] = useState(0);
   const [billingResult, setBillingResult] = useState(null);
+
+  // Premium request states
+  const [premiumRequested, setPremiumRequested] = useState(false);
+  const [premiumError, setPremiumError] = useState("");
 
   // Currency from auth (authoritative)
   const accountCurrency =
@@ -420,6 +430,10 @@ export default function Settings() {
   const currentPkgName =
     pkgNum === 1 ? "Basic" : pkgNum === 2 ? "Standard" : pkgNum === 3 ? "Premium" : String(plan.package ?? "—");
 
+  const isPremiumSelected =
+    Number(billing.targetPackage) === 3 ||
+    normalizePkgName(billing.targetPackage) === "Premium";
+
   // Branding helpers
   const extFromName = (name) => {
     const e = String(name || "").split(".").pop()?.toLowerCase();
@@ -561,7 +575,80 @@ export default function Settings() {
     } catch { return null; }
   };
 
+  // ---- Premium request email helpers (NO mailto) ----
+  const buildPremiumEmail = () => {
+    const subject = `Premium Upgrade Request - ${schoolName || "School"} (ID: ${schoolId})`;
+    const lines = [
+      `Hello Team,`,
+      ``,
+      `A Premium upgrade has been requested via Settings.`,
+      ``,
+      `Requester: ${fullName || "Unknown"} <${email || "no-email"}>`,
+      `School: ${schoolName || "—"} (ID: ${schoolId})`,
+      `Current Package: ${currentPkgName}`,
+      `Requested Package: Premium`,
+      `Duration: ${months} month(s)`,
+      `Currency: ${String(accountCurrency).toUpperCase()}`,
+      monthlyPrice ? `Current Premium Monthly Price (for ref): ${String(accountCurrency).toUpperCase()} ${Number(monthlyPrice).toLocaleString()}` : null,
+      `Projected New Expiry: ${previewExpiryISO}`,
+      ``,
+      `Please reach out to the requester to complete Premium onboarding and billing.`,
+      ``,
+      `— Automated message from School Master Hub`,
+    ].filter(Boolean).join("\n");
+    return { subject, body: lines };
+  };
+
+  const requestPremiumUpgrade = async () => {
+    if (!schoolId) {
+      setPremiumError("Missing school ID.");
+      return;
+    }
+    if (!email) {
+      setPremiumError("Missing requester email.");
+      return;
+    }
+
+    setPremiumError("");
+    setBillingBusy(true);
+
+    const { subject, body } = buildPremiumEmail();
+
+    try {
+      // Use your backend mail endpoint (no mailto fallback)
+      const res = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: [SUPPORT_EMAIL, email].filter(Boolean),
+          subject,
+          message: body,
+          fromName: schoolName || "School Master Hub",
+        }),
+      });
+
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(t || "Failed to send Premium request email.");
+      }
+
+      setPremiumRequested(true);
+      setBanner({ kind: "success", msg: "Premium request sent. We’ll contact you to onboard." });
+      setTimeout(() => setBanner({ kind: "", msg: "" }), 6000);
+    } catch (e) {
+      setPremiumError(e?.message || "Unable to send Premium request.");
+    } finally {
+      setBillingBusy(false);
+    }
+  };
+
   const startPaystackPayment = async () => {
+    if (isPremiumSelected) {
+      // Guard: Premium never uses Paystack directly
+      setPremiumError("Premium requires assisted onboarding. Please use the Request button.");
+      return;
+    }
+
     if (!schoolId) {
       setBanner({ kind: "error", msg: "Missing school ID." });
       return;
@@ -575,7 +662,6 @@ export default function Settings() {
       return;
     }
 
-    // Use runtime-fetched key if compile-time key missing
     const publicKey = psKey;
     if (!psKeyLoaded) {
       setBanner({ kind: "error", msg: "Loading billing… please try again in a moment." });
@@ -686,6 +772,7 @@ export default function Settings() {
         `Thank you for using School Master Hub.`,
       ].join("\n");
 
+      // Keep existing receipt endpoint (adjust if your backend expects /send-mail here too)
       await fetch("/api/send-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1241,6 +1328,8 @@ export default function Settings() {
                       await loadPackages();
                       setBillingResult(null);
                       setVerifying(false);
+                      setPremiumRequested(false);
+                      setPremiumError("");
                       setPollCount(0);
                       setBillingOpen(true);
                     }}
@@ -1418,6 +1507,8 @@ export default function Settings() {
                   <Package className="h-5 w-5" />{" "}
                   {billingResult?.status === "success"
                     ? "Payment Successful"
+                    : premiumRequested
+                    ? "Premium Request Sent"
                     : verifying
                     ? "Waiting for Payment"
                     : "Plan Change"}
@@ -1428,6 +1519,8 @@ export default function Settings() {
                     setBillingOpen(false);
                     setBillingResult(null);
                     setVerifying(false);
+                    setPremiumRequested(false);
+                    setPremiumError("");
                   }}
                   aria-label="Close"
                 >
@@ -1435,8 +1528,44 @@ export default function Settings() {
                 </button>
               </div>
 
-              {/* Thank You view */}
-              {billingResult?.status === "success" ? (
+              {/* Premium request success view */}
+              {premiumRequested ? (
+                <div className="p-6">
+                  <div className="flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-900/20">
+                    <CheckCircle2 className="h-6 w-6 text-emerald-600 mt-0.5" />
+                    <div>
+                      <div className="font-semibold text-emerald-800 dark:text-emerald-200">
+                        Thanks! Your Premium upgrade request was sent.
+                      </div>
+                      <div className="text-sm text-emerald-900/80 dark:text-emerald-200/80 mt-1">
+                        Our team will reach out to complete onboarding and billing.
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-lg border p-3 bg-gray-50 dark:bg-gray-900 dark:border-gray-700 text-sm space-y-1.5">
+                    <Row label="Requester" value={`${fullName || "—"} (${email || "—"})`} />
+                    <Row label="School" value={`${schoolName || "—"} (ID: ${schoolId || "—"})`} />
+                    <Row label="Requested Package" value="Premium" />
+                    <Row label="Duration" value={`${months} month(s)`} />
+                    <Row label="Currency" value={String(accountCurrency).toUpperCase()} />
+                    <Row label="Projected New Expiry" value={previewExpiryISO} />
+                  </div>
+
+                  <div className="mt-5 flex justify-end">
+                    <button
+                      onClick={() => {
+                        setBillingOpen(false);
+                        setPremiumRequested(false);
+                      }}
+                      className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              ) : billingResult?.status === "success" ? (
+                // Thank You view (Paystack success)
                 <div className="p-6">
                   <div className="flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-900/20">
                     <CheckCircle2 className="h-6 w-6 text-emerald-600 mt-0.5" />
@@ -1560,6 +1689,20 @@ export default function Settings() {
                 // Selection & summary view
                 <>
                   <div className="p-5 space-y-5">
+                    {/* Premium info banner */}
+                    {isPremiumSelected && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                        Premium requires assisted onboarding. We’ll send a request email to our team (and a copy to you). No payment will be taken now.
+                      </div>
+                    )}
+
+                    {/* Inline error for Premium path */}
+                    {isPremiumSelected && premiumError && (
+                      <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+                        {premiumError}
+                      </div>
+                    )}
+
                     {/* LOVs */}
                     <div className="grid sm:grid-cols-2 gap-4">
                       <div>
@@ -1618,23 +1761,27 @@ export default function Settings() {
                           value={`${String(accountCurrency).toUpperCase()} ${Number(monthlyPrice || 0).toLocaleString()}`}
                         />
                         <Row label="Duration" value={`${months} month(s)`} />
-                        <Row
-                          label="Subtotal"
-                          value={`${String(accountCurrency).toUpperCase()} ${Number(subtotal || 0).toLocaleString()}`}
-                        />
-                        {discountRate > 0 && (
-                          <Row
-                            label={`Discount (${Math.round(discountRate * 100)}%)`}
-                            value={`- ${String(accountCurrency).toUpperCase()} ${Number(discount || 0).toLocaleString()}`}
-                          />
+                        {!isPremiumSelected && (
+                          <>
+                            <Row
+                              label="Subtotal"
+                              value={`${String(accountCurrency).toUpperCase()} ${Number(subtotal || 0).toLocaleString()}`}
+                            />
+                            {discountRate > 0 && (
+                              <Row
+                                label={`Discount (${Math.round(discountRate * 100)}%)`}
+                                value={`- ${String(accountCurrency).toUpperCase()} ${Number(discount || 0).toLocaleString()}`}
+                              />
+                            )}
+                            <div className="flex items-center justify-between border-t dark:border-gray-700 pt-2">
+                              <span>Total</span>
+                              <span className="font-semibold">
+                                {String(accountCurrency).toUpperCase()}{" "}
+                                {Number(totalAmount || 0).toLocaleString()}
+                              </span>
+                            </div>
+                          </>
                         )}
-                        <div className="flex items-center justify-between border-t dark:border-gray-700 pt-2">
-                          <span>Total</span>
-                          <span className="font-semibold">
-                            {String(accountCurrency).toUpperCase()}{" "}
-                            {Number(totalAmount || 0).toLocaleString()}
-                          </span>
-                        </div>
                         <div className="mt-2 pt-2 border-t dark:border-gray-700 flex items-center justify-between">
                           <span>
                             {pkgRank(billing.targetPackage) > currentPkgRank
@@ -1647,8 +1794,9 @@ export default function Settings() {
                     </div>
 
                     <p className="text-xs text-gray-500">
-                      We'll use a secure Paystack popup on this page. If your browser blocks it,
-                      we'll redirect in this same tab.
+                      {isPremiumSelected
+                        ? "No payment will be taken online for Premium. We’ll contact you to finalize onboarding and billing."
+                        : "We'll use a secure Paystack popup on this page. If your browser blocks it, we'll redirect in this same tab."}
                     </p>
                   </div>
 
@@ -1657,18 +1805,22 @@ export default function Settings() {
                       onClick={() => {
                         setBillingOpen(false);
                         setBillingResult(null);
+                        setPremiumRequested(false);
+                        setPremiumError("");
                       }}
                       className="px-4 py-2 rounded-lg border bg-white dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
                     >
                       Cancel
                     </button>
                     <button
-                      onClick={startPaystackPayment}
+                      onClick={isPremiumSelected ? requestPremiumUpgrade : startPaystackPayment}
                       disabled={billingBusy}
                       className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 inline-flex items-center gap-2"
                     >
                       {billingBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                      {billingBusy ? "Starting…" : "Proceed to Billing"}
+                      {billingBusy
+                        ? (isPremiumSelected ? "Sending…" : "Starting…")
+                        : (isPremiumSelected ? "Request Premium Upgrade" : "Proceed to Billing")}
                     </button>
                   </div>
                 </>

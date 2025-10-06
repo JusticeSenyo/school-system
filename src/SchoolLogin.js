@@ -171,7 +171,7 @@ export default function SchoolLogin() {
               </div>
             ))}
         </div>
-        <div className="text-sm text-blue-200">© 2025 SchoolMaster Hub. All rights reserved.</div>
+        <div className="text-sm text-blue-200">© 2025 SchoolMaster Hub. All rights reserved. Powered by <a href="https://www.johrit.tech" target="_blank" rel="noopener noreferrer">Johrit Technology</a></div>
       </div>
 
       {/* Right Panel - Login Form */}

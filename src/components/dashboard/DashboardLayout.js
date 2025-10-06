@@ -1,4 +1,4 @@
-// components/dashboard/DashboardLayout.js
+// src/components/dashboard/DashboardLayout.js
 import React, { useMemo, useState, useEffect } from "react";
 import Sidebar from "./Sidebar";
 import { useAuth } from "../../AuthContext";
@@ -7,12 +7,16 @@ import { useNavigate } from "react-router-dom";
 import { useTheme } from "../../contexts/ThemeContext";
 import { roleBasedMenus } from "../../constants/roleBasedMenus";
 
+// 👇 Add the tour component (path is correct for this file location)
+import OnboardingTourDriver from "../OnboardingTourDriver";
+
 const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false); // mobile overlay
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false); // desktop mini/full
   const [query, setQuery] = useState("");
+  const [runTour, setRunTour] = useState(false); // ⬅️ run first-login tour
   const navigate = useNavigate();
 
   // 🔒 Prevent body scroll when mobile sidebar is open
@@ -26,6 +30,19 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
       document.body.style.overflow = "";
     };
   }, [isSidebarOpen]);
+
+  // 🎯 First-time login tour (per user)
+  useEffect(() => {
+    const uid =
+      user?.user_id ?? user?.id ?? user?.USER_ID ?? user?.email ?? "anon";
+    const TOUR_KEY = `smh:tour:v1:${uid}`;
+    const seen = localStorage.getItem(TOUR_KEY);
+    if (!seen) {
+      const t = setTimeout(() => setRunTour(true), 300); // delay so DOM is ready
+      localStorage.setItem(TOUR_KEY, "1");
+      return () => clearTimeout(t);
+    }
+  }, [user]);
 
   const role = String(user?.userType || "guest").toLowerCase();
   const menusForRole = roleBasedMenus[role] || [];
@@ -91,6 +108,7 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
       <div
         className={`fixed inset-y-0 left-0 z-40 w-64 transform bg-white dark:bg-gray-900 shadow-lg transition-transform duration-300 xl:hidden
           ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
+        data-tour="sidebar"
       >
         <div className="flex flex-col h-full overflow-y-auto">
           <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
@@ -123,7 +141,7 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
 
       {/* 📌 Desktop sidebar */}
       <div className="hidden xl:flex">
-        <div className="fixed top-0 left-0 h-screen z-30">
+        <div className="fixed top-0 left-0 h-screen z-30" data-tour="sidebar">
           <Sidebar
             isCollapsed={isSidebarCollapsed}
             onExpand={() => setIsSidebarCollapsed(false)}
@@ -143,6 +161,7 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
           <div className="flex items-center space-x-2">
             {/* Mobile menu button */}
             <button
+              data-tour="sidebar-toggle"
               onClick={() => setIsSidebarOpen(true)}
               className="xl:hidden p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
             >
@@ -151,6 +170,7 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
 
             {/* Desktop collapse button */}
             <button
+              data-tour="sidebar-toggle"
               onClick={toggleSidebar}
               className="hidden xl:inline-flex p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
             >
@@ -173,6 +193,7 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
             <form onSubmit={handleSearch} className="relative hidden sm:block">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
               <input
+                data-tour="search"
                 type="text"
                 placeholder="Search pages…"
                 value={query}
@@ -183,6 +204,7 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
             </form>
 
             <button
+              data-tour="theme-toggle"
               onClick={toggleTheme}
               className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
             >
@@ -190,7 +212,7 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
             </button>
 
             {/* User info */}
-            <div className="flex items-center space-x-2 flex-wrap">
+            <div className="flex items-center space-x-2 flex-wrap" data-tour="user-menu">
               <div className="text-right hidden md:block">
                 <p className="text-sm font-medium truncate max-w-[100px]">
                   {user?.name || "User"}
@@ -205,6 +227,7 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
               </div>
 
               <button
+                data-tour="logout"
                 onClick={handleLogout}
                 className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
               >
@@ -214,8 +237,13 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
           </div>
         </header>
 
-        <main className="flex-1 p-4 overflow-auto">{children}</main>
+        <main className="flex-1 p-4 overflow-auto" data-tour="content">
+          {children}
+        </main>
       </div>
+
+      {/* 🎉 First-login walk-through */}
+      <OnboardingTourDriver run={runTour} onClose={() => setRunTour(false)} />
     </div>
   );
 };

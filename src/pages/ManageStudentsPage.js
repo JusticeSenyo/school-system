@@ -5,7 +5,7 @@ import {
   PlusCircle, X, Mail, UserCircle2,
   Loader2, CheckCircle2, AlertCircle, RefreshCcw as RotateCcw, Pencil,
   Download, Search, KeyRound, Eye, Image as ImageIcon, Printer,
-  Hash, Users, Phone, Upload, Info, GraduationCap,Filter
+  Hash, Users, Phone, Upload, Info, GraduationCap, Filter, Trash2
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../AuthContext';
@@ -38,6 +38,8 @@ const RESET_STUDENT_PWD_ENDPOINT =
   'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/student/reset_password/';
 const TEMP_PASS_ENDPOINT =
   'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/security/temp/pass/';
+const DELETE_STUDENT_ENDPOINT =
+  'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/student/delete/student/';
 
 /* ================== Email sender ================== */
 const EMAIL_API_BASE = 'https://schoolmasterhub.vercel.app';
@@ -228,7 +230,6 @@ export default function ManageStudentsPage() {
   // mobile
   const [showMobileFilters, setShowMobileFilters] = useState(false);
 
-
   // Dialogs
   const [isOpen, setIsOpen] = useState(false);
   const [dialogMode, setDialogMode] = useState('add');
@@ -251,6 +252,9 @@ export default function ManageStudentsPage() {
 
   // Reset password
   const [resettingId, setResettingId] = useState(null);
+
+  // Delete student
+  const [deletingId, setDeletingId] = useState(null);
 
   // Info dialog
   const [isInfoOpen, setIsInfoOpen] = useState(false);
@@ -749,6 +753,66 @@ export default function ManageStudentsPage() {
     }
   };
 
+  /* ---------- Delete student (robust) ---------- */
+  const deleteStudent = async (row) => {
+    if (!row?.id) return;
+    const label = row.full_name || row.email || `ID ${row.id}`;
+    if (!window.confirm(`Delete student "${label}" permanently?\n\nThis cannot be undone.`)) return;
+
+    setDeletingId(row.id);
+    try {
+      // Try GET first with expected param
+      const attempts = [
+        { method: 'GET', url: toUrl(DELETE_STUDENT_ENDPOINT, { p_student_id: String(row.id) }) },
+        // (Optionally try other keys if backend varies)
+        { method: 'GET', url: toUrl(DELETE_STUDENT_ENDPOINT, { p_id: String(row.id) }) },
+      ];
+
+      let ok = false, lastErr = '';
+      for (const a of attempts) {
+        try {
+          const r = await fetch(a.url, { method: a.method, headers: { Accept: 'application/json' }, cache: 'no-store' });
+          const t = await r.text();
+          let j = null; try { j = JSON.parse(t); } catch {}
+          if (r.ok && (j == null || j?.success !== false || j?.ok !== false)) { ok = true; break; }
+          lastErr = j?.error || t || `HTTP ${r.status}`;
+        } catch (e) { lastErr = e?.message || String(e); }
+      }
+
+      // Fallback: POST form-encoded
+      if (!ok) {
+        try {
+          const body = new URLSearchParams({ p_student_id: String(row.id) }).toString();
+          const r = await fetch(DELETE_STUDENT_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+            body
+          });
+          const t = await r.text();
+          let j = null; try { j = JSON.parse(t); } catch {}
+          if (r.ok && (j == null || j?.success !== false || j?.ok !== false)) {
+            ok = true;
+          } else {
+            const msg = j?.error || t || `HTTP ${r.status}`;
+            throw new Error(msg);
+          }
+        } catch (e) {
+          lastErr = e?.message || String(e);
+        }
+      }
+
+      if (!ok) throw new Error(mapOracleError(lastErr) || lastErr);
+
+      // Optimistic remove, then refresh to be certain.
+      setStudents(prev => prev.filter(s => String(s.id) !== String(row.id)));
+      await fetchStudents();
+    } catch (e) {
+      alert(`Failed to delete student: ${e?.message || 'Unknown error'}`);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   /* ---------- Reset password & email (PREMIUM ONLY) ---------- */
   const resetPasswordForStudent = async (studentId, newPassword) => {
     const url = toUrl(RESET_STUDENT_PWD_ENDPOINT, {
@@ -1166,7 +1230,6 @@ export default function ManageStudentsPage() {
         </div>
       )}
 
-
       {/* Responsive Student Display */}
       {/* Desktop Table View */}
       <div className="hidden lg:block overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm">
@@ -1223,11 +1286,22 @@ export default function ManageStudentsPage() {
                     <button
                       onClick={() => premiumOnly ? null : resetAndSend(s)}
                       disabled={premiumOnly || resettingId === s.id}
-                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border ${premiumOnly ? 'opacity-60 cursor-not-allowed' : 'text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'}`}
+                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border ${premiumOnly ? 'opacity-60 cursor-not-allowed' : 'text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'} text-xs`}
                       title={premiumOnly ? 'Premium plan required for Reset & Send' : 'Reset password & email credentials'}
                     >
                       {resettingId === s.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound size={14} />}
                       {resettingId === s.id ? 'Resetting…' : 'Reset & Send'}
+                    </button>
+
+                    <button
+                      onClick={() => deleteStudent(s)}
+                      disabled={deletingId === s.id}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md border text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-900/20 disabled:opacity-60 text-xs"
+                      title="Delete permanently"
+                      type="button"
+                    >
+                      {deletingId === s.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 size={14} />}
+                      Delete
                     </button>
                   </div>
                   {premiumOnly && (
@@ -1302,11 +1376,21 @@ export default function ManageStudentsPage() {
               <button
                 onClick={() => premiumOnly ? null : resetAndSend(s)}
                 disabled={premiumOnly || resettingId === s.id}
-                className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border ${premiumOnly ? 'opacity-60 cursor-not-allowed' : 'text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'}`}
+                className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border ${premiumOnly ? 'opacity-60 cursor-not-allowed' : 'text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'} flex-1 justify-center sm:flex-none text-sm`}
                 title={premiumOnly ? 'Premium plan required for Reset & Send' : 'Reset password & email credentials'}
               >
                 {resettingId === s.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound size={14} />}
                 {resettingId === s.id ? 'Resetting…' : 'Reset & Send'}
+              </button>
+              <button
+                onClick={() => deleteStudent(s)}
+                disabled={deletingId === s.id}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-md border text-rose-700 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-900/20 disabled:opacity-60 flex-1 justify-center sm:flex-none text-sm"
+                title="Delete permanently"
+                type="button"
+              >
+                {deletingId === s.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 size={14} />}
+                Delete
               </button>
               {premiumOnly && (
                 <div className="mt-1 flex items-center gap-1 text-xs text-gray-500">
@@ -1370,14 +1454,14 @@ export default function ManageStudentsPage() {
 
                     <label className="grid gap-1">
                       <span className="text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
-                        <Mail className="h-4 w-4" /> Email
+                        <Mail className="h-4 w-4" />Primary Email
                       </span>
                       <input
                         type="email"
                         className="border rounded-lg px-3 py-2 bg-white dark:bg-gray-800"
                         value={form.email}
                         onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                        placeholder="student@school.edu"
+                        placeholder="student@gmail.com"
                       />
                     </label>
 
@@ -1461,7 +1545,7 @@ export default function ManageStudentsPage() {
                     </div>
 
                     <label className="grid gap-1">
-                      <span className="text-sm text-gray-700 dark:text-gray-300">Phone</span>
+                      <span className="text-sm text-gray-700 dark:text-gray-300">Primary Phone</span>
                       <input
                         className="border rounded-lg px-3 py-2 bg-white dark:bg-gray-800"
                         value={form.phone}
@@ -1688,7 +1772,7 @@ export default function ManageStudentsPage() {
         </div>
       )}
 
-                    {/* Bulk Import Dialog */}
+      {/* Bulk Import Dialog */}
       {bulkOpen && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/40" onClick={() => (bulkBusy || importing) ? null : setBulkOpen(false)} />
@@ -1792,7 +1876,7 @@ export default function ManageStudentsPage() {
                           </thead>
                           <tbody>
                             {previewRows.map((r) => (
-                              <tr key={r.idx} className="border-t dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
+                                                            <tr key={r.idx} className="border-t dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
                                 <td className="px-3 py-2">{r.idx}</td>
                                 <td className="px-3 py-2">{r.full_name}</td>
                                 <td className="px-3 py-2">{r.class_id}</td>
@@ -1801,7 +1885,13 @@ export default function ManageStudentsPage() {
                                 <td className="px-3 py-2">{r.gender}</td>
                                 <td className="px-3 py-2">
                                   {r.message ? (
-                                    <span className={`inline-flex text-[11px] px-2 py-0.5 rounded ${/imported/i.test(r.message) ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
+                                    <span
+                                      className={`inline-flex text-[11px] px-2 py-0.5 rounded ${
+                                        /imported/i.test(r.message)
+                                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                          : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                                      }`}
+                                    >
                                       {r.message}
                                     </span>
                                   ) : (
@@ -1813,7 +1903,11 @@ export default function ManageStudentsPage() {
                                     type="checkbox"
                                     checked={!!r.toImport}
                                     onChange={(e) => {
-                                      setPreviewRows(prev => prev.map(x => x.idx === r.idx ? { ...x, toImport: e.target.checked && x.valid } : x));
+                                      setPreviewRows((prev) =>
+                                        prev.map((x) =>
+                                          x.idx === r.idx ? { ...x, toImport: e.target.checked && x.valid } : x
+                                        )
+                                      );
                                     }}
                                     disabled={!r.valid || importing}
                                     className="h-4 w-4 rounded border-gray-300"
@@ -1841,7 +1935,11 @@ export default function ManageStudentsPage() {
                                 type="checkbox"
                                 checked={!!r.toImport}
                                 onChange={(e) => {
-                                  setPreviewRows(prev => prev.map(x => x.idx === r.idx ? { ...x, toImport: e.target.checked && x.valid } : x));
+                                  setPreviewRows((prev) =>
+                                    prev.map((x) =>
+                                      x.idx === r.idx ? { ...x, toImport: e.target.checked && x.valid } : x
+                                    )
+                                  );
                                 }}
                                 disabled={!r.valid || importing}
                                 className="h-5 w-5 rounded border-gray-300 mt-1"
@@ -1867,7 +1965,13 @@ export default function ManageStudentsPage() {
                               </div>
                               {r.message && (
                                 <div className="pt-1 mt-1 border-t border-gray-200 dark:border-gray-700">
-                                  <span className={`inline-flex text-[11px] px-2 py-1 rounded ${/imported/i.test(r.message) ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
+                                  <span
+                                    className={`inline-flex text-[11px] px-2 py-1 rounded ${
+                                      /imported/i.test(r.message)
+                                        ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                        : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                                    }`}
+                                  >
                                     {r.message}
                                   </span>
                                 </div>
@@ -1892,10 +1996,10 @@ export default function ManageStudentsPage() {
                   <button
                     className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-60 text-sm"
                     onClick={doImport}
-                    disabled={importing || previewRows.filter(r => r.toImport && r.valid).length === 0}
+                    disabled={importing || previewRows.filter((r) => r.toImport && r.valid).length === 0}
                   >
                     {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                    {importing ? 'Importing…' : `Import ${previewRows.filter(r => r.toImport && r.valid).length}`}
+                    {importing ? 'Importing…' : `Import ${previewRows.filter((r) => r.toImport && r.valid).length}`}
                   </button>
                 </div>
               </div>
@@ -1954,7 +2058,9 @@ export function PlanBanner({ planHuman, expiryISO, count, max, label = 'Records'
         aria-label="Dismiss"
         onClick={() => {
           setHidden(true);
-          try { sessionStorage.setItem(storageKey, '1'); } catch {}
+          try {
+            sessionStorage.setItem(storageKey, '1');
+          } catch {}
         }}
         className="absolute right-2 top-2 p-1 rounded hover:bg-black/5 dark:hover:bg-white/10"
       >
@@ -1992,4 +2098,3 @@ export function PlanBanner({ planHuman, expiryISO, count, max, label = 'Records'
     </div>
   );
 }
-

@@ -5,7 +5,7 @@ import {
   PlusCircle, X, Mail, UserCircle2,
   Loader2, CheckCircle2, AlertCircle, RotateCcw, Pencil,
   Download, Search, KeyRound, Eye, Image as ImageIcon, Printer,
-  Upload, Info, Filter
+  Upload, Info, Filter, Trash2
 } from 'lucide-react';
 import { getTempPassword } from '../lib/passwords';
 import * as XLSX from 'xlsx';
@@ -38,6 +38,8 @@ const ADD_STAFF_ENDPOINT =
   'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/staff/add/staff/';
 const UPDATE_STAFF_ENDPOINT =
   'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/staff/update/staff/';
+const DELETE_STAFF_ENDPOINT =
+  'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/staff/delete/staff/';
 
 /* ================== Plans / limits (from second page) ================== */
 const PLAN_LIMITS = { BASIC: 10, STANDARD: 100, PREMIUM: Infinity };
@@ -322,10 +324,6 @@ export default function ManageStaffPage() {
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [filters, setFilters] = useState('');
 
-
-
-
-
   // image
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState('');
@@ -333,6 +331,9 @@ export default function ManageStaffPage() {
 
   // reset password in table
   const [resettingId, setResettingId] = useState(null);
+
+  // delete
+  const [deletingId, setDeletingId] = useState(null);
 
   // BULK IMPORT (added)
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -683,6 +684,60 @@ export default function ManageStaffPage() {
     }
   };
 
+  /* ---------- Delete staff (new) ---------- */
+  const deleteStaff = async (row) => {
+    if (!row?.id) return;
+    const label = row.name || row.email || `ID ${row.id}`;
+    if (!window.confirm(`Delete staff "${label}" permanently?\n\nThis cannot be undone.`)) return;
+
+    setDeletingId(row.id);
+    try {
+      // Try GET with p_staff_id first, then p_user_id, then POST form-encoded.
+      const attempts = [
+        { method: 'GET', url: toUrl(DELETE_STAFF_ENDPOINT, { p_staff_id: String(row.id) }) },
+        { method: 'GET', url: toUrl(DELETE_STAFF_ENDPOINT, { p_user_id: String(row.id) }) },
+      ];
+
+      let ok = false, lastErr = '';
+      for (const a of attempts) {
+        try {
+          const r = await fetch(a.url, { method: a.method, headers: { Accept: 'application/json' }, cache: 'no-store' });
+          const t = await r.text();
+          let j = null; try { j = JSON.parse(t); } catch {}
+          if (r.ok && (j == null || j?.success !== false)) { ok = true; break; }
+          lastErr = j?.error || t || `HTTP ${r.status}`;
+        } catch (e) { lastErr = e?.message || String(e); }
+      }
+
+      if (!ok) {
+        for (const key of ['p_staff_id', 'p_user_id']) {
+          try {
+            const body = new URLSearchParams({ [key]: String(row.id) }).toString();
+            const r = await fetch(DELETE_STAFF_ENDPOINT, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body
+            });
+            const t = await r.text();
+            let j = null; try { j = JSON.parse(t); } catch {}
+            if (r.ok && (j == null || j?.success !== false)) { ok = true; break; }
+            lastErr = j?.error || t || `HTTP ${r.status}`;
+          } catch (e) { lastErr = e?.message || String(e); }
+        }
+      }
+
+      if (!ok) throw new Error(mapOracleError(lastErr) || lastErr);
+
+      // Optimistic remove, then refresh to be certain.
+      setStaffList(prev => prev.filter(s => String(s.id) !== String(row.id)));
+      await fetchStaff();
+    } catch (e) {
+      alert(`Failed to delete staff: ${e?.message || 'Unknown error'}`);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   /* ---------- Export Excel (kept) ---------- */
   const exportToExcel = () => {
     try {
@@ -883,7 +938,7 @@ export default function ManageStaffPage() {
               Filters
               {(filters || searchQuery) && (
                 <span className="ml-1 px-1.5 py-0.5 text-xs bg-indigo-100 text-indigo-800 rounded">
-                  {[filters, searchQuery].filters(Boolean).length}
+                  {[filters, searchQuery].filter(Boolean).length}
                 </span>
               )}
             </button>
@@ -1057,6 +1112,16 @@ export default function ManageStaffPage() {
                       {resettingId === staff.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <KeyRound size={12} />}
                       Reset & send
                     </button>
+                    <button
+                      onClick={() => deleteStaff(staff)}
+                      disabled={deletingId === staff.id}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md border text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-900/20 disabled:opacity-60 text-xs"
+                      title="Delete permanently"
+                      type="button"
+                    >
+                      {deletingId === staff.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 size={12} />}
+                      Delete
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -1121,6 +1186,14 @@ export default function ManageStaffPage() {
               >
                 {resettingId === staff.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound size={14} />}
                 Reset
+              </button>
+              <button
+                onClick={() => deleteStaff(staff)}
+                disabled={deletingId === staff.id}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-md border text-rose-700 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-900/20 disabled:opacity-60 text-sm flex-1 justify-center sm:flex-none"
+              >
+                {deletingId === staff.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 size={14} />}
+                Delete
               </button>
             </div>
           </div>
@@ -1494,13 +1567,26 @@ export default function ManageStaffPage() {
                   Close
                 </button>
                 <button
-                  onClick={doImport}
-                  disabled={importing || previewRows.length === 0 || previewRows.every(r => !r.toImport)}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-60"
+                                    onClick={doImport}
+                  disabled={
+                    importing ||
+                    !previewRows.length ||
+                    previewRows.every((r) => !r.valid || !r.toImport)
+                  }
+                  className="px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-60"
                   type="button"
                 >
-                  {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                  {importing ? 'Importing…' : `Import ${previewRows.filter(r => r.toImport).length} row(s)`}
+                  {importing ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Importing…
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-2">
+                      <Upload className="h-4 w-4" />
+                      Import Selected
+                    </span>
+                  )}
                 </button>
               </div>
             </div>
@@ -1511,95 +1597,90 @@ export default function ManageStaffPage() {
   );
 }
 
+/* ================== Small UI helpers ================== */
+
 function InfoLine({ label, value }) {
-  if (!value) return null;
   return (
-    <div className="space-y-0.5">
-      <div className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{label}</div>
-      <div className="text-sm">{value}</div>
+    <div className="space-y-1">
+      <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+        {label}
+      </div>
+      <div className="text-sm text-gray-900 dark:text-gray-100 break-words">
+        {value || '—'}
+      </div>
     </div>
   );
 }
 
-/**
- * Plan banner — simplified to:
- * Plan: <Plan> · Expires: YYYY-MM-DD · Staff: count/max
- * (max shows as ∞ for unlimited)
- */
-export function PlanBanner({ planHuman, expiryISO, count, max, label = 'Records', storageKey = 'plan-banner' }) {
-  const [hidden, setHidden] = useState(false);
+function PlanBanner({ planHuman, expiryISO, count, max }) {
+  const expired =
+    !!expiryISO &&
+    Number.isFinite(new Date(expiryISO).getTime()) &&
+    new Date(expiryISO).getTime() < Date.now();
 
-  useEffect(() => {
-    try {
-      const v = sessionStorage.getItem(storageKey);
-      if (v === '1') setHidden(true);
-    } catch {}
-  }, [storageKey]);
-
-  if (hidden) return null;
-
-  const expired = (() => {
-    if (!expiryISO) return false;
-    const d = new Date(expiryISO);
-    return isFinite(d.getTime()) && d.getTime() < Date.now();
-  })();
-
-  const limited = isFinite(max);
-  const remaining = limited ? Math.max(0, max - count) : Infinity;
-
-  const base = 'mb-4 rounded-xl border p-4 relative';
-  const lightClasses = expired
-    ? 'bg-red-50 border-red-200 text-red-800'
-    : 'bg-gray-50 border-gray-200 text-gray-800';
-  const darkClasses = expired
-    ? 'dark:bg-red-900/20 dark:border-red-900/40 dark:text-red-200'
-    : 'dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100';
+  const limited = Number.isFinite(max);
+  const used = Number.isFinite(count) ? Math.max(0, count) : 0;
+  const cap = limited ? Math.max(1, max) : used || 1;
+  const pct = Math.min(100, Math.round((used / cap) * 100));
+  const remaining = limited ? Math.max(0, max - used) : '∞';
 
   return (
-    <div className={`${base} ${lightClasses} ${darkClasses}`}>
-      {/* Close (X) */}
-      <button
-        aria-label="Dismiss"
-        onClick={() => {
-          setHidden(true);
-          try { sessionStorage.setItem(storageKey, '1'); } catch {}
-        }}
-        className="absolute right-2 top-2 p-1 rounded hover:bg.black/5 dark:hover:bg.white/10"
-        type="button"
-      >
-        <X className="h-4 w-4" />
-      </button>
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Info className="h-4 w-4" />
-          <div className="text-sm">
-            Plan: <strong>{planHuman}</strong>{' '}
-            {limited ? (
-              <>
-                • {label}:{' '}
-                <strong>{count}</strong> / <strong>{max}</strong>{' '}
-                (remaining <strong>{remaining}</strong>)
-              </>
-            ) : (
-              <>
-                • {label}:{' '}
-                <strong>{count}</strong> / <strong>unlimited</strong>
-              </>
-            )}
-            {expiryISO ? (
-              <>
-                {' '}• Expires: <strong>{String(expiryISO).slice(0, 10)}</strong>
-              </>
-            ) : null}
-            {expired ? (
-              <span className="ml-2 inline-flex px-2 py-0.5 rounded bg-red-100 text-red-800 text-xs dark:bg-red-900/40 dark:text-red-200">
+    <div className="mb-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 sm:p-5">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="space-y-1">
+          <div className="text-sm text-gray-600 dark:text-gray-300">
+            Plan
+          </div>
+          <div className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            {planHuman}
+            {expired && (
+              <span className="ml-2 inline-flex items-center rounded-full bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300 px-2 py-0.5 text-xs">
                 Expired
               </span>
-            ) : null}
+            )}
+          </div>
+          {expiryISO && (
+            <div className="text-xs text-gray-500">
+              {expired ? 'Expired on' : 'Expires on'}{' '}
+              {new Date(expiryISO).toLocaleDateString()}
+            </div>
+          )}
+        </div>
+
+        <div className="w-full sm:w-[60%]">
+          <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-300 mb-1.5">
+            <span>Staff usage</span>
+            <span>
+              {limited ? (
+                <>
+                  {used} / {max} used
+                </>
+              ) : (
+                <>
+                  {used} used • unlimited
+                </>
+              )}
+            </span>
+          </div>
+          <div className="h-2 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+            <div
+              className="h-full bg-indigo-600"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <div className="mt-1.5 text-xs text-gray-600 dark:text-gray-300">
+            {limited ? (
+              <>
+                {remaining} {remaining === 1 ? 'slot' : 'slots'} remaining
+              </>
+            ) : (
+              <>Unlimited slots</>
+            )}
           </div>
         </div>
       </div>
     </div>
   );
 }
+
+                    

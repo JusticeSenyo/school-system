@@ -1,5 +1,8 @@
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import IdleLogout from './components/IdleLogout';
+import SessionManager from './components/SessionManager'; // <-- FIX: default import
+import SupportChat from './components/support/SupportChat';
 
 import { AuthProvider, useAuth } from './AuthContext';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -99,7 +102,6 @@ const RoleRoute = ({ allowed = [], children }) => {
   return children;
 };
 
-
 // Extra feature-gate for "class teacher only" pages when role is teacher
 const FeatureRoute = ({ requireClassTeacher = false, children }) => {
   const { user } = useAuth();
@@ -187,36 +189,34 @@ const AppRoutes = () => {
       {/* Feature Pages */}
       {/* Communication: NOT available to teachers */}
       <Route
-  path="/dashboard/communication"
-  element={
-    <ProtectedRoute>
-      {/* block teachers; allow others */}
-      <RoleRoute allowed={['admin', 'accountant', 'headteacher', 'owner']}>
-        <Suspense fallback={<DashboardLoading />}>
-          <CommunicationPage />
-        </Suspense>
-      </RoleRoute>
-    </ProtectedRoute>
-  }
-/>
+        path="/dashboard/communication"
+        element={
+          <ProtectedRoute>
+            {/* block teachers; allow others */}
+            <RoleRoute allowed={['admin', 'accountant', 'headteacher', 'owner']}>
+              <Suspense fallback={<DashboardLoading />}>
+                <CommunicationPage />
+              </Suspense>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
 
-{/* Manage Events: Admin + Headteacher only */}
-<Route
-  path="/dashboard/manage-events"
-  element={
-    <ProtectedRoute>
-      <RoleRoute allowed={['admin', 'headteacher']}>
-        <Suspense fallback={<DashboardLoading />}>
-          <ManageEventsPage />
-        </Suspense>
-      </RoleRoute>
-    </ProtectedRoute>
-  }
-/>
+      {/* Manage Events: Admin + Headteacher only */}
+      <Route
+        path="/dashboard/manage-events"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowed={['admin', 'headteacher']}>
+              <Suspense fallback={<DashboardLoading />}>
+                <ManageEventsPage />
+              </Suspense>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
 
-
-
-      {/* Manage Staff (same as before) */}
+      {/* Manage Staff */}
       <Route
         path="/dashboard/manage-staff"
         element={
@@ -244,7 +244,7 @@ const AppRoutes = () => {
         }
       />
 
-      {/* Attendance (plain view if you still use it elsewhere) */}
+      {/* Attendance */}
       <Route
         path="/dashboard/attendance"
         element={
@@ -441,7 +441,6 @@ const AppRoutes = () => {
         }
       />
 
-
       {/* NEW: Grading Scale Setup (Admin) */}
       <Route
         path="/dashboard/exams/scale"
@@ -527,6 +526,17 @@ function App() {
             <DataProvider>
               <Router>
                 <ThemeWrapper>
+                  {/* Inactivity-based auto-logout */}
+                  <IdleLogout idleMs={15 * 60 * 1000} />
+
+                  {/* Absolute session / JWT-expiry enforcement */}
+                  <SessionManager
+                    absoluteMs={8 * 60 * 60 * 1000}
+                    warnBeforeMs={60 * 1000}
+                  />
+                {/* Global Support Chat */}
+                  <SupportChat />
+
                   <AppRoutes />
                 </ThemeWrapper>
               </Router>
@@ -537,6 +547,7 @@ function App() {
     </ErrorBoundary>
   );
 }
+
 
 // Optional DataContext fallback (kept at bottom to avoid hoisting issues)
 let DataProvider;

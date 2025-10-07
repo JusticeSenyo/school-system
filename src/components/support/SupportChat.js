@@ -1,12 +1,61 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-// Sync <html> theme class: "dark" | "light" | "system"
+/** Inject minimal CSS once */
+const STYLE_TAG_ID = "supportchat-styles";
+function injectStyles() {
+  if (document.getElementById(STYLE_TAG_ID)) return;
+  const css = `
+  .sc-card { width: 300px; border-radius: 12px; box-shadow: 0 10px 28px rgba(0,0,0,.12); overflow: hidden; border: 1px solid var(--sc-bd); background: var(--sc-bg); color: var(--sc-fg); font-size:12.5px; }
+  .sc-header { display:flex; align-items:center; justify-content:space-between; padding:8px 10px; font-weight:700; background: var(--sc-header-bg); color: var(--sc-header-fg); }
+  .sc-body { height: 200px; overflow-y:auto; padding:8px; background: var(--sc-bg); }
+  .sc-quick { display:flex; flex-wrap:wrap; gap:6px; padding:6px 8px; border-top: 1px solid var(--sc-bd); border-bottom: 1px solid var(--sc-bd);}
+  .sc-chip { font-size:11px; padding:3px 8px; border-radius:999px; border:1px solid var(--sc-bd-2); background: var(--sc-chip-bg); cursor:pointer; }
+  .sc-footer { display:flex; gap:6px; padding:8px; border-top: 1px solid var(--sc-bd); align-items:flex-start; }
+  .sc-input { flex:1; padding:6px 8px; border-radius:10px; border:1px solid var(--sc-bd-2); background: var(--sc-input-bg); color: var(--sc-fg); font-size:12.5px; }
+  .sc-btn { padding:7px 10px; border-radius:10px; background:#2563eb; color:white; font-weight:700; border:none; cursor:pointer; font-size:12.5px; }
+  .sc-btn:disabled { opacity:.6; cursor:default; }
+  .sc-mini { display:grid; grid-template-columns:1fr; gap:6px; padding:6px 8px; border-top:1px solid var(--sc-bd); }
+  .sc-mini-row { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .sc-field { padding:6px 8px; border-radius:10px; border:1px solid var(--sc-bd-2); background: var(--sc-input-bg); color: var(--sc-fg); font-size:12.5px; }
+  .sc-bubble { display:inline-block; padding:7px 9px; border-radius:12px; font-size:12.5px; max-width: 90%; background: var(--sc-bubble-bot-bg); color: var(--sc-fg); line-height:1.35; }
+  .sc-bubble.user { background:#2563eb; color:#fff; }
+  .sc-open { position:fixed; right:16px; bottom:16px; border-radius:999px; padding:9px 12px; background:#2563eb; color:white; font-weight:700; border:none; box-shadow:0 10px 30px rgba(0,0,0,.2); cursor:pointer; font-size:12.5px; }
+  .sc-wrap { position:fixed; right:16px; bottom:16px; z-index:9999; }
+  .sc-close { color:inherit; background:transparent; border:none; font-size:16px; cursor:pointer; padding:2px 4px; }
+  .sc-list { display:flex; flex-direction:column; gap:6px; }
+  .sc-row { text-align:left; }
+  .sc-row.user { text-align:right; }
+
+  /* Light theme variables */
+  :root {
+    --sc-bg:#ffffff; --sc-fg:#0f172a; --sc-bd:#e5e7eb; --sc-bd-2:#d1d5db;
+    --sc-header-bg:#0f172a; --sc-header-fg:#fff;
+    --sc-chip-bg:#f8fafc; --sc-input-bg:#ffffff; --sc-bubble-bot-bg:#f3f4f6;
+  }
+  /* Dark theme variables */
+  .sc-dark, @media (prefers-color-scheme: dark) {
+    --sc-bg:#0b0b0c; --sc-fg:#e5e7eb; --sc-bd:#1f2937; --sc-bd-2:#374151;
+    --sc-header-bg:#000; --sc-header-fg:#fff;
+    --sc-chip-bg:#141416; --sc-input-bg:#0f1113; --sc-bubble-bot-bg:#141416;
+  }
+  @media (max-width: 640px) {
+    .sc-card { width: 92vw; }
+    .sc-body { height: 34vh; } /* still small on phones */
+  }`;
+  const tag = document.createElement("style");
+  tag.id = STYLE_TAG_ID;
+  tag.textContent = css;
+  document.head.appendChild(tag);
+}
+
+/** System/light/dark theme hook: adds/removes `.sc-dark` on html */
 function useTheme(theme = "system") {
   useEffect(() => {
+    injectStyles();
     const root = document.documentElement;
     const apply = (mode) => {
-      if (mode === "dark") root.classList.add("dark");
-      else root.classList.remove("dark");
+      if (mode === "dark") root.classList.add("sc-dark");
+      else root.classList.remove("sc-dark");
     };
     if (theme === "system") {
       const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -42,13 +91,13 @@ function matchFaq(faqs, text) {
 
 export default function SupportChat({
   productName = "School Master Hub",
-  supportEmail = "support@schoolmasterhub.net",
+  supportEmail = process.env.REACT_APP_SUPPORT_EMAIL || "support@schoolmasterhub.net",
   faqs = DEFAULT_FAQ,
-  publicToken,
+  theme = "system", // "light" | "dark" | "system"
   openByDefault = false,
-  theme = "system",              // "light" | "dark" | "system"
-  autoCloseOnEscalate = true,    // close after successful escalate
-  autoCloseDelayMs = 1200,       // delay before closing
+  publicToken, // optional tiny guard header
+  autoCloseOnEscalate = true,
+  autoCloseDelayMs = 1200,
 }) {
   useTheme(theme);
 
@@ -63,72 +112,59 @@ export default function SupportChat({
   const nameRef = useRef(null);
   const emailRef = useRef(null);
   const subjectRef = useRef(null);
-  const taRef = useRef(null);
-  const cardRef = useRef(null);
-  const bodyRef = useRef(null);
-
-  // Close on ESC + Click outside
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
-    const onDocClick = (e) => {
-      if (cardRef.current && !cardRef.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener("keydown", onKey);
-    document.addEventListener("mousedown", onDocClick);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("mousedown", onDocClick);
-    };
-  }, [open]);
-
-  // Auto-scroll to bottom when messages change
-  useEffect(() => {
-    if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
-  }, [messages, open]);
 
   const transcript = useMemo(
     () => messages.map(m => `${m.role === "user" ? "User" : "Bot"}: ${m.text}`).join("\n"),
     [messages]
   );
 
-  function growTextarea(el) {
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 120) + "px";
+  function onKeyDownInput(e) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      onSend();
+    }
+  }
+
+  function onSend() {
+    // If we already decided this needs human, then this Send should escalate
+    if (needsHuman) {
+      // do escalate (validates email)
+      void escalate();
+      return;
+    }
+    // Otherwise, send a chat message and decide if FAQ or escalate next
+    sendMessage();
   }
 
   async function sendMessage() {
     const text = input.trim();
     if (!text) return;
-    setMessages((m) => [...m, { role: "user", text }]);
+    setMessages(m => [...m, { role: "user", text }]);
     setInput("");
-    growTextarea(taRef.current);
 
     const hit = matchFaq(faqs, text);
     if (hit) {
-      setMessages((m) => [...m, { role: "bot", text: hit.a }]);
+      setMessages(m => [...m, { role: "bot", text: hit.a }]);
       return;
     }
-
+    // No hit -> flip into "needsHuman" mode and show tiny fields; same Send button will submit
     setNeedsHuman(true);
-    setMessages((m) => [
+    setMessages(m => [
       ...m,
-      { role: "bot", text: "I couldn’t find a perfect answer. Share your name & email to escalate to a human. I’ll include our transcript." }
+      { role: "bot", text: "I couldn’t find a perfect answer. Enter your details below and press Send to create a ticket. I’ll include our transcript." }
     ]);
   }
 
   async function escalate(e) {
-    e.preventDefault();
+    if (e) e.preventDefault();
     const name = nameRef.current?.value?.trim();
     const email = emailRef.current?.value?.trim();
     const subject = subjectRef.current?.value?.trim() || "Support Request";
-
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       alert("Please enter a valid email.");
+      emailRef.current?.focus();
       return;
     }
-
     setSending(true);
     try {
       const resp = await fetch("/api/send-email", {
@@ -155,18 +191,13 @@ Email: ${email}
 `,
         }),
       });
-
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok || !json?.success) throw new Error(json?.error || "Send failed");
-
-      setMessages((m) => [...m, { role: "bot", text: "✅ Sent! A human will reach out by email." }]);
+      setMessages(m => [...m, { role: "bot", text: "✅ Sent! A human will reach out by email." }]);
       setNeedsHuman(false);
-
-      if (autoCloseOnEscalate) {
-        setTimeout(() => setOpen(false), autoCloseDelayMs);
-      }
+      if (autoCloseOnEscalate) setTimeout(() => setOpen(false), autoCloseDelayMs);
     } catch (err) {
-      setMessages((m) => [...m, { role: "bot", text: `⚠️ Couldn’t send: ${err.message || err}` }]);
+      setMessages(m => [...m, { role: "bot", text: `⚠️ Couldn’t send: ${err.message || err}` }]);
     } finally {
       setSending(false);
     }
@@ -175,186 +206,69 @@ Email: ${email}
   function Bubble({ role, children }) {
     const isUser = role === "user";
     return (
-      <div className={isUser ? "text-right" : "text-left"}>
-        <div
-          className={[
-            "inline-block px-3 py-2 rounded-2xl text-[13px] leading-snug",
-            isUser
-              ? "bg-blue-600 text-white"
-              : "bg-gray-100 text-gray-900 dark:bg-neutral-800 dark:text-gray-100",
-          ].join(" ")}
-          role={!isUser ? "note" : undefined}
-          aria-live={!isUser ? "polite" : undefined}
-        >
-          {children}
-        </div>
+      <div className={`sc-row ${isUser ? "user" : ""}`}>
+        <div className={`sc-bubble ${isUser ? "user" : ""}`}>{children}</div>
       </div>
     );
   }
 
-  function onTextareaKeyDown(e) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  }
-
   return (
-    <div className="fixed bottom-4 right-4 z-[9999]">
+    <div className="sc-wrap">
       {!open && (
-        <button
-          onClick={() => {
-            setOpen(true);
-            setTimeout(() => taRef.current?.focus(), 150);
-          }}
-          className="rounded-full shadow-xl px-4 py-2.5 text-[13px] font-semibold
-                     bg-blue-600 text-white hover:bg-blue-700
-                     focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-          aria-label="Open SupportChat"
-        >
+        <button className="sc-open" onClick={() => setOpen(true)} aria-label="Open SupportChat">
           SupportChat
         </button>
       )}
 
       {open && (
-        <div
-          ref={cardRef}
-          className="w-[320px] sm:w-80 rounded-2xl shadow-xl border overflow-hidden
-                     bg-white text-gray-900 border-gray-200
-                     dark:bg-neutral-900 dark:text-gray-100 dark:border-neutral-800"
-          role="dialog"
-          aria-label={`${productName} SupportChat`}
-          aria-modal="true"
-        >
-          {/* Header */}
-          <div className="px-4 py-2.5 text-[13px] font-semibold flex items-center justify-between
-                          bg-gray-900 text-white dark:bg-black">
+        <div className="sc-card" role="dialog" aria-label={`${productName} SupportChat`}>
+          <div className="sc-header">
             <span>{productName} SupportChat</span>
-            <button
-              onClick={() => setOpen(false)}
-              className="text-white/80 hover:text-white focus:outline-none focus:ring-2 focus:ring-white/40 rounded px-1"
-              aria-label="Close"
-            >
-              ✕
-            </button>
+            <button className="sc-close" onClick={() => setOpen(false)} aria-label="Close">✕</button>
           </div>
 
-          {/* Quick chips */}
-          <div className="p-2.5 flex flex-wrap gap-2 border-b border-gray-200 dark:border-neutral-800">
+          <div className="sc-quick">
             {faqs.map((f) => (
               <button
                 key={f.q}
-                onClick={() => {
-                  setInput(f.q);
-                  setTimeout(() => {
-                    if (taRef.current) {
-                      growTextarea(taRef.current);
-                      taRef.current.focus();
-                    }
-                  }, 0);
-                }}
-                className="text-[11px] px-2.5 py-1 rounded-full border
-                           border-gray-300 hover:bg-gray-50
-                           dark:border-neutral-700 dark:hover:bg-neutral-800"
+                className="sc-chip"
                 title="Click to prefill the input"
+                onClick={() => setInput(f.q)}
               >
                 {f.q}
               </button>
             ))}
           </div>
 
-          {/* Messages */}
-          <div
-            ref={bodyRef}
-            className="p-3 space-y-2 h-64 sm:h-72 overflow-y-auto bg-white dark:bg-neutral-900"
-          >
-            {messages.map((m, i) => (
-              <Bubble key={i} role={m.role}>
-                {m.text}
-              </Bubble>
-            ))}
+          <div className="sc-body">
+            <div className="sc-list">
+              {messages.map((m, i) => (
+                <Bubble key={i} role={m.role}>{m.text}</Bubble>
+              ))}
+            </div>
           </div>
 
-          {/* Escalation form */}
+          {/* Tiny inline contact fields only when needed; no extra button */}
           {needsHuman && (
-            <form
-              onSubmit={escalate}
-              className="px-3 pb-2 space-y-2 border-t border-gray-200 dark:border-neutral-800"
-            >
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  ref={nameRef}
-                  type="text"
-                  placeholder="Your name"
-                  className="border rounded-xl px-3 py-2 text-[13px]
-                             bg-white text-gray-900 placeholder-gray-400
-                             border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40
-                             dark:bg-neutral-900 dark:text-gray-100 dark:placeholder-gray-400 dark:border-neutral-700"
-                />
-                <input
-                  ref={emailRef}
-                  type="email"
-                  required
-                  placeholder="you@example.com"
-                  className="border rounded-xl px-3 py-2 text-[13px]
-                             bg-white text-gray-900 placeholder-gray-400
-                             border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40
-                             dark:bg-neutral-900 dark:text-gray-100 dark:placeholder-gray-400 dark:border-neutral-700"
-                />
-              </div>
-              <input
-                ref={subjectRef}
-                type="text"
-                placeholder="Short subject"
-                className="border rounded-xl px-3 py-2 text-[13px] w-full
-                           bg-white text-gray-900 placeholder-gray-400
-                           border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40
-                           dark:bg-neutral-900 dark:text-gray-100 dark:placeholder-gray-400 dark:border-neutral-700"
-              />
-              <button
-                type="submit"
-                disabled={sending}
-                className="w-full py-2 rounded-xl text-[13px] font-semibold
-                           bg-gray-900 text-white disabled:opacity-60
-                           hover:bg-black focus:outline-none focus:ring-2 focus:ring-gray-500/40
-                           dark:bg-black dark:hover:bg-neutral-950"
-              >
-                {sending ? "Sending..." : "Escalate to human"}
-              </button>
-            </form>
+            <div className="sc-mini">
+              <input ref={nameRef} className="sc-field" type="text" placeholder="Name" />
+              <input ref={emailRef} className="sc-field" type="email" required placeholder="Email" />
+              <input ref={subjectRef} className="sc-field" type="text" placeholder="Subject" />
+            </div>
           )}
 
-          {/* Composer */}
-          <div className="p-2.5 border-t border-gray-200 dark:border-neutral-800">
-            <div className="flex items-end gap-2">
-              <textarea
-                ref={taRef}
-                value={input}
-                onChange={(e) => {
-                  setInput(e.target.value);
-                  growTextarea(e.currentTarget);
-                }}
-                onInput={(e) => growTextarea(e.currentTarget)}
-                onKeyDown={onTextareaKeyDown}
-                placeholder="Type your question… (Enter to send · Shift+Enter newline)"
-                rows={1}
-                className="flex-1 border rounded-xl px-3 py-2 text-[13px] leading-snug
-                           bg-white text-gray-900 placeholder-gray-400
-                           border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40
-                           dark:bg-neutral-900 dark:text-gray-100 dark:placeholder-gray-400 dark:border-neutral-700
-                           max-h-32 resize-none"
-                aria-label="Message input"
-              />
-              <button
-                onClick={sendMessage}
-                disabled={!input.trim()}
-                className="px-3 py-2 rounded-xl text-[13px] font-semibold
-                           bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60
-                           focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-              >
-                Send
-              </button>
-            </div>
+          {/* Single composer: Send handles chat or escalate */}
+          <div className="sc-footer">
+            <input
+              className="sc-input"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={needsHuman ? "Add any final details…" : "Type your question…"}
+              onKeyDown={onKeyDownInput}
+            />
+            <button className="sc-btn" onClick={onSend} disabled={sending || (!input.trim() && !needsHuman)}>
+              {needsHuman ? (sending ? "Sending…" : "Send") : "Send"}
+            </button>
           </div>
         </div>
       )}

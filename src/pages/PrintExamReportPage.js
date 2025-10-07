@@ -392,8 +392,9 @@ export default function PrintExamReportPage() {
       {/* Filters */}
       <div className="sticky top-0 z-10 pb-3 bg-gradient-to-b from-white/70 to-transparent dark:from-gray-900/60 backdrop-blur-md mb-3">
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow p-4 border border-gray-100 dark:border-gray-700">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
-            <div className="col-span-1 md:col-span-2 xl:col-span-6">
+          <div className="grid grid-cols-1 gap-4">
+            {/* Student selector - full width on all screens */}
+            <div className="w-full">
               <StudentLov
                 label="Student"
                 students={students}
@@ -401,44 +402,52 @@ export default function PrintExamReportPage() {
                 onPick={(id) => setSelectedStudentId(id)}
               />
             </div>
-            <LabeledSelect
-              labelEl={<LabelWithIcon icon={<Building2 className="w-4 h-4" />} text="Class" />}
-              value={classId ?? ""}
-              onChange={(v) => setClassId(Number(v))}
-            >
-              {classes.length === 0 && <option value="">No classes</option>}
-              {classes.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </LabeledSelect>
-            <LabeledSelect
-              labelEl={<LabelWithIcon icon={<CalendarDays className="w-4 h-4" />} text="Term" />}
-              value={termId ?? ""}
-              onChange={(v) => setTermId(Number(v))}
-            >
-              {terms.length === 0 && <option value="">No terms</option>}
-              {terms.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </LabeledSelect>
-            <LabeledSelect
-              labelEl={<LabelWithIcon icon={<Inbox className="w-4 h-4" />} text="Academic Year" />}
-              value={yearId ?? ""}
-              onChange={(v) => setYearId(Number(v))}
-            >
-              {years.length === 0 && <option value="">No years</option>}
-              {years.map((y) => (
-                <option key={y.id} value={y.id}>{y.name}</option>
-              ))}
-            </LabeledSelect>
 
-            <div className="md:flex items-end">
-              <button
-                onClick={handlePrint}
-                className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg w-full md:w-auto"
+            {/* Filters grid - responsive layout */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <LabeledSelect
+                labelEl={<LabelWithIcon icon={<Building2 className="w-4 h-4" />} text="Class" />}
+                value={classId ?? ""}
+                onChange={(v) => setClassId(Number(v))}
               >
-                <Printer className="h-4 w-4" /> Print Report
-              </button>
+                {classes.length === 0 && <option value="">No classes</option>}
+                {classes.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </LabeledSelect>
+
+              <LabeledSelect
+                labelEl={<LabelWithIcon icon={<CalendarDays className="w-4 h-4" />} text="Term" />}
+                value={termId ?? ""}
+                onChange={(v) => setTermId(Number(v))}
+              >
+                {terms.length === 0 && <option value="">No terms</option>}
+                {terms.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </LabeledSelect>
+
+              <LabeledSelect
+                labelEl={<LabelWithIcon icon={<Inbox className="w-4 h-4" />} text="Academic Year" />}
+                value={yearId ?? ""}
+                onChange={(v) => setYearId(Number(v))}
+              >
+                {years.length === 0 && <option value="">No years</option>}
+                {years.map((y) => (
+                  <option key={y.id} value={y.id}>{y.name}</option>
+                ))}
+              </LabeledSelect>
+
+              {/* Print button - aligned properly */}
+              <div className="flex items-end">
+                <button
+                  onClick={handlePrint}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg w-full transition-colors"
+                >
+                  <Printer className="h-4 w-4" />
+                  <span>Print Report</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -520,164 +529,207 @@ function StudentReportDocument({
   const overallScore = apiOverall != null && apiOverall !== "" ? apiOverall : stats.avg;
 
   return (
-    <div className="print-area max-w-3xl mx-auto my-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg">
+    
+    <div className="print-area mx-auto my-4 w-full max-w-3xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-[15px] sm:text-base overflow-hidden">
+
       {/* Header */}
-      <div className="p-6 border-b dark:border-gray-700 flex items-start gap-4">
-        {school.logoUrl ? (
-          <img src={bust(school.logoUrl)} alt="School Logo" className="h-14 w-14 object-contain" />
-        ) : (
-          <div className="h-14 w-14 rounded bg-indigo-600" />
-        )}
-        <div className="flex-1">
-          <div className="text-xl font-bold">{school.name}</div>
-          {(school.address || school.phone || school.email) && (
-            <>
-              <div className="text-sm text-gray-600 dark:text-gray-400">{school.address}</div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">
-                {[school.phone, school.email].filter(Boolean).join(" · ")}
-              </div>
-            </>
-          )}
-        </div>
-        <div className="text-right">
-          <div className="text-lg font-semibold">Exam Report</div>
-          <div className="text-sm text-gray-600 dark:text-gray-400">
-            {termLabel}, {yearLabel}
+      <div className="p-3 sm:p-6 border-b dark:border-gray-700 overflow-hidden">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 flex-wrap">
+          {/* Logo */}
+          <div className="flex-shrink-0">
+            {school.logoUrl ? (
+              <img
+                src={bust(school.logoUrl)}
+                alt="School Logo"
+                className="h-10 w-10 sm:h-14 sm:w-14 object-contain"
+              />
+            ) : (
+              <div className="h-10 w-10 sm:h-14 sm:w-14 rounded bg-indigo-600" />
+            )}
           </div>
-          {klass ? (
-            <div className="text-sm text-gray-700 dark:text-gray-300 mt-1">
-              Class: <span className="font-medium">{klass}</span>
+
+          {/* School Info */}
+          <div className="flex-1 min-w-0 w-full sm:w-auto">
+            <div className="text-sm sm:text-lg md:text-xl font-bold leading-tight break-words whitespace-normal">
+              {school.name}
             </div>
-          ) : null}
+            {(school.address || school.phone || school.email) && (
+              <>
+                <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1 break-words">
+                  {school.address}
+                </div>
+                <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 break-words">
+                  {[school.phone, school.email].filter(Boolean).join(" · ")}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Report Info */}
+          <div className="w-full sm:w-auto sm:text-right mt-2 sm:mt-0">
+            <div className="text-base sm:text-lg font-semibold">Exam Report</div>
+            <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-0.5">
+              {termLabel}, {yearLabel}
+            </div>
+            {klass && (
+              <div className="text-xs sm:text-sm text-gray-700 dark:text-gray-300 mt-1">
+                Class: <span className="font-medium">{klass}</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Student Info Row with Photo */}
-      <div className="p-6 grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
-        <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
+      {/* Student Info Row */}
+      <div className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-3 gap-4 items-start lg:items-center overflow-hidden">
+        <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <InfoRow label="Student Name" value={student?.name || "-"} />
           <InfoRow label="Index No." value={student?.index_no || "-"} />
           <InfoRow label="Class" value={student?.class_name || klass || "-"} />
           <InfoRow label="Term / Year" value={`${termLabel} / ${yearLabel}`} />
         </div>
-        <div className="justify-self-end">
+        <div className="flex justify-center sm:justify-end">
           <StudentAvatar imageUrl={student?.image_url} name={student?.name} />
         </div>
       </div>
 
       {/* KPIs */}
-      <div className="px-6 grid sm:grid-cols-4 gap-3 mb-4">
+      <div className="px-4 sm:px-6 grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
         <StatPill label="Subjects" value={stats.count} />
         <StatPill label="Total" value={stats.totalSum} />
         <StatPill label="Average" value={stats.avg} />
         <StatPill label="Pass / Fail" value={`${stats.passes} / ${stats.fails}`} />
       </div>
 
-      {/* Subjects table */}
-      <div className="px-6 pb-2">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-gray-600 dark:text-gray-300 border-b dark:border-gray-700">
-              <th className="py-2">#</th>
-              <th className="py-2">Subject</th>
-              <th className="py-2 text-right">Classwork</th>
-              <th className="py-2 text-right">Exam</th>
-              <th className="py-2 text-right">Total</th>
-              <th className="py-2 text-right">Grade</th>
-              <th className="py-2">Remark</th>
-            </tr>
-          </thead>
-          <tbody>
-            {subjects.map((r, idx) => (
-              <tr key={`${r.subjectId}-${idx}`} className="border-b last:border-0 dark:border-gray-700">
-                <td className="py-2">{idx + 1}</td>
-                <td className="py-2">
-                  {subjectNames?.get(Number(r.subjectId)) ||
-                    r.subjectName ||
-                    (r.subjectId != null ? `Subject ${r.subjectId}` : "")}
-                </td>
-                <td className="py-2 text-right">{r.classwork}</td>
-                <td className="py-2 text-right">{r.exam}</td>
-                <td className="py-2 text-right">{round2(r.total)}</td>
-                <td className="py-2 text-right">{r.grade}</td>
-                <td className="py-2 flex items-center gap-2">
-                  {r.pass ? (
-                    <CheckCircle2 className="h-4 w-4 text-green-600" />
-                  ) : (
-                    <XCircle className="h-4 w-4 text-rose-600" />
-                  )}
-                  <span>{r.remark}</span>
-                </td>
+      {/* Subjects Table */}
+      <div className="px-3 sm:px-6 pb-2 overflow-x-auto">
+        {/* Desktop Table */}
+        <div className="hidden md:block">
+          <table className="w-full text-sm min-w-[600px]">
+            <thead>
+              <tr className="text-left text-gray-600 dark:text-gray-300 border-b-2 dark:border-gray-700">
+                <th className="py-3 px-2 font-semibold">#</th>
+                <th className="py-3 px-2 font-semibold">Subject</th>
+                <th className="py-3 px-2 text-right font-semibold">Classwork</th>
+                <th className="py-3 px-2 text-right font-semibold">Exam</th>
+                <th className="py-3 px-2 text-right font-semibold">Total</th>
+                <th className="py-3 px-2 text-right font-semibold">Grade</th>
+                <th className="py-3 px-2 font-semibold">Remark</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {subjects.map((r, idx) => (
+                <tr key={`${r.subjectId}-${idx}`} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                  <td className="py-3 px-2">{idx + 1}</td>
+                  <td className="py-3 px-2 font-medium">{subjectNames?.get(Number(r.subjectId)) || r.subjectName || (r.subjectId != null ? `Subject ${r.subjectId}` : "")}</td>
+                  <td className="py-3 px-2 text-right">{r.classwork}</td>
+                  <td className="py-3 px-2 text-right">{r.exam}</td>
+                  <td className="py-3 px-2 text-right font-semibold">{round2(r.total)}</td>
+                  <td className="py-3 px-2 text-right">{r.grade}</td>
+                  <td className="py-3 px-2 text-gray-700 dark:text-gray-300 truncate max-w-[120px]">{r.remark}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Mobile Cards */}
+        <div className="md:hidden space-y-4">
+          {subjects.map((r, idx) => (
+            <div key={`${r.subjectId}-${idx}`} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs font-semibold text-gray-500">#{idx + 1}</span>
+                    <span className="inline-block px-2 py-0.5 rounded text-xs font-bold bg-gray-100 dark:bg-gray-700">
+                      {r.grade}
+                    </span>
+                  </div>
+                  <h3 className="font-semibold text-base">{subjectNames?.get(Number(r.subjectId)) || r.subjectName || (r.subjectId != null ? `Subject ${r.subjectId}` : "")}</h3>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Classwork</div>
+                  <div className="text-lg font-semibold">{r.classwork}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Exam</div>
+                  <div className="text-lg font-semibold">{r.exam}</div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-3 border-t border-gray-200 dark:border-gray-700">
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Total</div>
+                  <div className="text-xl font-bold">{round2(r.total)}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {r.pass ? (
+                    <CheckCircle2 className="h-5 w-5 text-green-600" />
+                  ) : (
+                    <XCircle className="h-5 w-5 text-rose-600" />
+                  )}
+                  <span className="text-sm font-medium truncate max-w-[100px]">{r.remark}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* Summary quick facts */}
-      <div className="px-6 py-4 grid sm:grid-cols-2 gap-3">
+      {/* Summary */}
+      <div className="px-4 sm:px-6 py-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
         <InfoRow label="Overall Score" value={overallScore ?? "-"} />
-        <InfoRow
-          label="Overall Position"
-          value={overallPos != null && overallPos !== "-" ? ordinalize(overallPos) : "-"}
-        />
+        <InfoRow label="Overall Position" value={overallPos != null && overallPos !== "-" ? ordinalize(overallPos) : "-"} />
         <InfoRow label="Attendance" value={attendanceLabel ?? "-"} />
         <InfoRow label="Reopen Date" value={reopen ?? "-"} />
       </div>
 
-      {/* Prominent Remarks block */}
-      <div className="px-6 pb-4 grid sm:grid-cols-2 gap-4">
-        <RemarkCard
-          icon={<UserRound className="h-4 w-4" />}
-          title="Class Teacher's Remarks"
-          text={teacherRemark || "—"}
-        />
-        <RemarkCard
-          icon={<GraduationCap className="h-4 w-4" />}
-          title="Head Teacher's Remarks"
-          text={headRemark || "—"}
-        />
+      {/* Remarks */}
+      <div className="px-4 sm:px-6 pb-4 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 max-w-full overflow-hidden">
+        <RemarkCard icon={<UserRound className="h-4 w-4 sm:h-5 sm:w-5" />} title="Class Teacher's Remarks" text={teacherRemark || "—"} />
+        <RemarkCard icon={<GraduationCap className="h-4 w-4 sm:h-5 sm:w-5" />} title="Head Teacher's Remarks" text={headRemark || "—"} />
       </div>
 
-      {/* Grading scale */}
+      {/* Grading Scale */}
       {!!scale?.length && (
-        <div className="px-6 py-4">
-          <div className="text-sm font-semibold mb-1 flex items-center gap-2">
-            <BookOpen className="h-4 w-4" /> Grading Scale
+        <div className="px-3 sm:px-6 py-4 overflow-x-auto">
+          <div className="text-sm sm:text-base font-semibold mb-2 flex items-center gap-2">
+            <BookOpen className="h-4 w-4 sm:h-5 sm:w-5" />
+            Grading Scale
           </div>
-          <div className="overflow-x-auto">
-            <table className="text-xs border w-full">
-              <thead className="bg-gray-50 dark:bg-gray-800">
-                <tr>
-                  <th className="p-2 text-left">Grade</th>
-                  <th className="p-2 text-left">Min %</th>
-                  <th className="p-2 text-left">Max %</th>
-                  <th className="p-2 text-left">Remark</th>
+          <table className="min-w-full text-xs sm:text-sm border-collapse">
+            <thead className="bg-gray-50 dark:bg-gray-800">
+              <tr>
+                <th className="p-2 sm:p-3 text-left whitespace-nowrap">Grade</th>
+                <th className="p-2 sm:p-3 text-left whitespace-nowrap">Min %</th>
+                <th className="p-2 sm:p-3 text-left whitespace-nowrap">Max %</th>
+                <th className="p-2 sm:p-3 text-left whitespace-nowrap">Remark</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              {scale.map((row) => (
+                <tr key={row.grade}>
+                  <td className="p-2 sm:p-3 font-medium">{row.grade}</td>
+                  <td className="p-2 sm:p-3">{row.min}</td>
+                  <td className="p-2 sm:p-3">{row.max}</td>
+                  <td className="p-2 sm:p-3 break-words max-w-[160px]">{row.remark}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {scale.map((row) => (
-                  <tr key={row.grade} className="border-t">
-                    <td className="p-2">{row.grade}</td>
-                    <td className="p-2">{row.min}</td>
-                    <td className="p-2">{row.max}</td>
-                    <td className="p-2">{row.remark}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
       {/* Signatures */}
-      <div className="px-6 pb-10">
-        <div className="flex justify-between w-full">
-          <Signature label="Head Teacher" imageUrl={school.signatureUrl} />
-          <Signature label="Parent/Guardian" />
-        </div>
+      <div className="px-4 sm:px-6 pb-10 flex flex-col sm:flex-row justify-between gap-6">
+        <Signature label="Head Teacher" imageUrl={school.signatureUrl} />
+        <Signature label="Parent/Guardian" />
       </div>
     </div>
+
   );
 }
 

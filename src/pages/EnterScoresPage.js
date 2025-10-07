@@ -866,41 +866,87 @@ export default function EnterScoresPage() {
             </div>
           ) : filteredRows.length === 0 ? (
             <div className="p-6 text-center text-gray-500">
-              {noAssignments ? "No teaching assignments found." : "No students/records match your filters."}
+              {noAssignments
+                ? "No teaching assignments found."
+                : "No students/records match your filters."}
             </div>
           ) : (
             filteredRows.map((r) => (
               <div
                 key={r.id}
-                className={`p-3 border rounded-lg dark:border-gray-700 ${r._dirty ? "bg-yellow-50/50 dark:bg-yellow-900/10" : "bg-white dark:bg-gray-800"
+                className={`p-3 border rounded-lg dark:border-gray-700 ${r._dirty
+                    ? "bg-yellow-50/50 dark:bg-yellow-900/10"
+                    : "bg-white dark:bg-gray-800"
                   }`}
               >
-                <div className="flex justify-between">
-                  <span className="font-medium">{r.name}</span>
+                {/* Header */}
+                <div className="flex justify-between items-start">
+                  <span className="font-medium break-words">{r.name}</span>
                   <span className="text-sm text-gray-500">{r.index_no || "—"}</span>
                 </div>
-                <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                  <div>Class Score: {r.class_score}</div>
-                  <div>Exam Score: {r.exam_score}</div>
-                  <div>Total: {r.total}</div>
-                  <div>Grade: {r.grade}</div>
-                  <div>Remark: {r.meaning}</div>
-                  <div>Position: {r.position}</div>
+
+                {/* Editable Fields */}
+                <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                  {/* Class Score */}
+                  <div className="flex flex-col">
+                    <label className="text-xs text-gray-500 mb-1">Class Score</label>
+                    <input
+                      type="number"
+                      className={`w-full text-right border rounded px-2 py-1 bg-white dark:bg-gray-900 dark:border-gray-700 ${isExpired ? "opacity-60 cursor-not-allowed" : ""
+                        }`}
+                      value={r.class_score ?? ""}
+                      onChange={(e) =>
+                        updateCell(r.id, "class_score", e.target.value)
+                      }
+                      disabled={isExpired}
+                      title={isExpired ? "Plan expired" : ""}
+                    />
+                  </div>
+
+                  {/* Exam Score */}
+                  <div className="flex flex-col">
+                    <label className="text-xs text-gray-500 mb-1">Exam Score</label>
+                    <input
+                      type="number"
+                      className={`w-full text-right border rounded px-2 py-1 bg-white dark:bg-gray-900 dark:border-gray-700 ${isExpired ? "opacity-60 cursor-not-allowed" : ""
+                        }`}
+                      value={r.exam_score ?? ""}
+                      onChange={(e) =>
+                        updateCell(r.id, "exam_score", e.target.value)
+                      }
+                      disabled={isExpired}
+                      title={isExpired ? "Plan expired" : ""}
+                    />
+                  </div>
+
+                  {/* Readonly Info */}
+                  <div>Total: {r.total ?? "—"}</div>
+                  <div>Grade: {r.grade ?? "—"}</div>
+                  <div>Remark: {r.meaning ?? "—"}</div>
+                  <div>Position: {r.position ?? "—"}</div>
                 </div>
+
+                {/* Buttons */}
                 <div className="mt-3 flex gap-2">
                   <button
                     type="button"
                     onClick={() => saveRow(r, true)}
                     disabled={!r._dirty || saving || isExpired}
-                    className={`flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 ${isExpired ? "cursor-not-allowed" : ""}`}
+                    className={`flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 ${isExpired ? "cursor-not-allowed" : ""
+                      }`}
                   >
-                    {r._savedOk ? <CheckCircle2 className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+                    {r._savedOk ? (
+                      <CheckCircle2 className="h-4 w-4" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
                     {r._savedOk ? "Saved" : "Save"}
                   </button>
                   <button
                     type="button"
                     onClick={() => removeRow(r)}
-                    className={`flex-1 p-2 rounded-md border text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30 ${isExpired ? "opacity-60 cursor-not-allowed" : ""}`}
+                    className={`flex-1 p-2 rounded-md border text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30 ${isExpired ? "opacity-60 cursor-not-allowed" : ""
+                      }`}
                     disabled={isExpired}
                   >
                     <Trash2 className="h-4 w-4 mx-auto" />
@@ -910,6 +956,7 @@ export default function EnterScoresPage() {
             ))
           )}
         </div>
+
       </div>
 
 

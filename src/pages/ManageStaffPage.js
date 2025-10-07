@@ -13,13 +13,12 @@ import { useAuth } from '../AuthContext';
 import { buildStaffKey, buildPublicUrl, putToOCI } from '../config/storage';
 
 /* ================== Constants kept from first page ================== */
-const ROLE_LABELS = { AD: 'Admin', HT: 'Head Teacher', TE: 'Teacher', AC: 'Accountant', SO: 'Owner' };
+const ROLE_LABELS = { AD: 'Admin', HT: 'Head Teacher', TE: 'Teacher', AC: 'Accountant' };
 const ROLE_OPTIONS = [
   { value: 'AD', label: 'Admin' },
   { value: 'HT', label: 'Head Teacher' },
   { value: 'TE', label: 'Teacher' },
   { value: 'AC', label: 'Accountant' },
-  { value: 'SO', label: 'Owner' },
 ];
 
 const EMAIL_API_BASE = 'https://schoolmasterhub.vercel.app';

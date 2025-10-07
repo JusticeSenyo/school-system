@@ -425,36 +425,56 @@ export default function TeacherDashboard() {
 
   /* ------------ Render ------------ */
   return (
-    <DashboardLayout title="Teacher Dashboard">
+    <DashboardLayout title="Teacher ">
       {/* Hero */}
-      <div className="relative overflow-hidden rounded-2xl mb-6 sm:mb-8 shadow border border-indigo-200/40 dark:border-indigo-900/30">
+      <div className="relative overflow-hidden rounded-lg sm:rounded-xl lg:rounded-2xl mb-4 sm:mb-6 lg:mb-8 shadow-lg border border-indigo-200/40 dark:border-indigo-900/30">
+        {/* Gradient background */}
         <div className="absolute inset-0 bg-gradient-to-r from-indigo-600 via-blue-600 to-purple-700" />
-        <div className="absolute -top-16 -right-10 h-56 w-56 rounded-full bg-white/10 blur-3xl" />
-        <div className="relative p-4 sm:p-6 text-white">
-          <div className="flex items-center gap-2">
-            <BookOpen className="h-5 w-5" />
-            <h2 className="text-xl sm:text-2xl font-bold">
-              {isClassTeacher ? "Class & Attendance Report" : "Teaching Hub"}
-            </h2>
+
+        {/* Decorative blur element */}
+        <div className="absolute -top-10 -right-8 sm:-top-16 sm:-right-10 h-32 w-32 sm:h-48 sm:w-48 lg:h-56 lg:w-56 rounded-full bg-white/10 blur-3xl" />
+
+        {/* Content */}
+        <div className="relative p-4 sm:p-5 md:p-6 lg:p-8 text-white">
+          {/* Header row */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <BookOpen className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6 flex-shrink-0" />
+              <h2 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold leading-tight truncate">
+                {isClassTeacher ? "Class & Attendance Report" : "Teaching Hub"}
+              </h2>
+            </div>
+
+            {/* Refresh button */}
             <button
               onClick={doFullRefresh}
-              className="ml-auto inline-flex items-center gap-2 text-sm bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded-lg border border-white/20"
               title="Refresh"
+              className="inline-flex items-center justify-center gap-1.5 sm:gap-2 text-xs sm:text-sm md:text-base bg-white/15 hover:bg-white/25 transition-colors px-2.5 sm:px-3 md:px-4 py-1.5 sm:py-1.5 md:py-2 rounded-md sm:rounded-lg border border-white/20 whitespace-nowrap self-start sm:self-auto"
             >
-              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-              Refresh
+              <RefreshCw
+                className={`h-3.5 w-3.5 sm:h-4 sm:w-4 md:h-5 md:w-5 ${refreshing ? "animate-spin" : ""
+                  }`}
+              />
+              <span className="hidden xs:inline">Refresh</span>
             </button>
           </div>
-          <p className="text-sm sm:text-base text-indigo-100 mt-1">
+
+          {/* Description */}
+          <p className="text-xs sm:text-sm md:text-base lg:text-lg text-indigo-100 mt-2 sm:mt-2.5 md:mt-3 leading-relaxed max-w-3xl">
             {isClassTeacher
-              ? "Live view of your assigned classes, with today’s attendance and quick actions."
+              ? "Live view of your assigned classes, with today's attendance and quick actions."
               : "See your classes & subjects, school communications, and upcoming events."}
           </p>
+
+          {/* Last updated timestamp */}
           {!!lastUpdated && (
-            <div className="text-xs text-indigo-100 mt-1">Updated: {lastUpdated}</div>
+            <div className="text-[11px] sm:text-xs md:text-sm text-indigo-100/90 mt-1.5 sm:mt-2 md:mt-2.5">
+              Updated: {lastUpdated}
+            </div>
           )}
         </div>
       </div>
+
 
       {/* Status / error */}
       {!!err && (
@@ -465,163 +485,230 @@ export default function TeacherDashboard() {
       )}
 
       {/* ===== Row 1: Subjects & Classes (FULL-WIDTH) ===== */}
-      <div className="mb-8">
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700">
-          {/* Header */}
-          <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
-            <BookOpen className="h-5 w-5 text-indigo-500" />
-            <h3 className="font-semibold">Subjects & Classes</h3>
-            <div className="ml-auto flex items-center gap-2 text-xs">
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-100 border border-indigo-100 dark:border-indigo-800">
-                {subjectTotals.classesCount} classes
-              </span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-50 text-gray-700 dark:bg-gray-900/40 dark:text-gray-200 border border-gray-200 dark:border-gray-700">
-                {subjectTotals.subjectsCount} subjects
-              </span>
-            </div>
-          </div>
+<div className="mb-8">
+  <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 overflow-hidden">
+    {/* Header */}
+    <div className="p-4 sm:p-5 border-b border-gray-100 dark:border-gray-700 flex flex-wrap items-center gap-2">
+      <BookOpen className="h-5 w-5 text-indigo-500 flex-shrink-0" />
+      <h3 className="font-semibold text-sm sm:text-base md:text-lg">Subjects & Classes</h3>
 
-          {/* Search */}
-          <div className="p-3 border-b border-gray-100 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/40">
-            <input
-              type="text"
-              value={subq}
-              onChange={(e) => setSubq(e.target.value)}
-              placeholder="Search class or subject…"
-              className="w-full text-sm px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 outline-none focus:ring-2 focus:ring-indigo-500/30"
-            />
-          </div>
-
-          {/* Body */}
-          <div className="p-4">
-            {subjects.length === 0 ? (
-              <div className="text-sm text-gray-600 dark:text-gray-300">
-                No subject assignments found.
-              </div>
-            ) : groupedSubjects.length === 0 ? (
-              <div className="text-sm text-gray-600 dark:text-gray-300">No matches.</div>
-            ) : (
-              <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                {groupedSubjects.map(({ classId, className, subjects }) => (
-                  <li
-                    key={classId}
-                    className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3"
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="font-medium text-gray-900 dark:text-white truncate">
-                        {className}
-                      </div>
-                      <span className="ml-auto text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-100 border border-indigo-100 dark:border-indigo-800">
-                        {subjects.length} {subjects.length === 1 ? "subject" : "subjects"}
-                      </span>
-                    </div>
-
-                    {/* subject chips */}
-                    <div className="flex flex-wrap gap-1.5">
-                      {subjects.map((sName, idx) => (
-                        <span
-                          key={`${classId}-${idx}`}
-                          className="text-[11px] px-2 py-1 rounded-full bg-gray-50 text-gray-700 dark:bg-gray-800 dark:text-gray-200 border border-gray-200 dark:border-gray-700"
-                          title={sName}
-                        >
-                          {sName}
-                        </span>
-                      ))}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
+      {/* Totals */}
+      <div className="ml-auto flex flex-wrap items-center gap-2 text-xs sm:text-sm">
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-100 border border-indigo-100 dark:border-indigo-800">
+          {subjectTotals.classesCount} classes
+        </span>
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-gray-50 text-gray-700 dark:bg-gray-900/40 dark:text-gray-200 border border-gray-200 dark:border-gray-700">
+          {subjectTotals.subjectsCount} subjects
+        </span>
       </div>
+    </div>
+
+    {/* Search */}
+    <div className="p-3 sm:p-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/40">
+      <input
+        type="text"
+        value={subq}
+        onChange={(e) => setSubq(e.target.value)}
+        placeholder="Search class or subject…"
+        className="w-full text-sm sm:text-base px-3 sm:px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 outline-none focus:ring-2 focus:ring-indigo-500/30 transition"
+      />
+    </div>
+
+    {/* Body */}
+    <div className="p-4 sm:p-5">
+      {subjects.length === 0 ? (
+        <div className="text-sm sm:text-base text-gray-600 dark:text-gray-300 text-center py-6">
+          No subject assignments found.
+        </div>
+      ) : groupedSubjects.length === 0 ? (
+        <div className="text-sm sm:text-base text-gray-600 dark:text-gray-300 text-center py-6">
+          No matches.
+        </div>
+      ) : (
+        <ul
+          className="
+            grid grid-cols-1
+            sm:grid-cols-2
+            lg:grid-cols-3
+            xl:grid-cols-4
+            2xl:grid-cols-5
+            gap-3 sm:gap-4
+          "
+        >
+          {groupedSubjects.map(({ classId, className, subjects }) => (
+            <li
+              key={classId}
+              className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 sm:p-4 hover:shadow-md transition"
+            >
+              {/* Class Header */}
+              <div className="flex items-center gap-2 mb-2">
+                <div className="font-medium text-gray-900 dark:text-white truncate text-sm sm:text-base">
+                  {className}
+                </div>
+                <span className="ml-auto text-[10px] sm:text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-100 border border-indigo-100 dark:border-indigo-800 whitespace-nowrap">
+                  {subjects.length} {subjects.length === 1 ? "subject" : "subjects"}
+                </span>
+              </div>
+
+              {/* Subjects */}
+              <div className="flex flex-wrap gap-1.5">
+                {subjects.map((sName, idx) => (
+                  <span
+                    key={`${classId}-${idx}`}
+                    className="text-[10px] sm:text-xs px-2 py-1 rounded-full bg-gray-50 text-gray-700 dark:bg-gray-800 dark:text-gray-200 border border-gray-200 dark:border-gray-700 truncate max-w-full"
+                    title={sName}
+                  >
+                    {sName}
+                  </span>
+                ))}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  </div>
+</div>
+
 
       {/* ===== Row 2: Attendance Report (full-width) ===== */}
       {isClassTeacher && (
         <div className="mb-8">
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700">
-            <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
-              <BarChart2 className="h-5 w-5 text-indigo-500" />
-              <h3 className="font-semibold">Attendance Report — Today</h3>
-              <span className="ml-auto text-xs text-gray-500 dark:text-gray-400">
-                Academic Year: {yearId ?? "—"} • Term: {termId ?? "—"} • Date: {todayISO()}
-              </span>
+            {/* Header - Stack on mobile */}
+            <div className="p-4 border-b border-gray-100 dark:border-gray-700">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <div className="flex items-center gap-2">
+                  <BarChart2 className="h-5 w-5 text-indigo-500 flex-shrink-0" />
+                  <h3 className="font-semibold">Attendance Report — Today</h3>
+                </div>
+                <span className="text-xs text-gray-500 dark:text-gray-400 sm:ml-auto">
+                  <span className="inline-block">Academic Year: {yearId ?? "—"}</span>
+                  <span className="inline-block ml-2">• Term: {termId ?? "—"}</span>
+                  <span className="inline-block ml-2">• Date: {todayISO()}</span>
+                </span>
+              </div>
             </div>
 
-            {/* Summary chips */}
-            <div className="px-4 pt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="rounded-lg border bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 p-3 text-center">
+            {/* Summary chips - Responsive grid */}
+            <div className="px-3 sm:px-4 pt-4 grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+              <div className="rounded-lg border bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 p-2.5 sm:p-3 text-center">
                 <div className="text-xs text-gray-600 dark:text-gray-400">Overall Rate</div>
-                <div className="text-lg font-semibold">{overallRate}%</div>
+                <div className="text-base sm:text-lg font-semibold">{overallRate}%</div>
               </div>
-              <div className="rounded-lg border bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 p-3 text-center">
+              <div className="rounded-lg border bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 p-2.5 sm:p-3 text-center">
                 <div className="text-xs text-gray-600 dark:text-gray-400">Present</div>
-                <div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
+                <div className="text-base sm:text-lg font-semibold text-emerald-600 dark:text-emerald-400">
                   {totals.present}
                 </div>
               </div>
-              <div className="rounded-lg border bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 p-3 text-center">
+              <div className="rounded-lg border bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 p-2.5 sm:p-3 text-center">
                 <div className="text-xs text-gray-600 dark:text-gray-400">Tardy</div>
-                <div className="text-lg font-semibold text-amber-600 dark:text-amber-400">
+                <div className="text-base sm:text-lg font-semibold text-amber-600 dark:text-amber-400">
                   {totals.tardy}
                 </div>
               </div>
-              <div className="rounded-lg border bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 p-3 text-center">
+              <div className="rounded-lg border bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 p-2.5 sm:p-3 text-center">
                 <div className="text-xs text-gray-600 dark:text-gray-400">Absent</div>
-                <div className="text-lg font-semibold text-rose-600 dark:text-rose-400">
+                <div className="text-base sm:text-lg font-semibold text-rose-600 dark:text-rose-400">
                   {totals.absent}
                 </div>
               </div>
             </div>
 
-            {/* Table */}
-            <div className="p-4">
+            {/* Table - Mobile card view, desktop table */}
+            <div className="p-3 sm:p-4">
               {attendanceRows.length === 0 ? (
                 <div className="text-sm text-gray-600 dark:text-gray-300">
                   No attendance data for today.
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
-                        <th className="py-2 pr-4">Class</th>
-                        <th className="py-2 px-2 text-center">Present</th>
-                        <th className="py-2 px-2 text-center">Tardy</th>
-                        <th className="py-2 px-2 text-center">Absent</th>
-                        <th className="py-2 px-2 text-center">Marked</th>
-                        <th className="py-2 pl-2 text-right">Rate</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {attendanceRows.map((r) => (
-                        <tr
-                          key={r.class_id}
-                          className="border-b border-gray-100 dark:border-gray-800"
-                        >
-                          <td className="py-2 pr-4">
-                            <div className="font-medium text-gray-900 dark:text-white">
-                              {r.class_name}
+                <>
+                  {/* Mobile: Card View */}
+                  <div className="space-y-3 md:hidden">
+                    {attendanceRows.map((r) => (
+                      <div
+                        key={r.class_id}
+                        className="bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3"
+                      >
+                        <div className="font-medium text-gray-900 dark:text-white mb-2 text-base">
+                          {r.class_name}
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-sm">
+                          <div className="text-center">
+                            <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">Present</div>
+                            <div className="font-semibold text-emerald-600 dark:text-emerald-400">
+                              {r.present}
                             </div>
-                          </td>
-                          <td className="py-2 px-2 text-center text-emerald-600 dark:text-emerald-400">
-                            {r.present}
-                          </td>
-                          <td className="py-2 px-2 text-center text-amber-600 dark:text-amber-400">
-                            {r.tardy}
-                          </td>
-                          <td className="py-2 px-2 text-center text-rose-600 dark:text-rose-400">
-                            {r.absent}
-                          </td>
-                          <td className="py-2 px-2 text-center">{r.total}</td>
-                          <td className="py-2 pl-2 text-right font-semibold">
-                            {r.rate}%
-                          </td>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">Tardy</div>
+                            <div className="font-semibold text-amber-600 dark:text-amber-400">
+                              {r.tardy}
+                            </div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">Absent</div>
+                            <div className="font-semibold text-rose-600 dark:text-rose-400">
+                              {r.absent}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 flex justify-between text-xs">
+                          <span className="text-gray-600 dark:text-gray-400">
+                            Marked: <span className="font-medium text-gray-900 dark:text-white">{r.total}</span>
+                          </span>
+                          <span className="font-semibold text-gray-900 dark:text-white">
+                            Rate: {r.rate}%
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Desktop: Table View */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
+                          <th className="py-2 pr-4">Class</th>
+                          <th className="py-2 px-2 text-center">Present</th>
+                          <th className="py-2 px-2 text-center">Tardy</th>
+                          <th className="py-2 px-2 text-center">Absent</th>
+                          <th className="py-2 px-2 text-center">Marked</th>
+                          <th className="py-2 pl-2 text-right">Rate</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {attendanceRows.map((r) => (
+                          <tr
+                            key={r.class_id}
+                            className="border-b border-gray-100 dark:border-gray-800"
+                          >
+                            <td className="py-2 pr-4">
+                              <div className="font-medium text-gray-900 dark:text-white">
+                                {r.class_name}
+                              </div>
+                            </td>
+                            <td className="py-2 px-2 text-center text-emerald-600 dark:text-emerald-400">
+                              {r.present}
+                            </td>
+                            <td className="py-2 px-2 text-center text-amber-600 dark:text-amber-400">
+                              {r.tardy}
+                            </td>
+                            <td className="py-2 px-2 text-center text-rose-600 dark:text-rose-400">
+                              {r.absent}
+                            </td>
+                            <td className="py-2 px-2 text-center">{r.total}</td>
+                            <td className="py-2 pl-2 text-right font-semibold">
+                              {r.rate}%
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
               )}
             </div>
           </div>
@@ -629,46 +716,65 @@ export default function TeacherDashboard() {
       )}
 
       {/* ===== Row 3: Calendar (full-width, its own line) ===== */}
-      <div className="mb-8">
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="inline-flex items-center gap-2">
-              <CalendarDays className="h-5 w-5 text-indigo-500" />
-              <h3 className="font-semibold">School Events</h3>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                className="px-2 py-1 rounded border text-sm"
-                onClick={() =>
-                  setCalMonth(
-                    new Date(calMonth.getFullYear(), calMonth.getMonth() - 1, 1)
-                  )
-                }
-              >
-                ‹ Prev
-              </button>
-              <div className="text-sm font-medium">
-                {calMonth.toLocaleString(undefined, {
-                  month: "long",
-                  year: "numeric",
-                })}
-              </div>
-              <button
-                className="px-2 py-1 rounded border text-sm"
-                onClick={() =>
-                  setCalMonth(
-                    new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 1)
-                  )
-                }
-              >
-                Next ›
-              </button>
-            </div>
-          </div>
-
-          <BigCalendar monthStart={calMonth} events={events} />
-        </div>
+<div className="mb-8">
+  <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 p-3 sm:p-4 md:p-6 overflow-hidden">
+    {/* Header */}
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+      {/* Title */}
+      <div className="inline-flex items-center gap-2">
+        <CalendarDays className="h-4 w-4 sm:h-5 sm:w-5 text-indigo-500 flex-shrink-0" />
+        <h3 className="font-semibold text-base sm:text-lg text-gray-900 dark:text-white">
+          School Events
+        </h3>
       </div>
+
+      {/* Month Navigation */}
+      <div className="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto justify-between sm:justify-end">
+        {/* Prev Button */}
+        <button
+          onClick={() =>
+            setCalMonth(
+              new Date(calMonth.getFullYear(), calMonth.getMonth() - 1, 1)
+            )
+          }
+          className="flex items-center justify-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md border border-gray-200 dark:border-gray-700 text-xs sm:text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+        >
+          <span className="hidden sm:inline">‹ Prev</span>
+          <span className="sm:hidden">‹</span>
+        </button>
+
+        {/* Month Label */}
+        <div className="text-xs sm:text-sm font-medium text-gray-800 dark:text-gray-100 text-center px-2 min-w-[110px] sm:min-w-[140px]">
+          {calMonth.toLocaleString(undefined, {
+            month: "long",
+            year: "numeric",
+          })}
+        </div>
+
+        {/* Next Button */}
+        <button
+          onClick={() =>
+            setCalMonth(
+              new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 1)
+            )
+          }
+          className="flex items-center justify-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md border border-gray-200 dark:border-gray-700 text-xs sm:text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+        >
+          <span className="hidden sm:inline">Next ›</span>
+          <span className="sm:hidden">›</span>
+        </button>
+      </div>
+    </div>
+
+    {/* Calendar Container */}
+    <div className="overflow-x-auto -mx-3 sm:mx-0">
+      <div className="min-w-[300px] sm:min-w-[480px] md:min-w-[640px] lg:min-w-[720px] xl:min-w-[800px] 2xl:min-w-[900px] px-3 sm:px-0">
+        <BigCalendar monthStart={calMonth} events={events} />
+      </div>
+    </div>
+  </div>
+</div>
+
 
       {/* ===== Row 4: Communications ===== */}
       <div className="mb-3 flex items-center justify-between">

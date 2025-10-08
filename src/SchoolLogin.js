@@ -1,6 +1,5 @@
-// src/SchoolLogin.jsx
 import { useState, useEffect, useMemo } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import {
   Eye, EyeOff, Mail, Lock, GraduationCap,
   Users, BookOpen, Shield, Loader2, AlertCircle, Sun, Moon, Search
@@ -11,7 +10,6 @@ import { useTheme } from './contexts/ThemeContext';
 // === Config =========================================================
 const LOCK_ONLY_WHEN_PRESELECTED = true; // if true, field is read-only only when preselected
 const RESTORE_LAST_SCHOOL = false;       // restore last chosen school from localStorage?
-const AFTER_LOGIN_ROUTE = "/";           // change to "/dashboard" if you prefer
 // ===================================================================
 
 // ORDS endpoint (returns [{ school_name, school_id, created_at }, ...])
@@ -39,6 +37,7 @@ export default function SchoolLogin() {
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
 
   // Read p_school_id from URL if present
   useEffect(() => {
@@ -105,34 +104,38 @@ export default function SchoolLogin() {
     return !!sid && emailOk && p.length > 0 && !isLoading;
   }, [email, password, schoolId, isLoading]);
 
-  const handleSubmit = async () => {
+  // compute the post-login target from where user came
+  const fromPath =
+    (location.state?.from?.pathname || "") + (location.state?.from?.search || "");
+
+  const onSubmit = async (e) => {
+    e?.preventDefault?.(); // 🔒 stop full page reload
     setError("");
 
-    const e = email.trim();
+    const eMail = email.trim();
     const p = password.trim();
     const sid = String(schoolId || "").trim();
 
     if (!sid) return setError("Please select your school.");
-    if (!e || !p) return setError("Please fill in all fields.");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return setError("Please enter a valid email address.");
+    if (!eMail || !p) return setError("Please fill in all fields.");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(eMail)) return setError("Please enter a valid email address.");
 
     try {
       // Save last selection only if present
       try { if (sid) localStorage.setItem("last_school_id", sid); } catch {}
 
-      const result = await login(e, p, userType, isDemoMode, Number(sid));
+      const result = await login(eMail, p, userType, isDemoMode, Number(sid));
       if (!result?.success) {
         setError(result?.error || "Login failed. Please check your credentials.");
       } else {
-        navigate(AFTER_LOGIN_ROUTE, { replace: true });
+        // 🧭 Go back to the original protected route if present, else dashboard
+        navigate(fromPath || "/dashboard", { replace: true });
       }
     } catch (err) {
       console.error("Login error:", err);
       setError("An unexpected error occurred. Please try again.");
     }
   };
-
-  const handleKeyPress = (e) => { if (e.key === "Enter" && canSubmit) handleSubmit(); };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex relative text-gray-900 dark:text-gray-100">
@@ -141,6 +144,7 @@ export default function SchoolLogin() {
         onClick={toggleTheme}
         className="absolute top-4 right-4 z-50 p-2 rounded-full shadow bg-white dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100"
         title="Toggle Theme"
+        type="button"
       >
         {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
       </button>
@@ -184,7 +188,12 @@ export default function SchoolLogin() {
             </div>
           </div>
 
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8 border border-gray-100 dark:border-gray-700">
+          {/* ✅ Use a real form to control submit & prevent reload */}
+          <form
+            className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8 border border-gray-100 dark:border-gray-700"
+            onSubmit={onSubmit}
+            noValidate
+          >
             <div className="text-center mb-8">
               <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Welcome Back</h2>
               <p className="text-gray-600 dark:text-gray-400">Sign in to access your dashboard</p>
@@ -277,7 +286,6 @@ export default function SchoolLogin() {
                   type="email"
                   value={email}
                   onChange={(e) => { setEmail(e.target.value); if (error) setError(""); }}
-                  onKeyPress={handleKeyPress}
                   disabled={isLoading}
                   className="pl-10 pr-4 py-2 w-full border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   placeholder="you@example.com"
@@ -295,7 +303,6 @@ export default function SchoolLogin() {
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => { setPassword(e.target.value); if (error) setError(""); }}
-                  onKeyPress={handleKeyPress}
                   disabled={isLoading}
                   className="pl-10 pr-12 py-2 w-full border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   placeholder="••••••••"
@@ -314,7 +321,7 @@ export default function SchoolLogin() {
 
             {/* Submit */}
             <button
-              onClick={handleSubmit}
+              type="submit"
               disabled={!canSubmit}
               className={`w-full py-2 rounded-lg font-semibold transition text-white ${canSubmit ? "bg-indigo-600 hover:bg-indigo-700" : "bg-indigo-400 cursor-not-allowed"}`}
             >
@@ -339,13 +346,14 @@ export default function SchoolLogin() {
             <div className="mt-6 text-center">
               <p className="text-sm text-gray-600 dark:text-gray-400">Don't have an account?</p>
               <button
+                type="button"
                 onClick={() => window.location.href = 'https://www.schoolmasterhub.net/#pricing'}
                 className="mt-2 inline-block text-indigo-600 dark:text-indigo-400 hover:underline font-semibold text-sm"
               >
                 Sign Up for Free Trial
               </button>
             </div>
-          </div>
+          </form>
         </div>
       </div>
     </div>

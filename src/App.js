@@ -2,7 +2,7 @@
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import IdleLogout from './components/IdleLogout';
-import SessionManager from './components/SessionManager'; // <-- FIX: default import
+import SessionManager from './components/SessionManager';
 import SupportChat from './components/support/SupportChat';
 
 import { AuthProvider, useAuth } from './AuthContext';
@@ -92,11 +92,9 @@ const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, isLoading, isInitializing } = useAuth();
   const location = useLocation();
 
-  // Don't redirect anywhere while auth is hydrating/loading
   if (isInitializing || isLoading) return <DashboardLoading />;
 
   if (!isAuthenticated) {
-    // Pass the original location so we can return here after login
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
   return children;
@@ -163,13 +161,11 @@ const DashboardRouter = () => {
 const LoginRoute = () => {
   const { isAuthenticated, isLoading, isInitializing } = useAuth();
   const location = useLocation();
-  // where did we come from? (/settings, /print-bill, etc.)
   const from =
     (location.state?.from?.pathname || '') + (location.state?.from?.search || '');
 
   if (isAuthenticated && !isLoading && !isInitializing) {
-    // After refresh or successful login, go back to the original path if present
-    return <Navigate to={from || "/dashboard"} replace />;
+    return <Navigate to={from || '/dashboard'} replace />;
   }
   return <SchoolLogin />;
 };
@@ -208,7 +204,6 @@ const AppRoutes = () => {
         path="/dashboard/communication"
         element={
           <ProtectedRoute>
-            {/* block teachers; allow others */}
             <RoleRoute allowed={['admin', 'accountant', 'headteacher', 'owner']}>
               <Suspense fallback={<DashboardLoading />}>
                 <CommunicationPage />
@@ -249,7 +244,7 @@ const AppRoutes = () => {
         path="/dashboard/manage-students"
         element={
           <ProtectedRoute>
-            <RoleRoute allowed={['admin','owner','headteacher','accountant','teacher']}>
+            <RoleRoute allowed={['admin', 'owner', 'headteacher', 'accountant', 'teacher']}>
               <FeatureRoute requireClassTeacher>
                 <Suspense fallback={<DashboardLoading />}>
                   <ManageStudentsPage />
@@ -448,7 +443,7 @@ const AppRoutes = () => {
         path="/dashboard/exams/enter-scores"
         element={
           <ProtectedRoute>
-            <RoleRoute allowed={['teacher','headteacher','admin']}>
+            <RoleRoute allowed={['teacher', 'headteacher', 'admin']}>
               <Suspense fallback={<DashboardLoading />}>
                 <EnterScoresPage />
               </Suspense>
@@ -462,7 +457,7 @@ const AppRoutes = () => {
         path="/dashboard/exams/scale"
         element={
           <ProtectedRoute>
-            <RoleRoute allowed={['admin'] /* add 'owner' if needed */}>
+            <RoleRoute allowed={['admin']}>
               <Suspense fallback={<DashboardLoading />}>
                 <ExamScaleSetupPage />
               </Suspense>
@@ -532,40 +527,7 @@ const ThemeWrapper = ({ children }) => {
   );
 };
 
-/** ---------- APP ROOT ---------- */
-function App() {
-  return (
-    <ErrorBoundary>
-      <ThemeProvider>
-        <AuthProvider>
-          <TeacherAccessProvider>
-            <DataProvider>
-              <Router>
-                <ThemeWrapper>
-                  {/* Inactivity-based auto-logout */}
-                  <IdleLogout idleMs={15 * 60 * 1000} />
-
-                  {/* Absolute session / JWT-expiry enforcement */}
-                  <SessionManager
-                    absoluteMs={8 * 60 * 60 * 1000}
-                    warnBeforeMs={60 * 1000}
-                  />
-
-                  {/* Global Support Chat */}
-                  <SupportChat />
-
-                  <AppRoutes />
-                </ThemeWrapper>
-              </Router>
-            </DataProvider>
-          </TeacherAccessProvider>
-        </AuthProvider>
-      </ThemeProvider>
-    </ErrorBoundary>
-  );
-}
-
-// Optional DataContext fallback
+/** ---------- DataProvider fallback (defined BEFORE App to avoid hoisting) ---------- */
 let DataProvider;
 try {
   // eslint-disable-next-line global-require
@@ -574,6 +536,32 @@ try {
 } catch (error) {
   console.warn('DataContext not found, using fallback');
   DataProvider = ({ children }) => children;
+}
+
+/** ---------- APP ROOT ---------- */
+function App() {
+  return (
+    <ErrorBoundary>
+      <ThemeProvider>
+        <AuthProvider>
+          <TeacherAccessProvider>
+            {/* ✅ Router MUST wrap anything that may call useLocation/useNavigate */}
+            <Router>
+              {/* Keep any provider that uses router hooks INSIDE Router */}
+              <DataProvider>
+                <ThemeWrapper>
+                  <IdleLogout idleMs={15 * 60 * 1000} />
+                  <SessionManager absoluteMs={8 * 60 * 60 * 1000} warnBeforeMs={60 * 1000} />
+                  <SupportChat />
+                  <AppRoutes />
+                </ThemeWrapper>
+              </DataProvider>
+            </Router>
+          </TeacherAccessProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
+  );
 }
 
 export default App;

@@ -1,14 +1,15 @@
-// src/components/SupportChat.jsx
+// src/components/support/SupportChat.js
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 /** Inject minimal CSS once */
 const STYLE_TAG_ID = "supportchat-styles";
 function injectStyles() {
+  if (typeof document === "undefined") return;
   if (document.getElementById(STYLE_TAG_ID)) return;
   const css = `
   .sc-card { width: 300px; border-radius: 12px; box-shadow: 0 10px 28px rgba(0,0,0,.12); overflow: hidden; border: 1px solid var(--sc-bd); background: var(--sc-bg); color: var(--sc-fg); font-size:12.5px; }
   .sc-header { display:flex; align-items:center; justify-content:space-between; padding:8px 10px; font-weight:700; background: var(--sc-header-bg); color: var(--sc-header-fg); }
-  .sc-body { height: 200px; overflow-y:auto; padding:8px; background: var(--sc-bg); -webkit-overflow-scrolling: touch; }
+  .sc-body { height: 200px; overflow-y:auto; padding:8px; background: var(--sc-bg); }
   .sc-quick { display:flex; flex-wrap:wrap; gap:6px; padding:6px 8px; border-top: 1px solid var(--sc-bd); border-bottom: 1px solid var(--sc-bd);}
   .sc-chip { font-size:11px; padding:3px 8px; border-radius:999px; border:1px solid var(--sc-bd-2); background: var(--sc-chip-bg); cursor:pointer; }
   .sc-footer { display:flex; gap:6px; padding:8px; border-top: 1px solid var(--sc-bd); align-items:flex-start; }
@@ -21,9 +22,7 @@ function injectStyles() {
   .sc-bubble { display:inline-block; padding:7px 9px; border-radius:12px; font-size:12.5px; max-width: 90%; background: var(--sc-bubble-bot-bg); color: var(--sc-fg); line-height:1.35; white-space:pre-wrap; }
   .sc-bubble.user { background:#2563eb; color:#fff; }
 
-  /* Wrapper: DO NOT block scrolling; allow taps to be responsive */
-  .sc-wrap { position:fixed; inset: auto var(--sc-right) var(--sc-bottom) auto; z-index: 9999; touch-action: manipulation; }
-
+  .sc-wrap { position:fixed; inset: auto var(--sc-right) var(--sc-bottom) auto; z-index: 9999; touch-action: none; }
   .sc-open { border-radius:999px; padding:9px 12px; background:#2563eb; color:white; font-weight:700; border:none; box-shadow:0 10px 30px rgba(0,0,0,.2); cursor:pointer; font-size:12.5px; }
   .sc-close { color:inherit; background:transparent; border:none; font-size:16px; cursor:pointer; padding:2px 4px; }
   .sc-list { display:flex; flex-direction:column; gap:6px; }
@@ -58,13 +57,15 @@ function injectStyles() {
 function useTheme(theme = "system") {
   useEffect(() => {
     injectStyles();
+    if (typeof document === "undefined") return;
     const root = document.documentElement;
     const apply = (mode) => {
       if (mode === "dark") root.classList.add("sc-dark");
       else root.classList.remove("sc-dark");
     };
     if (theme === "system") {
-      const mq = window.matchMedia("(prefers-color-scheme: dark)");
+      const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
+      if (!mq) return;
       apply(mq.matches ? "dark" : "light");
       const onChange = (e) => apply(e.matches ? "dark" : "light");
       mq.addEventListener?.("change", onChange);
@@ -93,7 +94,7 @@ Tip: Do this before attendance, exams, or billing.`
   { q: "Add staff / teachers (incl. bulk import)", a:
 `Admin/Owner:
 • Dashboard → Manage Staff → Add New Staff
-• Bulk Import supports: full_name, email, role[AD/HT/TE/AC], status, image_url
+• "Bulk Import" supports: full_name, email, role[AD/HT/TE/AC], status, image_url
 • Use "Reset & send" to email credentials if needed` },
   { q: "Add students / bulk import", a:
 `Admin/Owner:
@@ -139,13 +140,15 @@ function matchFaq(faqs, text) {
   let best = null, bestScore = 0;
 
   for (const item of faqs) {
-    const hay = `${item.q.toLowerCase()} ${item.a.toLowerCase()}`;
+    const q = item.q.toLowerCase();
+    const a = item.a.toLowerCase();
+    const hay = `${q} ${a}`;
     let score = 0;
     if (hay.includes(t)) score += 6;
     for (const w of words) {
       if (w.length >= 3) {
-        if (item.q.toLowerCase().includes(w)) score += 2;
-        if (item.a.toLowerCase().includes(w)) score += 1;
+        if (q.includes(w)) score += 2;
+        if (a.includes(w)) score += 1;
       }
     }
     if (/start|setup|set\s*up|begin|onboard|first/i.test(t) && /academic/i.test(hay)) score += 3;
@@ -161,20 +164,31 @@ export default function SupportChat({
     process.env.NEXT_PUBLIC_SUPPORT_EMAIL ||
     "info@schoolmasterhub.net",
   faqs = DEFAULT_FAQ,
-  theme = "system", // "light" | "dark" | "system"
+  theme = "system",
   openByDefault = false,
   publicToken,
   autoCloseOnEscalate = true,
   autoCloseDelayMs = 1200,
 
-  // Positioning / overlap controls
+  // positioning / overlap controls
   fabOffset = { right: 16, bottom: 16 },
   mobileFabOffset = { right: 16, bottom: 88 },
   avoidDialogsOnMobile = true,
   draggableOnMobile = true,
+
+  // TEMP: hide widget entirely on mobile (≤640px)
+  hideOnMobile = true,
 }) {
   useTheme(theme);
 
+  // Determine if we *should* hide (no early return yet!)
+  const isMobileScreen =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(max-width: 640px)").matches;
+  const shouldHide = hideOnMobile && isMobileScreen;
+
+  // ---- Hooks must be declared unconditionally (even if we hide) ----
   const [open, setOpen] = useState(openByDefault);
   const [messages, setMessages] = useState([
     {
@@ -189,21 +203,17 @@ export default function SupportChat({
   const [needsHuman, setNeedsHuman] = useState(false);
   const [sending, setSending] = useState(false);
 
-  // Mobile detection
-  const isMobile = useRef(typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches);
-
-  // Position state
-  const [fabPos, setFabPos] = useState(() =>
+  const isMobile = useRef(isMobileScreen);
+  const [fabPos, setFabPos] = useState(
     isMobile.current ? { ...mobileFabOffset } : { ...fabOffset }
   );
-  const [dragPreview, setDragPreview] = useState(null); // ephemeral during drag
-
+  const [dragPos, setDragPos] = useState(null);
   const wrapRef = useRef(null);
-  const btnRef = useRef(null);
 
-  // Observe modals/dialogs to lift FAB on mobile
+  // Observe dialogs and adjust bottom offset (effect still called, but it no-ops while hidden)
   useEffect(() => {
     if (!avoidDialogsOnMobile || !isMobile.current) return;
+    if (typeof document === "undefined") return;
 
     const hasOpenDialog = () => {
       if (document.body.classList.contains("modal-open")) return true;
@@ -232,79 +242,66 @@ export default function SupportChat({
     };
   }, [avoidDialogsOnMobile, fabOffset.bottom, mobileFabOffset.bottom]);
 
-  // Drag handler — bound ONLY to the FAB button, and only when CLOSED.
+  // Draggable FAB (still safe if hidden; nothing renders)
   useEffect(() => {
     if (!draggableOnMobile || !isMobile.current) return;
-    const btn = btnRef.current;
-    if (!btn) return;
+    const el = wrapRef.current;
+    if (!el || typeof window === "undefined") return;
 
-    let startX = 0, startY = 0, origRight = 0, origBottom = 0;
-    let moved = false;
-
-    const MOVE_THRESHOLD = 6; // px to differentiate tap from drag
+    let startX = 0, startY = 0, origRight = 0, origBottom = 0, dragging = false, tId;
 
     const onPointerDown = (e) => {
-      if (open) return; // drag only when closed
-      // capture starting state
-      const cs = getComputedStyle(wrapRef.current);
-      origRight = parseFloat(cs.getPropertyValue("--sc-right")) || fabPos.right || 16;
-      origBottom = parseFloat(cs.getPropertyValue("--sc-bottom")) || fabPos.bottom || 16;
-
+      if (!(e.target && (e.target.closest(".sc-open") || (!open && e.target.closest(".sc-wrap"))))) return;
+      dragging = true;
+      el.setPointerCapture?.(e.pointerId);
       startX = e.clientX;
       startY = e.clientY;
-      moved = false;
-
-      // Use non-capture so click can still happen if no move
-      window.addEventListener("pointermove", onPointerMove, { passive: true });
-      window.addEventListener("pointerup", onPointerUp, { passive: true, once: true });
+      const cs = getComputedStyle(el);
+      origRight = parseFloat(cs.right) || 16;
+      origBottom = parseFloat(cs.bottom) || 16;
+      clearTimeout(tId);
     };
-
     const onPointerMove = (e) => {
+      if (!dragging) return;
       const dx = startX - e.clientX;
       const dy = e.clientY - startY;
-      const dist = Math.hypot(dx, dy);
-      if (dist > MOVE_THRESHOLD) moved = true;
-
-      const newRight = Math.max(8, (fabPos.right ?? 16) + dx);
-      const newBottom = Math.max(8, (fabPos.bottom ?? 16) + dy);
-      setDragPreview({ right: newRight, bottom: newBottom });
+      const newRight = Math.max(8, origRight + dx);
+      const newBottom = Math.max(8, origBottom + dy);
+      setDragPos({ right: newRight, bottom: newBottom });
     };
-
     const onPointerUp = (e) => {
-      window.removeEventListener("pointermove", onPointerMove);
-
-      if (moved) {
-        // Commit drag
-        setFabPos((p) => ({
-          right: dragPreview?.right ?? p.right,
-          bottom: dragPreview?.bottom ?? p.bottom,
-        }));
-        setDragPreview(null);
-      } else {
-        // Treat as a tap to open
-        setOpen(true);
-      }
+      if (!dragging) return;
+      dragging = false;
+      el.releasePointerCapture?.(e.pointerId);
+      setFabPos((p) => ({
+        right: dragPos?.right ?? p.right,
+        bottom: dragPos?.bottom ?? p.bottom,
+      }));
+      tId = setTimeout(() => setDragPos(null), 50);
     };
 
-    btn.addEventListener("pointerdown", onPointerDown, { passive: true });
+    el.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
 
     return () => {
-      btn.removeEventListener("pointerdown", onPointerDown);
+      el.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
     };
-  }, [draggableOnMobile, isMobile.current, open, fabPos.right, fabPos.bottom, dragPreview]);
+  }, [draggableOnMobile, open, dragPos]);
 
-  // Apply CSS variables for position (supports safe-area)
+  // Apply CSS variables for position
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    const right = (dragPreview?.right ?? fabPos.right ?? 16) + "px";
-    const bottom = (dragPreview?.bottom ?? fabPos.bottom ?? 16) + "px";
+    const right = (dragPos?.right ?? fabPos.right ?? 16) + "px";
+    const bottom = (dragPos?.bottom ?? fabPos.bottom ?? 16) + "px";
     el.style.setProperty("--sc-right", `calc(${right} + env(safe-area-inset-right))`);
     el.style.setProperty("--sc-bottom", `calc(${bottom} + env(safe-area-inset-bottom))`);
-  }, [fabPos, dragPreview]);
+  }, [fabPos, dragPos]);
 
-  // Chat logic
+  // --- Chat logic ---
   const nameRef = useRef(null);
   const emailRef = useRef(null);
   const subjectRef = useRef(null);
@@ -399,6 +396,11 @@ Email: ${email}
     }
   }
 
+  // ---- RENDER ----
+  if (shouldHide) {
+    return null; // Safe to return after all hooks have been called
+  }
+
   function Bubble({ role, children }) {
     const isUser = role === "user";
     return (
@@ -411,23 +413,13 @@ Email: ${email}
   return (
     <div ref={wrapRef} className="sc-wrap" aria-live="polite">
       {!open && (
-        <button
-          ref={btnRef}
-          className="sc-open"
-          // NOTE: no onClick here; the drag handler will open on tap (when not moved)
-          aria-label="Open Support"
-        >
+        <button className="sc-open" onClick={() => setOpen(true)} aria-label="Open Support">
           Support
         </button>
       )}
 
       {open && (
-        <div
-          className="sc-card"
-          role="dialog"
-          aria-modal="true"
-          aria-label={`${productName} SupportChat`}
-        >
+        <div className="sc-card" role="dialog" aria-label={`${productName} SupportChat`}>
           <div className="sc-header">
             <span>{productName} Support</span>
             <button className="sc-close" onClick={() => setOpen(false)} aria-label="Close">✕</button>

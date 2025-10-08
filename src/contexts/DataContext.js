@@ -1,21 +1,26 @@
-// contexts/DataContext.js - Integrated with your Oracle API
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+// src/contexts/DataContext.js
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from 'react';
 import { useAuth } from '../AuthContext';
 
 const DataContext = createContext();
 
 export const useData = () => {
-  const context = useContext(DataContext);
-  if (!context) {
-    throw new Error('useData must be used within a DataProvider');
-  }
-  return context;
+  const ctx = useContext(DataContext);
+  if (!ctx) throw new Error('useData must be used within a DataProvider');
+  return ctx;
 };
 
 export const DataProvider = ({ children }) => {
   const { user, isAuthenticated, apiCall } = useAuth();
-  
-  // Loading states
+
+  // --- loading flags ---
   const [loading, setLoading] = useState({
     students: false,
     teachers: false,
@@ -26,7 +31,7 @@ export const DataProvider = ({ children }) => {
     dashboard: false,
   });
 
-  // Data states
+  // --- data buckets ---
   const [students, setStudents] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [courses, setCourses] = useState([]);
@@ -37,298 +42,289 @@ export const DataProvider = ({ children }) => {
   const [notifications, setNotifications] = useState([]);
   const [messages, setMessages] = useState([]);
 
-  // Error handling
+  // --- errors ---
   const [errors, setErrors] = useState({});
 
-  // Generic error handler
-  const handleError = useCallback((operation, error) => {
-    console.error(`Error in ${operation}:`, error);
-    setErrors(prev => ({ ...prev, [operation]: error.message }));
+  // track mounted to avoid setState after unmount
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
   }, []);
 
-  // Clear error
-  const clearError = useCallback((operation) => {
-    setErrors(prev => ({ ...prev, [operation]: null }));
+  // helpers
+  const setLoadingState = useCallback((key, val) => {
+    if (!mountedRef.current) return;
+    setLoading(prev => ({ ...prev, [key]: val }));
   }, []);
 
-  // Generic loading setter
-  const setLoadingState = useCallback((operation, isLoading) => {
-    setLoading(prev => ({ ...prev, [operation]: isLoading }));
+  const setOpError = useCallback((op, errMsg) => {
+    if (!mountedRef.current) return;
+    setErrors(prev => ({ ...prev, [op]: errMsg || null }));
   }, []);
 
-  // Student Management using your Oracle API
+  const clearError = useCallback((op) => {
+    if (!mountedRef.current) return;
+    setErrors(prev => ({ ...prev, [op]: null }));
+  }, []);
+
+  // Always inject p_school_id if available
+  const withSchool = useCallback((obj = {}) => {
+    const schoolId =
+      user?.schoolId ?? user?.school_id ?? user?.school?.id ?? undefined;
+    return schoolId ? { ...obj, p_school_id: String(schoolId) } : { ...obj };
+  }, [user]);
+
+  // Only use mock data when the error is network/CORS (to keep real API errors visible)
+  const isCorsOrNetwork = (resp) =>
+    resp && typeof resp === 'object' && resp.success === false && resp.type === 'cors_or_network';
+
+  // ---- Students ----
   const fetchStudents = useCallback(async (filters = {}) => {
     if (!apiCall) return;
-    
     setLoadingState('students', true);
     clearError('students');
+
     try {
-      const queryParams = new URLSearchParams(filters).toString();
-      const endpoint = `/students${queryParams ? `?${queryParams}` : ''}`;
-      const response = await apiCall(endpoint);
-      
-      if (response.success) {
-        setStudents(response.data || response.students || []);
+      const resp = await apiCall('students', { params: withSchool(filters) });
+
+      if (resp?.success) {
+        if (!mountedRef.current) return;
+        setStudents(resp.data || resp.students || []);
       } else {
-        throw new Error(response.error || 'Failed to fetch students');
+        if (isCorsOrNetwork(resp)) {
+          // soft fallback for demo
+          setStudents([
+            { id: 1, fullName: 'John Doe', email: 'john@school.edu', grade: '10A' },
+            { id: 2, fullName: 'Jane Smith', email: 'jane@school.edu', grade: '10B' },
+          ]);
+        } else {
+          throw new Error(resp?.error || 'Failed to fetch students');
+        }
       }
-    } catch (error) {
-      handleError('students', error);
-      // Set mock data on error for demo purposes
-      setStudents([
-        { id: 1, fullName: 'John Doe', email: 'john@school.edu', grade: '10A' },
-        { id: 2, fullName: 'Jane Smith', email: 'jane@school.edu', grade: '10B' }
-      ]);
+    } catch (e) {
+      setOpError('students', e.message);
     } finally {
       setLoadingState('students', false);
     }
-  }, [apiCall, setLoadingState, clearError, handleError]);
+  }, [apiCall, withSchool, setLoadingState, clearError, setOpError]);
 
   const createStudent = useCallback(async (studentData) => {
     if (!apiCall) return;
-    
-    try {
-      const response = await apiCall('/students', {
-        method: 'POST',
-        body: JSON.stringify(studentData)
-      });
-      
-      if (response.success) {
-        await fetchStudents(); // Refresh list
-        return response;
-      } else {
-        throw new Error(response.error || 'Failed to create student');
-      }
-    } catch (error) {
-      handleError('createStudent', error);
-      throw error;
-    }
-  }, [apiCall, fetchStudents, handleError]);
+    const body = { ...studentData, ...withSchool() };
+
+    const resp = await apiCall('students', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    if (!resp?.success) throw new Error(resp?.error || 'Failed to create student');
+    await fetchStudents();
+    return resp;
+  }, [apiCall, withSchool, fetchStudents]);
 
   const updateStudent = useCallback(async (studentId, studentData) => {
     if (!apiCall) return;
-    
-    try {
-      const response = await apiCall(`/students/${studentId}`, {
-        method: 'PUT',
-        body: JSON.stringify(studentData)
-      });
-      
-      if (response.success) {
-        await fetchStudents(); // Refresh list
-        return response;
-      } else {
-        throw new Error(response.error || 'Failed to update student');
-      }
-    } catch (error) {
-      handleError('updateStudent', error);
-      throw error;
-    }
-  }, [apiCall, fetchStudents, handleError]);
+    const resp = await apiCall(`students/${studentId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...studentData, ...withSchool() }),
+    });
+    if (!resp?.success) throw new Error(resp?.error || 'Failed to update student');
+    await fetchStudents();
+    return resp;
+  }, [apiCall, withSchool, fetchStudents]);
 
   const deleteStudent = useCallback(async (studentId) => {
     if (!apiCall) return;
-    
-    try {
-      const response = await apiCall(`/students/${studentId}`, {
-        method: 'DELETE'
-      });
-      
-      if (response.success) {
-        await fetchStudents(); // Refresh list
-        return response;
-      } else {
-        throw new Error(response.error || 'Failed to delete student');
-      }
-    } catch (error) {
-      handleError('deleteStudent', error);
-      throw error;
-    }
-  }, [apiCall, fetchStudents, handleError]);
+    const resp = await apiCall(`students/${studentId}`, {
+      method: 'DELETE',
+      params: withSchool(),
+    });
+    if (!resp?.success) throw new Error(resp?.error || 'Failed to delete student');
+    await fetchStudents();
+    return resp;
+  }, [apiCall, withSchool, fetchStudents]);
 
-  // Teacher Management
+  // ---- Teachers ----
   const fetchTeachers = useCallback(async (filters = {}) => {
     if (!apiCall) return;
-    
     setLoadingState('teachers', true);
     clearError('teachers');
     try {
-      const queryParams = new URLSearchParams(filters).toString();
-      const endpoint = `/teachers${queryParams ? `?${queryParams}` : ''}`;
-      const response = await apiCall(endpoint);
-      
-      if (response.success) {
-        setTeachers(response.data || response.teachers || []);
+      const resp = await apiCall('teachers', { params: withSchool(filters) });
+      if (resp?.success) {
+        if (!mountedRef.current) return;
+        setTeachers(resp.data || resp.teachers || []);
       } else {
-        throw new Error(response.error || 'Failed to fetch teachers');
+        if (isCorsOrNetwork(resp)) {
+          setTeachers([
+            { id: 1, fullName: 'Prof. Johnson', email: 'johnson@school.edu', department: 'Mathematics' },
+            { id: 2, fullName: 'Dr. Smith', email: 'smith@school.edu', department: 'Physics' },
+          ]);
+        } else {
+          throw new Error(resp?.error || 'Failed to fetch teachers');
+        }
       }
-    } catch (error) {
-      handleError('teachers', error);
-      // Mock data on error
-      setTeachers([
-        { id: 1, fullName: 'Prof. Johnson', email: 'johnson@school.edu', department: 'Mathematics' },
-        { id: 2, fullName: 'Dr. Smith', email: 'smith@school.edu', department: 'Physics' }
-      ]);
+    } catch (e) {
+      setOpError('teachers', e.message);
     } finally {
       setLoadingState('teachers', false);
     }
-  }, [apiCall, setLoadingState, clearError, handleError]);
+  }, [apiCall, withSchool, setLoadingState, clearError, setOpError]);
 
-  // Course Management
+  // ---- Courses ----
   const fetchCourses = useCallback(async (filters = {}) => {
     if (!apiCall) return;
-    
     setLoadingState('courses', true);
     clearError('courses');
     try {
-      const queryParams = new URLSearchParams(filters).toString();
-      const endpoint = `/courses${queryParams ? `?${queryParams}` : ''}`;
-      const response = await apiCall(endpoint);
-      
-      if (response.success) {
-        setCourses(response.data || response.courses || []);
+      const resp = await apiCall('courses', { params: withSchool(filters) });
+      if (resp?.success) {
+        if (!mountedRef.current) return;
+        setCourses(resp.data || resp.courses || []);
       } else {
-        throw new Error(response.error || 'Failed to fetch courses');
+        if (isCorsOrNetwork(resp)) {
+          setCourses([
+            { id: 1, name: 'Mathematics 101', teacher: 'Prof. Johnson', students: 25 },
+            { id: 2, name: 'Physics 201', teacher: 'Dr. Smith', students: 20 },
+          ]);
+        } else {
+          throw new Error(resp?.error || 'Failed to fetch courses');
+        }
       }
-    } catch (error) {
-      handleError('courses', error);
-      // Mock data on error
-      setCourses([
-        { id: 1, name: 'Mathematics 101', teacher: 'Prof. Johnson', students: 25 },
-        { id: 2, name: 'Physics 201', teacher: 'Dr. Smith', students: 20 }
-      ]);
+    } catch (e) {
+      setOpError('courses', e.message);
     } finally {
       setLoadingState('courses', false);
     }
-  }, [apiCall, setLoadingState, clearError, handleError]);
+  }, [apiCall, withSchool, setLoadingState, clearError, setOpError]);
 
-  // Assignment Management
+  // ---- Assignments ----
   const fetchAssignments = useCallback(async (filters = {}) => {
     if (!apiCall) return;
-    
     setLoadingState('assignments', true);
     clearError('assignments');
     try {
-      const queryParams = new URLSearchParams(filters).toString();
-      const endpoint = `/assignments${queryParams ? `?${queryParams}` : ''}`;
-      const response = await apiCall(endpoint);
-      
-      if (response.success) {
-        setAssignments(response.data || response.assignments || []);
+      const resp = await apiCall('assignments', { params: withSchool(filters) });
+      if (resp?.success) {
+        if (!mountedRef.current) return;
+        setAssignments(resp.data || resp.assignments || []);
       } else {
-        throw new Error(response.error || 'Failed to fetch assignments');
+        if (isCorsOrNetwork(resp)) {
+          setAssignments([
+            { id: 1, title: 'Math Homework 1', dueDate: '2025-07-10', status: 'pending' },
+            { id: 2, title: 'Physics Lab Report', dueDate: '2025-07-15', status: 'submitted' },
+          ]);
+        } else {
+          throw new Error(resp?.error || 'Failed to fetch assignments');
+        }
       }
-    } catch (error) {
-      handleError('assignments', error);
-      // Mock data on error
-      setAssignments([
-        { id: 1, title: 'Math Homework 1', dueDate: '2025-07-10', status: 'pending' },
-        { id: 2, title: 'Physics Lab Report', dueDate: '2025-07-15', status: 'submitted' }
-      ]);
+    } catch (e) {
+      setOpError('assignments', e.message);
     } finally {
       setLoadingState('assignments', false);
     }
-  }, [apiCall, setLoadingState, clearError, handleError]);
+  }, [apiCall, withSchool, setLoadingState, clearError, setOpError]);
 
-  // Grading System
+  // ---- Grades ----
   const fetchGrades = useCallback(async (studentId, filters = {}) => {
     if (!apiCall) return;
-    
     setLoadingState('grades', true);
     clearError('grades');
     try {
-      const queryParams = new URLSearchParams({...filters, studentId}).toString();
-      const endpoint = `/grades?${queryParams}`;
-      const response = await apiCall(endpoint);
-      
-      if (response.success) {
-        setGrades(response.data || response.grades || []);
+      const resp = await apiCall('grades', {
+        params: withSchool({ ...filters, studentId }),
+      });
+      if (resp?.success) {
+        if (!mountedRef.current) return;
+        setGrades(resp.data || resp.grades || []);
       } else {
-        throw new Error(response.error || 'Failed to fetch grades');
+        if (isCorsOrNetwork(resp)) {
+          setGrades([
+            { id: 1, subject: 'Mathematics', assignment: 'Midterm', grade: 'A', points: 95 },
+            { id: 2, subject: 'Physics', assignment: 'Lab Report', grade: 'B+', points: 88 },
+          ]);
+        } else {
+          throw new Error(resp?.error || 'Failed to fetch grades');
+        }
       }
-    } catch (error) {
-      handleError('grades', error);
-      // Mock data on error
-      setGrades([
-        { id: 1, subject: 'Mathematics', assignment: 'Midterm', grade: 'A', points: 95 },
-        { id: 2, subject: 'Physics', assignment: 'Lab Report', grade: 'B+', points: 88 }
-      ]);
+    } catch (e) {
+      setOpError('grades', e.message);
     } finally {
       setLoadingState('grades', false);
     }
-  }, [apiCall, setLoadingState, clearError, handleError]);
+  }, [apiCall, withSchool, setLoadingState, clearError, setOpError]);
 
-  // Dashboard Data
+  // ---- Dashboard ----
   const fetchDashboardData = useCallback(async () => {
     if (!user || !isAuthenticated || !apiCall) return;
-    
     setLoadingState('dashboard', true);
     clearError('dashboard');
     try {
-      const response = await apiCall(`/dashboard/${user.userType}/${user.id}`);
-      
-      if (response.success) {
-        setDashboardData(response.data || response.dashboard);
+      // Keep your current pattern: /dashboard/:role/:userId plus school param
+      const resp = await apiCall(`dashboard/${user.userType}/${user.id}`, {
+        params: withSchool(),
+      });
+
+      if (resp?.success) {
+        if (!mountedRef.current) return;
+        setDashboardData(resp.data || resp.dashboard || {});
       } else {
-        throw new Error(response.error || 'Failed to fetch dashboard data');
+        // Fallback to mock only if truly network-blocked
+        if (isCorsOrNetwork(resp)) {
+          setDashboardData(getMockDashboardData(user.userType));
+        } else {
+          throw new Error(resp?.error || 'Failed to fetch dashboard data');
+        }
       }
-    } catch (error) {
-      handleError('dashboard', error);
-      // Set mock data if API fails
-      setDashboardData(getMockDashboardData(user.userType));
+    } catch (e) {
+      setOpError('dashboard', e.message);
+      setDashboardData(getMockDashboardData(user?.userType));
     } finally {
       setLoadingState('dashboard', false);
     }
-  }, [user, isAuthenticated, apiCall, setLoadingState, clearError, handleError]);
+  }, [user, isAuthenticated, apiCall, withSchool, setLoadingState, clearError, setOpError]);
 
-  // File Upload using your API
+  // ---- File Upload ----
   const uploadFile = useCallback(async (file, type = 'general') => {
     if (!apiCall) return;
-    
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('type', type);
-      
-      const response = await apiCall('/upload', {
-        method: 'POST',
-        body: formData,
-        headers: {} // Don't set Content-Type, let the browser set it for FormData
-      });
-      
-      if (response.success) {
-        return response;
-      } else {
-        throw new Error(response.error || 'Upload failed');
-      }
-    } catch (error) {
-      handleError('uploadFile', error);
-      throw error;
-    }
-  }, [apiCall, handleError]);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('type', type);
+    // Append school id too
+    const school = withSchool();
+    Object.entries(school).forEach(([k, v]) => formData.append(k, v));
 
-  // Load initial data when user changes
+    const resp = await apiCall('upload', {
+      method: 'POST',
+      body: formData,
+      headers: {}, // let browser set multipart boundary
+    });
+    if (!resp?.success) throw new Error(resp?.error || 'Upload failed');
+    return resp;
+  }, [apiCall, withSchool]);
+
+  // ---- initial loads (role aware) ----
   useEffect(() => {
-    if (isAuthenticated && user && apiCall) {
-      fetchDashboardData();
-      
-      // Load role-specific data
-      if (user.userType === 'teacher') {
-        fetchCourses({ teacherId: user.id });
-        fetchAssignments({ teacherId: user.id });
-      } else if (user.userType === 'admin') {
-        fetchStudents();
-        fetchTeachers();
-        fetchCourses();
-      } else if (user.userType === 'student') {
-        fetchCourses({ studentId: user.id });
-        fetchAssignments({ studentId: user.id });
-        fetchGrades(user.id);
-      }
-    }
-  }, [isAuthenticated, user, apiCall, fetchDashboardData, fetchCourses, fetchAssignments, fetchStudents, fetchTeachers, fetchGrades]);
+    if (!isAuthenticated || !user || !apiCall) return;
 
-  // Computed stats
+    fetchDashboardData();
+
+    if (user.userType === 'teacher') {
+      fetchCourses({ teacherId: user.id });
+      fetchAssignments({ teacherId: user.id });
+    } else if (user.userType === 'admin') {
+      fetchStudents();
+      fetchTeachers();
+      fetchCourses();
+    } else if (user.userType === 'student') {
+      fetchCourses({ studentId: user.id });
+      fetchAssignments({ studentId: user.id });
+      fetchGrades(user.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, user, apiCall]);
+
+  // ---- stats (derived) ----
   const stats = {
     totalStudents: students.length,
     totalTeachers: teachers.length,
@@ -339,21 +335,21 @@ export const DataProvider = ({ children }) => {
     unreadMessages: messages.filter(m => !m.read).length,
   };
 
-  // Mock data fallback
-  const getMockDashboardData = useCallback((userType) => {
-    const mockData = {
+  // ---- mock dashboard ----
+  const getMockDashboardData = (userType) => {
+    const mock = {
       teacher: {
         totalStudents: 127,
         activeCourses: 5,
         pendingReviews: 12,
         averageGrade: 85.2,
         todayClasses: [
-          { id: 1, subject: "Mathematics", grade: "10A", time: "9:00 AM", room: "204", status: "current" },
-          { id: 2, subject: "Algebra", grade: "11B", time: "11:00 AM", room: "204", status: "upcoming" },
+          { id: 1, subject: 'Mathematics', grade: '10A', time: '9:00 AM', room: '204', status: 'current' },
+          { id: 2, subject: 'Algebra',    grade: '11B', time: '11:00 AM', room: '204', status: 'upcoming' },
         ],
         recentSubmissions: [
-          { id: 1, student: "Emma Wilson", assignment: "Quadratic Equations", submitted: "2 hours ago", status: "pending" },
-        ]
+          { id: 1, student: 'Emma Wilson', assignment: 'Quadratic Equations', submitted: '2 hours ago', status: 'pending' },
+        ],
       },
       admin: {
         totalStudents: 1247,
@@ -361,11 +357,11 @@ export const DataProvider = ({ children }) => {
         monthlyRevenue: 287000,
         averagePerformance: 82.4,
         systemAlerts: [
-          { id: 1, type: "critical", message: "Server maintenance scheduled", time: "2 hours ago" },
+          { id: 1, type: 'critical', message: 'Server maintenance scheduled', time: '2 hours ago' },
         ],
         departmentPerformance: [
-          { department: "Mathematics", students: 312, performance: 85.2, trend: "up" },
-        ]
+          { department: 'Mathematics', students: 312, performance: 85.2, trend: 'up' },
+        ],
       },
       student: {
         currentGPA: 3.7,
@@ -373,66 +369,39 @@ export const DataProvider = ({ children }) => {
         assignmentsDue: 3,
         attendanceRate: 96,
         todaySchedule: [
-          { id: 1, subject: "Mathematics", teacher: "Prof. Johnson", time: "9:00 AM", status: "current" },
+          { id: 1, subject: 'Mathematics', teacher: 'Prof. Johnson', time: '9:00 AM', status: 'current' },
         ],
         recentGrades: [
-          { id: 1, subject: "Calculus", assignment: "Midterm Exam", grade: "A-", points: "92/100" },
-        ]
-      }
+          { id: 1, subject: 'Calculus', assignment: 'Midterm Exam', grade: 'A-', points: '92/100' },
+        ],
+      },
     };
-    return mockData[userType] || {};
-  }, []);
-
-  const value = {
-    // Data
-    students,
-    teachers,
-    courses,
-    assignments,
-    grades,
-    attendance,
-    dashboardData,
-    notifications,
-    messages,
-    
-    // Loading states
-    loading,
-    
-    // Errors
-    errors,
-    clearError,
-    
-    // Stats
-    stats,
-    
-    // Student operations
-    fetchStudents,
-    createStudent,
-    updateStudent,
-    deleteStudent,
-    
-    // Teacher operations
-    fetchTeachers,
-    
-    // Course operations
-    fetchCourses,
-    
-    // Assignment operations
-    fetchAssignments,
-    
-    // Grading operations
-    fetchGrades,
-    
-    // Dashboard operations
-    fetchDashboardData,
-    
-    // File operations
-    uploadFile,
+    return mock[userType] || {};
   };
 
-  return (
-    <DataContext.Provider value={value}>
-      {children}
-    </DataContext.Provider>
-  );
+  const refreshAll = useCallback(async () => {
+    await Promise.allSettled([
+      fetchDashboardData(),
+      fetchStudents(),
+      fetchTeachers(),
+      fetchCourses(),
+      fetchAssignments(),
+    ]);
+  }, [fetchDashboardData, fetchStudents, fetchTeachers, fetchCourses, fetchAssignments]);
+
+  const value = {
+    // data
+    students, teachers, courses, assignments, grades, attendance,
+    dashboardData, notifications, messages,
+
+    // ops
+    fetchStudents, createStudent, updateStudent, deleteStudent,
+    fetchTeachers, fetchCourses, fetchAssignments, fetchGrades,
+    fetchDashboardData, uploadFile, refreshAll,
+
+    // ui state
+    loading, errors, clearError, stats,
+  };
+
+  return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 };

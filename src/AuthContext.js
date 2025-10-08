@@ -1,50 +1,60 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useEffect, useState } from "react";
 
 const AuthContext = createContext();
 
 export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used within an AuthProvider");
+  return ctx;
 };
 
-// ---- Safe API base & joiner (prevents double slashes) ----
-const API_BASE_RAW =
-  'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/';
-// Ensure exactly one trailing slash
-const API_BASE = API_BASE_RAW.replace(/\/+$/, '') + '/';
+/**
+ * === API BASE (CORS-safe) ==========================================
+ * Point your frontend at a RELATIVE base. In production, add a rewrite:
+ *   - Vercel rewrite:   /ords/(.*)  ->  https://...oracle.../ords/schools/$1
+ * or use an API route at /api/ords and set VITE_API_BASE=/api/ords
+ *
+ * Env priority:
+ * - import.meta.env.VITE_API_BASE
+ * - process.env.REACT_APP_API_BASE
+ * - fallback: "/ords"
+ */
+const API_BASE_ENV =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE) ||
+  process.env.REACT_APP_API_BASE ||
+  "/ords";
 
-const buildApiUrl = (path = '', params = {}) => {
-  // strip any leading slashes from path
-  const cleanPath = String(path).replace(/^\/+/, '');
-  const url = new URL(cleanPath, API_BASE);
-  Object.entries(params).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
+/** Always exactly one trailing slash */
+export const API_BASE = API_BASE_ENV.replace(/\/+$/, "") + "/";
+
+/** Joiner that avoids double slashes and appends query params */
+export const buildApiUrl = (path = "", params = {}) => {
+  const clean = String(path).replace(/^\/+/, "");
+  const url = new URL(clean, API_BASE);
+  Object.entries(params || {}).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
   });
   return url.toString();
 };
 
-// ---- Error helpers (nicer Oracle/ORDS messages) ----
-const mapOracleError = (text = '') => {
+/** Map common Oracle/ORDS errors to human text */
+const mapOracleError = (text = "") => {
   const t = String(text);
-  if (/ORDS-25001/i.test(t)) return 'Server error in REST handler (ORDS-25001). Check required parameters / SQL/PLSQL.';
-  if (/ORA-00001/i.test(t)) return 'Unique constraint: the value already exists (e.g., email).';
-  if (/ORA-01400/i.test(t)) return 'A required value was missing (NULL into NOT NULL).';
-  if (/ORA-12899/i.test(t)) return 'Value too long for column (exceeds size).';
-  if (/ORA-06502|numeric or value error/i.test(t)) return 'Numeric or value error (type/length).';
-  if (/ORA-00904|invalid identifier/i.test(t)) return 'Invalid column/identifier (backend mismatch).';
-  if (/ORA-00907|ORA-00933|ORA-00936/i.test(t)) return 'SQL syntax error in backend.';
-  if (/ORA-01036|illegal variable name|number/i.test(t)) return 'Bind variable mismatch in backend.';
+  if (/ORDS-25001/i.test(t)) return "Server error in REST handler (ORDS-25001). Check parameters.";
+  if (/ORA-00001/i.test(t)) return "Unique constraint: that value already exists.";
+  if (/ORA-01400/i.test(t)) return "A required value was missing.";
+  if (/ORA-12899/i.test(t)) return "Value too long for a column.";
+  if (/ORA-06502|numeric or value error/i.test(t)) return "Numeric or value error (type/length).";
+  if (/ORA-00904|invalid identifier/i.test(t)) return "Invalid column/identifier (backend mismatch).";
+  if (/ORA-00907|ORA-00933|ORA-00936/i.test(t)) return "SQL syntax error in backend.";
+  if (/ORA-01036|illegal variable name|number/i.test(t)) return "Bind variable mismatch in backend.";
   return null;
 };
 
 const parseMaybeJson = async (res) => {
-  const raw = await res.text();
+  const raw = await res.text().catch(() => "");
   try {
-    const json = JSON.parse(raw);
-    return { json, raw };
+    return { json: raw ? JSON.parse(raw) : null, raw };
   } catch {
     return { json: null, raw };
   }
@@ -52,336 +62,264 @@ const parseMaybeJson = async (res) => {
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
   const [token, setToken] = useState(() => {
     try {
-      return localStorage?.getItem('token') || null;
+      return localStorage.getItem("token") || null;
     } catch {
       return null;
     }
   });
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Only allow app-supported roles (excluding student)
+  // role mapping from API short codes
   const mapRole = (apiRole) => {
-    const roleMap = {
-      TE: 'teacher',
-      AD: 'admin',
-      AC: 'accountant',
-      HT: 'headteacher',
-      SO: 'owner',
-    };
-    return roleMap[apiRole] || null;
+    const roleMap = { TE: "teacher", AD: "admin", AC: "accountant", HT: "headteacher", SO: "owner" };
+    return roleMap[apiRole] || null; // null => unsupported (e.g., student)
   };
 
-  const saveToStorage = (key, value) => {
+  const save = (k, v) => {
     try {
-      localStorage?.setItem(key, value);
-    } catch (error) {
-      console.warn('localStorage not available:', error);
-    }
+      localStorage.setItem(k, v);
+    } catch {}
   };
-
-  const getFromStorage = (key) => {
+  const read = (k) => {
     try {
-      return localStorage?.getItem(key);
+      return localStorage.getItem(k);
     } catch {
       return null;
     }
   };
-
-  const removeFromStorage = (key) => {
+  const remove = (k) => {
     try {
-      localStorage?.removeItem(key);
-    } catch (error) {
-      console.warn('localStorage not available:', error);
-    }
+      localStorage.removeItem(k);
+    } catch {}
   };
 
+  // Rehydrate on refresh
   useEffect(() => {
-    const savedUser = getFromStorage('user');
+    const savedUser = read("user");
     if (token && savedUser) {
       try {
-        const userData = JSON.parse(savedUser);
-        setUser(userData);
-      } catch (error) {
-        console.error('Error parsing saved user data:', error);
-        removeFromStorage('user');
-        removeFromStorage('token');
+        setUser(JSON.parse(savedUser));
+      } catch {
+        remove("user");
+        remove("token");
       }
     }
   }, [token]);
 
-  const handleApiError = (error, operation = 'API call') => {
-    console.error(`${operation} error:`, error);
+  /** Normalize network/CORS errors to a friendly shape */
+  const handleApiError = (error, op = "API call") => {
+    // eslint-disable-next-line no-console
+    console.error(`${op} error:`, error);
+    const msg = String(error?.message || "");
 
-    const msg = String(error?.message || '');
-    // Browser CORS/network hints
-    if (msg.includes('NetworkError') || msg.includes('fetch')) {
-      return {
-        success: false,
-        error:
-          'Connection blocked or failed (possibly CORS). Contact your system administrator or check your network.',
-        type: 'cors_or_network',
-      };
+    if (/Failed to fetch|NetworkError|TypeError/i.test(msg)) {
+      const e = new Error(
+        "Connection blocked or failed (likely CORS/network). Please try again or contact support."
+      );
+      e._cors = true;
+      return { success: false, error: e.message, type: "cors_or_network" };
     }
 
     const mapped = mapOracleError(msg);
-    if (mapped) {
-      return { success: false, error: mapped, type: 'db' };
-    }
+    if (mapped) return { success: false, error: mapped, type: "db" };
 
-    return {
-      success: false,
-      error: msg || 'An unexpected error occurred.',
-      type: 'unknown',
-    };
+    return { success: false, error: msg || "Unexpected error.", type: "unknown" };
   };
 
-  // ---- Login (GET; avoid Content-Type header to prevent preflight) ----
   /**
-   * login(email, password, selectedUserType, isDemoMode, schoolId)
-   * ORDS endpoint: staff/login/staff/ expects :email, :password, :p_school_id
+   * apiCall(endpoint, { method, headers, body, params, skipAuth })
+   * - Uses relative base (rewritten by your hosting)
+   * - Avoids JSON Content-Type on GET/HEAD (reduces preflights)
+   * - Skips Content-Type for FormData automatically
    */
-  const login = async (
-    email,
-    password,
-    selectedUserType = null,
-    isDemoMode = false,
-    schoolId // <-- required as p_school_id
-  ) => {
+  const apiCall = async (endpoint, options = {}) => {
+    const { params, skipAuth = false, method = "GET", headers = {}, body } = options || {};
+    const url = buildApiUrl(endpoint, params);
+
+    // Build headers
+    const finalHeaders = { Accept: "application/json", ...headers };
+    const upper = (method || "GET").toUpperCase();
+
+    const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
+    const hasBody = body !== undefined && body !== null;
+
+    // Only set JSON content-type when sending plain objects/JSON (not FormData)
+    if (hasBody && !isFormData && upper !== "GET" && upper !== "HEAD") {
+      finalHeaders["Content-Type"] = finalHeaders["Content-Type"] || "application/json";
+    } else {
+      if (finalHeaders["Content-Type"] === "application/json") delete finalHeaders["Content-Type"];
+    }
+
+    if (!skipAuth && token) finalHeaders.Authorization = `Bearer ${token}`;
+
+    try {
+      const res = await fetch(url, {
+        method: upper,
+        headers: finalHeaders,
+        body:
+          hasBody && !isFormData && upper !== "GET" && upper !== "HEAD"
+            ? typeof body === "string"
+              ? body
+              : JSON.stringify(body)
+            : isFormData
+            ? body
+            : undefined,
+      });
+
+      if (res.status === 401) {
+        logout();
+        return { success: false, error: "Session expired. Please login again." };
+      }
+
+      const { json, raw } = await parseMaybeJson(res);
+
+      if (!res.ok) {
+        const mapped = mapOracleError(JSON.stringify(json) || raw);
+        return { success: false, error: mapped || json?.message || `HTTP ${res.status}` };
+      }
+
+      // normalize success for empty bodies
+      return json ?? { success: true };
+    } catch (err) {
+      return handleApiError(err, "API call");
+    }
+  };
+
+  /**
+   * Login (ORDS GET with query params – avoids preflight)
+   * Endpoint expected: staff/login/staff/?email&password&p_school_id
+   */
+  const login = async (email, password, selectedUserType, isDemoMode, schoolId) => {
     setIsLoading(true);
 
     try {
-      // Guard against missing school id
-      if (schoolId === undefined || schoolId === null || schoolId === '') {
+      if (schoolId === undefined || schoolId === null || schoolId === "") {
         setIsLoading(false);
-        return {
-          success: false,
-          error: 'Please select your school before logging in.',
-          type: 'validation',
-        };
+        return { success: false, error: "Please select your school before logging in.", type: "validation" };
       }
 
-      const url = buildApiUrl('staff/login/staff/', {
-        email: String(email || ''),
-        password: String(password || ''),
+      const url = buildApiUrl("staff/login/staff/", {
+        email: String(email || ""),
+        password: String(password || ""),
         p_school_id: String(schoolId),
       });
 
-      const response = await fetch(url, {
-        method: 'GET',
-        // IMPORTANT: no 'Content-Type' on GET => avoid preflight
-        headers: { Accept: 'application/json' },
-      });
-
-      const { json, raw } = await parseMaybeJson(response);
+      const res = await fetch(url, { method: "GET", headers: { Accept: "application/json" } });
+      const { json, raw } = await parseMaybeJson(res);
       const data = json ?? {};
 
-      if (!response.ok) {
+      if (!res.ok) {
         const mapped = mapOracleError(JSON.stringify(data) || raw);
         setIsLoading(false);
-        return {
-          success: false,
-          error: mapped || data?.message || `Login failed (HTTP ${response.status})`,
-          type: 'auth_failed',
-        };
+        return { success: false, error: mapped || data?.message || `Login failed (HTTP ${res.status})` };
       }
 
-      if (data.success && data.user) {
-        const apiRole = mapRole(data.user.role);
-
-        // Block login if role not supported (e.g., ST)
-        if (!apiRole) {
-          setIsLoading(false);
-          return {
-            success: false,
-            error: 'This login type is not supported in this system.',
-            type: 'role_unsupported',
-          };
-        }
-
-        if (selectedUserType && selectedUserType !== apiRole && !isDemoMode) {
-          setIsLoading(false);
-          return {
-            success: false,
-            error: `Invalid login! Your account is registered as ${apiRole}, but you selected ${selectedUserType}.`,
-            type: 'role_mismatch',
-          };
-        }
-
-        const finalRole = selectedUserType || apiRole;
-
-        // Prefer schoolId from API if present; otherwise use the one the user picked
-        const resolvedSchoolId =
-          data.user.schoolId ??
-          data.user.school_id ??
-          (Number.isNaN(Number(schoolId)) ? schoolId : Number(schoolId));
-
-        // NEW: plan/currency/school from API
-        const schoolObj = data.school || {};
-        const planFromApi = Number(
-          schoolObj.package ??
-          data.user.package ??
-          data.user.plan ??
-          NaN
-        );
-        const currencyFromApi =
-          schoolObj.currency ||
-          data.user.currency ||
-          'GHS';
-
-        const userData = {
-          id: data.user.id,
-          email: data.user.email,
-          fullName: data.user.fullName,
-          name: data.user.fullName,
-          userType: finalRole,
-          apiRole,
-          originalRole: data.user.role,
-          schoolId: resolvedSchoolId,
-
-          // NEW: expose plan/currency/school
-          plan: planFromApi,           // 1=Basic, 2=Standard, 3=Premium
-          package: planFromApi,        // alias for convenience
-          currency: currencyFromApi,   // e.g. "GHS"
-          school: Object.keys(schoolObj).length ? {
-            id: schoolObj.id,
-            name: schoolObj.name,
-            address: schoolObj.address,
-            phone: schoolObj.phone,
-            email: schoolObj.email,
-            status: schoolObj.status,
-            expiry: schoolObj.expiry,
-            createdAt: schoolObj.createdAt,
-            package: schoolObj.package,
-            currency: schoolObj.currency,
-          } : undefined,
-
-          avatar: getAvatar(finalRole),
-          isRoleMismatch: !!selectedUserType && selectedUserType !== apiRole,
-          isDemoMode,
-          permissions: getUserPermissions(data.user.role),
-        };
-
-        setUser(userData);
-        setToken(data.token);
-        saveToStorage('user', JSON.stringify(userData));
-        saveToStorage('token', data.token);
-
+      if (!data?.success || !data?.user) {
         setIsLoading(false);
-        return { success: true, user: userData };
-      } else {
+        return { success: false, error: data?.message || "Invalid credentials" };
+      }
+
+      const apiRole = mapRole(data.user.role);
+      if (!apiRole) {
+        setIsLoading(false);
+        return { success: false, error: "This login type is not supported in this system." };
+      }
+      if (selectedUserType && selectedUserType !== apiRole && !isDemoMode) {
         setIsLoading(false);
         return {
           success: false,
-          error: data?.message || 'Invalid credentials',
-          type: 'auth_failed',
+          error: `Invalid login! Your account is ${apiRole}, but you selected ${selectedUserType}.`,
         };
       }
-    } catch (error) {
+
+      const finalRole = selectedUserType || apiRole;
+      const schoolObj = data.school || {};
+      const plan = Number(schoolObj.package ?? data.user.package ?? data.user.plan ?? NaN);
+      const currency = schoolObj.currency || data.user.currency || "GHS";
+      const resolvedSchoolId =
+        data.user.schoolId ?? data.user.school_id ?? (Number.isNaN(Number(schoolId)) ? schoolId : Number(schoolId));
+
+      const userData = {
+        id: data.user.id,
+        email: data.user.email,
+        fullName: data.user.fullName,
+        name: data.user.fullName,
+        userType: finalRole,
+        apiRole,
+        originalRole: data.user.role,
+        schoolId: resolvedSchoolId,
+        plan,
+        package: plan,
+        currency,
+        school: Object.keys(schoolObj).length
+          ? {
+              id: schoolObj.id,
+              name: schoolObj.name,
+              address: schoolObj.address,
+              phone: schoolObj.phone,
+              email: schoolObj.email,
+              status: schoolObj.status,
+              expiry: schoolObj.expiry,
+              createdAt: schoolObj.createdAt,
+              package: schoolObj.package,
+              currency: schoolObj.currency,
+            }
+          : undefined,
+        avatar: getAvatar(finalRole),
+        isRoleMismatch: !!selectedUserType && selectedUserType !== apiRole,
+        isDemoMode,
+        permissions: getUserPermissions(data.user.role),
+      };
+
+      setUser(userData);
+      setToken(data.token);
+      save("user", JSON.stringify(userData));
+      save("token", data.token);
       setIsLoading(false);
-      return handleApiError(error, 'Login');
+      return { success: true, user: userData };
+    } catch (err) {
+      setIsLoading(false);
+      return handleApiError(err, "Login");
     }
   };
 
   const logout = () => {
     setUser(null);
     setToken(null);
-    removeFromStorage('user');
-    removeFromStorage('token');
+    remove("user");
+    remove("token");
   };
-
-  /**
-   * apiCall(endpoint, { method, headers, body, params, skipAuth })
-   * - Uses safe builder to avoid //
-   * - Avoids Content-Type on GET/HEAD (reduces CORS preflights)
-   * - If skipAuth=true, omits Authorization header (for public endpoints)
-   */
-  const apiCall = async (endpoint, options = {}) => {
-    const { skipAuth = false, params, ...rest } = options || {};
-    const url = buildApiUrl(endpoint, params);
-
-    // Build headers
-    const baseHeaders = { Accept: 'application/json' };
-    const finalHeaders = { ...baseHeaders, ...(rest.headers || {}) };
-
-    // Add Authorization only if not skipped and we have a token
-    if (!skipAuth && token) {
-      finalHeaders.Authorization = `Bearer ${token}`;
-    }
-
-    // Only set Content-Type if we actually send a JSON body
-    const hasBody = rest.body !== undefined && rest.body !== null;
-    const method = (rest.method || 'GET').toUpperCase();
-
-    if (hasBody && method !== 'GET' && method !== 'HEAD') {
-      finalHeaders['Content-Type'] = finalHeaders['Content-Type'] || 'application/json';
-    } else {
-      // Ensure we don't set JSON Content-Type on GET/HEAD
-      if (finalHeaders['Content-Type'] === 'application/json') {
-        delete finalHeaders['Content-Type'];
-      }
-    }
-
-    try {
-      const response = await fetch(url, { ...rest, method, headers: finalHeaders });
-
-      if (response.status === 401) {
-        logout();
-        return { success: false, error: 'Session expired. Please login again.' };
-      }
-
-      const { json, raw } = await parseMaybeJson(response);
-      if (!response.ok) {
-        const mapped = mapOracleError(JSON.stringify(json) || raw);
-        return {
-          success: false,
-          error: mapped || json?.message || `Request failed (HTTP ${response.status})`,
-        };
-      }
-
-      return json ?? { success: true };
-    } catch (error) {
-      return handleApiError(error, 'API call');
-    }
-  };
-
-  const isAuthenticated = !!user && !!token;
 
   const value = {
     user,
     token,
+    isLoading,
+    isAuthenticated: !!user && !!token,
     login,
     logout,
-    isAuthenticated,
-    isLoading,
     apiCall,
     API_BASE,
-    buildApiUrl, // expose for other modules (so everyone joins paths the same way)
+    buildApiUrl,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-// ---- Permissions / Avatars ----
+// ---- Permissions / Avatars -----------------------------------------
 const getUserPermissions = (apiRole) => {
-  const permissions = {
-    AD: ['manage_users', 'view_reports', 'system_settings', 'manage_courses', 'view_all_data'],
-    TE: ['manage_classes', 'grade_students', 'view_student_data', 'manage_assignments'],
-    AC: ['manage_fees', 'view_fees', 'view_bills'],
-    HT: ['manage_teachers', 'monitor_students', 'review_exams'],
-    SO: ['manage_school', 'access_all', 'review_finances'],
+  const perms = {
+    AD: ["manage_users", "view_reports", "system_settings", "manage_courses", "view_all_data"],
+    TE: ["manage_classes", "grade_students", "view_student_data", "manage_assignments"],
+    AC: ["manage_fees", "view_fees", "view_bills"],
+    HT: ["manage_teachers", "monitor_students", "review_exams"],
+    SO: ["manage_school", "access_all", "review_finances"],
   };
-  return permissions[apiRole] || [];
+  return perms[apiRole] || [];
 };
 
 const getAvatar = (userType) => {
-  const avatars = {
-    teacher: '👨‍🏫',
-    admin: '👨‍💼',
-    accountant: '💰',
-    headteacher: '👩‍🏫',
-    owner: '🏫',
-  };
-  return avatars[userType] || '👤';
+  const avatars = { teacher: "👨‍🏫", admin: "👨‍💼", accountant: "💰", headteacher: "👩‍🏫", owner: "🏫" };
+  return avatars[userType] || "👤";
 };

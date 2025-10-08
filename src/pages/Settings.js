@@ -170,7 +170,6 @@ export default function Settings() {
   const [psKeyLoaded, setPsKeyLoaded] = useState(!!COMPILED_PS_PUBLIC);
 
   useEffect(() => {
-    // If not baked in at build time, fetch it from serverless at runtime.
     if (!COMPILED_PS_PUBLIC) {
       fetch("/api/paystack/public")
         .then((r) => r.json())
@@ -556,8 +555,9 @@ export default function Settings() {
     `SCH-${schoolId || "NA"}-${Date.now()}-${Math.random().toString(36).slice(2,8)}`.replace(/[^a-zA-Z0-9.\-=]/g,"");
 
   const persistPending = (ref, meta) => {
+    const withTime = { ...meta, pending_since: Date.now() };
     try { localStorage.setItem(LS_REF_KEY, ref); } catch {}
-    try { localStorage.setItem(LS_META_KEY, JSON.stringify(meta)); } catch {}
+    try { localStorage.setItem(LS_META_KEY, JSON.stringify(withTime)); } catch {}
     setPendingRef(ref);
   };
   const clearPending = () => {
@@ -615,7 +615,6 @@ export default function Settings() {
     const { subject, body } = buildPremiumEmail();
 
     try {
-      // Use your backend mail endpoint (no mailto fallback)
       const res = await fetch("/api/send-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -644,7 +643,6 @@ export default function Settings() {
 
   const startPaystackPayment = async () => {
     if (isPremiumSelected) {
-      // Guard: Premium never uses Paystack directly
       setPremiumError("Premium requires assisted onboarding. Please use the Request button.");
       return;
     }
@@ -708,12 +706,18 @@ export default function Settings() {
         channels: channelsForCurrency(currency),
         metadata: meta,
         callback: async () => {
-          setBillingOpen(false); // close modal on success
+          // Stay on Settings and show verifying instead of navigating away
+          setBillingOpen(true);
           setBanner({ kind: "success", msg: "Payment submitted. Verifying…" });
+          setVerifying(true);
+          // Optional immediate attempt
           await verifyNow(reference);
         },
         onClose: () => {
+          // User closed popup; clear pending so dialog won't stick on next load
+          clearPending();
           setBanner({ kind: "error", msg: "Payment was not completed." });
+          setTimeout(() => setBanner({ kind: "", msg: "" }), 5000);
         },
       });
 
@@ -721,7 +725,9 @@ export default function Settings() {
     } catch (e) {
       // Fallback: same-tab redirect via our serverless init (secret stays server-side)
       try {
+        // === IMPORTANT: Come back to the Settings page (not dashboard) ===
         const callback_url = `${window.location.origin}/settings?pscb=1`;
+        const meta = readPendingMeta() || {};
         const payload = {
           email,
           amount: String(toSubunit(totalAmount)),
@@ -729,7 +735,7 @@ export default function Settings() {
           channels: channelsForCurrency(String(accountCurrency).toUpperCase()),
           reference: localStorage.getItem(LS_REF_KEY) || buildReference(),
           callback_url,
-          metadata: readPendingMeta() || {},
+          metadata: meta,
         };
         const initRes = await fetch("/api/paystack/init", {
           method: "POST",
@@ -743,7 +749,7 @@ export default function Settings() {
         const authUrl = initJson?.data?.authorization_url;
         if (!authUrl) throw new Error("No authorization URL returned by Paystack.");
         setBillingOpen(false);
-        window.location.href = authUrl; // same tab
+        window.location.href = authUrl; // same tab -> returns to /settings?pscb=1
       } catch (e2) {
         setBanner({ kind: "error", msg: e2?.message || e?.message || "Unable to start payment." });
         setTimeout(() => setBanner({ kind: "", msg: "" }), 5000);
@@ -772,7 +778,6 @@ export default function Settings() {
         `Thank you for using School Master Hub.`,
       ].join("\n");
 
-      // Keep existing receipt endpoint (adjust if your backend expects /send-mail here too)
       await fetch("/api/send-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -784,7 +789,7 @@ export default function Settings() {
         }),
       });
     } catch {
-      // Silently ignore email errors on the client
+      // ignore client-side email errors
     }
   };
 
@@ -850,19 +855,22 @@ export default function Settings() {
     if (!ref) {
       setBanner({ kind: "error", msg: "No pending payment reference found." });
       setTimeout(() => setBanner({ kind: "", msg: "" }), 4000);
+      setVerifying(false);
       return;
     }
     setVerifying(true);
     try {
-      // Verify via our serverless function (secret stays server-side)
       const vRes = await fetch(`/api/paystack/verify?ref=${encodeURIComponent(ref)}`);
       const vJson = await vRes.json();
       if (!vJson?.status) throw new Error(vJson?.message || "Verification failed.");
       const data = vJson.data;
       const status = data?.status;
+
       if (status !== "success") {
-        setBanner({ kind: "error", msg: `Payment not successful (${status || "unknown"})` });
+        // ===== IMPORTANT: stop sticky dialog if not successful =====
+        setBanner({ kind: "error", msg: `Payment not successful (${status || "unknown"}).` });
         setTimeout(() => setBanner({ kind: "", msg: "" }), 6000);
+        clearPending(); // wipe local state so it won't reopen
         return;
       }
 
@@ -871,13 +879,10 @@ export default function Settings() {
       const message = data?.gateway_response || data?.message || "";
       const paystack_ref = data?.reference || ref;
 
-      // Get meta (prefer Paystack's metadata, else local)
       let meta = {};
       if (data?.metadata) {
         if (typeof data.metadata === "string") {
-          try {
-            meta = JSON.parse(data.metadata);
-          } catch {}
+          try { meta = JSON.parse(data.metadata); } catch {}
         } else if (typeof data.metadata === "object") meta = data.metadata;
       }
       if (!meta || !meta.school_id) {
@@ -889,18 +894,11 @@ export default function Settings() {
       const mPackage = Number(meta?.package) || billing.targetPackage;
       const mPackageName =
         meta?.package_name ||
-        (mPackage === 1
-          ? "Basic"
-          : mPackage === 2
-          ? "Standard"
-          : mPackage === 3
-          ? "Premium"
-          : "—");
+        (mPackage === 1 ? "Basic" : mPackage === 2 ? "Standard" : mPackage === 3 ? "Premium" : "—");
       const mTotal = Number(meta?.total) || totalAmount; // base units for DB
       const mNextExpiry = meta?.next_expiry || previewExpiryISO;
       const requestedByNumber = Number(userId || meta?.requested_by || 0) || null;
 
-      // Persist to DB via GET (as per PL/SQL)
       const dbPayload = {
         p_school_id: String(schoolId),
         p_package: String(mPackage),
@@ -912,8 +910,8 @@ export default function Settings() {
         p_status: "Paid",
         p_message: String(message || "Paid"),
         p_requested_by: requestedByNumber != null ? String(requestedByNumber) : "",
-        p_paid_at: formatDateOnly(paid_at), // YYYY-MM-DD
-        p_next_expiry: mNextExpiry,         // YYYY-MM-DD
+        p_paid_at: formatDateOnly(paid_at),
+        p_next_expiry: mNextExpiry,
       };
       const qp = new URLSearchParams(dbPayload).toString();
       const resp = await fetch(`${SUBSCRIPTION_UPDATE_API}?${qp}`, {
@@ -943,7 +941,6 @@ export default function Settings() {
         }
       } catch {}
 
-      // Success result + email
       const result = {
         status: "success",
         reference: paystack_ref,
@@ -963,7 +960,7 @@ export default function Settings() {
 
       clearPending();
 
-      // Refresh transactions list after success
+      // Refresh transactions
       try {
         if (schoolId) {
           const url = `${TRANSACTIONS_API}?p_school_id=${encodeURIComponent(schoolId)}`;
@@ -995,6 +992,8 @@ export default function Settings() {
     } catch (e) {
       setBanner({ kind: "error", msg: e?.message || "Payment verification failed." });
       setTimeout(() => setBanner({ kind: "", msg: "" }), 6000);
+      // ===== IMPORTANT: do not keep verification sticky after errors =====
+      clearPending();
     }
   };
 
@@ -1010,18 +1009,34 @@ export default function Settings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [verifying, pendingRef, pollCount]);
 
-  // On load, resume any pending payment
+  // On load, handle Paystack redirect back to Settings and resume (time-limited)
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const cameFromPaystack = params.has("pscb");
     const ref = localStorage.getItem(LS_REF_KEY);
-    if (ref) {
+    const meta = readPendingMeta();
+    const ageOk = meta?.pending_since ? Date.now() - Number(meta.pending_since) < 10 * 60 * 1000 : false; // 10 minutes
+
+    if (cameFromPaystack) {
+      // Clean the URL (remove ?pscb=1)
+      const cleanUrl = window.location.origin + window.location.pathname;
+      window.history.replaceState({}, "", cleanUrl);
+    }
+
+    if (ref && ageOk) {
       setPendingRef(ref);
       setBillingOpen(true);
       setVerifying(true);
+      // Attempt immediate verify once after redirect
+      if (cameFromPaystack) verifyNow(ref);
+    } else {
+      // Too old or missing -> ensure nothing sticks
+      if (!ageOk) clearPending();
     }
   }, []);
 
   // [TXNS] Fetch transactions for this school (initial load / auth change)
-  const [txLoading2, setTxLoading2] = useState(false); // keep original names intact
+  const [txLoading2, setTxLoading2] = useState(false);
   useEffect(() => {
     if (!schoolId) return;
     (async () => {
@@ -1516,11 +1531,13 @@ export default function Settings() {
                 <button
                   className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
                   onClick={() => {
+                    // closing the modal should also clear any lingering verifying state
                     setBillingOpen(false);
                     setBillingResult(null);
                     setVerifying(false);
                     setPremiumRequested(false);
                     setPremiumError("");
+                    clearPending();
                   }}
                   aria-label="Close"
                 >
@@ -1683,6 +1700,20 @@ export default function Settings() {
                         Verify Now
                       </button>
                     </div>
+                    <div className="flex gap-3">
+                      {/* ===== NEW: Abandon path to stop sticky verify dialog ===== */}
+                      <button
+                        onClick={() => {
+                          clearPending();
+                          setBillingOpen(false);
+                          setBanner({ kind: "error", msg: "Verification cancelled." });
+                          setTimeout(() => setBanner({ kind: "", msg: "" }), 4000);
+                        }}
+                        className="px-4 py-2 rounded-lg border bg-white dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
+                      >
+                        Cancel & Clear
+                      </button>
+                    </div>
                   </div>
                 </>
               ) : (
@@ -1796,7 +1827,7 @@ export default function Settings() {
                     <p className="text-xs text-gray-500">
                       {isPremiumSelected
                         ? "No payment will be taken online for Premium. We’ll contact you to finalize onboarding and billing."
-                        : "We'll use a secure Paystack popup on this page. If your browser blocks it, we'll redirect in this same tab."}
+                        : "We'll use a secure Paystack popup on this page. If your browser blocks it, we'll redirect in this same tab (back to Settings afterwards)."}
                     </p>
                   </div>
 
@@ -1807,6 +1838,7 @@ export default function Settings() {
                         setBillingResult(null);
                         setPremiumRequested(false);
                         setPremiumError("");
+                        clearPending();
                       }}
                       className="px-4 py-2 rounded-lg border bg-white dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
                     >

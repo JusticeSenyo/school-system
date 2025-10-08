@@ -305,6 +305,12 @@ export default function ManageStaffPage() {
   const staffCount = staffList.length;
   const remaining = useMemo(() => (isFinite(planMax) ? Math.max(0, planMax - staffCount) : Infinity), [planMax, staffCount]);
 
+  /* === NEW: count Admins (AD) === */
+  const adminCount = useMemo(
+    () => staffList.filter(s => String(s.role).toUpperCase() === 'AD').length,
+    [staffList]
+  );
+
   /* ---------- UI state ---------- */
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [infoStaff, setInfoStaff] = useState(null);
@@ -342,6 +348,9 @@ export default function ManageStaffPage() {
   const [bulkFileName, setBulkFileName] = useState('');
   const [previewRows, setPreviewRows] = useState([]);
   const [importing, setImporting] = useState(false);
+
+  /* === NEW: remember original role when editing === */
+  const [editingOriginalRole, setEditingOriginalRole] = useState(null);
 
   /* ---------- Filtering ---------- */
   const filtered = useMemo(() => {
@@ -397,6 +406,7 @@ export default function ManageStaffPage() {
     setFormError(''); setFormSuccess('');
     setEditingId(null); setDialogMode('add');
     setPendingUserId(null);
+    setEditingOriginalRole(null); // NEW: reset original role state
   };
 
   const validateForm = () => {
@@ -478,6 +488,7 @@ export default function ManageStaffPage() {
   const openEdit = (row) => {
     setDialogMode('edit');
     setEditingId(row.id);
+    setEditingOriginalRole(row.role || null); // NEW: remember original role
     setForm({
       full_name: row.name,
       email: row.email,
@@ -598,6 +609,17 @@ export default function ManageStaffPage() {
     if (err) { setFormError(err); return; }
     if (!editingId) { setFormError('Missing staff ID.'); return; }
 
+    /* === NEW: Prevent demoting the last Admin === */
+    if (
+      dialogMode === 'edit' &&
+      String(editingOriginalRole).toUpperCase() === 'AD' &&
+      String(form.role).toUpperCase() !== 'AD' &&
+      adminCount === 1
+    ) {
+      setFormError('Cannot change role: this is the last Admin. Assign another Admin first.');
+      return;
+    }
+
     setSubmitting(true);
     try {
       let imageUrlToSave = form.image_url || '';
@@ -686,6 +708,13 @@ export default function ManageStaffPage() {
   /* ---------- Delete staff (new) ---------- */
   const deleteStaff = async (row) => {
     if (!row?.id) return;
+
+    /* === NEW: Prevent deleting the last Admin === */
+    if (String(row.role).toUpperCase() === 'AD' && adminCount === 1) {
+      alert('Cannot delete the last Admin. Assign another user as Admin first.');
+      return;
+    }
+
     const label = row.name || row.email || `ID ${row.id}`;
     if (!window.confirm(`Delete staff "${label}" permanently?\n\nThis cannot be undone.`)) return;
 
@@ -893,6 +922,12 @@ export default function ManageStaffPage() {
 
   const addDisabled = submitting || !!validateForm() || !pendingUserId || planExpired || (isFinite(planMax) && remaining <= 0);
   const editDisabled = submitting || !!validateForm();
+
+  /* === NEW: compute flag to lock Role select if last Admin is being edited === */
+  const isLastAdminEditing =
+    dialogMode === 'edit' &&
+    (String(editingOriginalRole).toUpperCase() === 'AD') &&
+    adminCount === 1;
 
   /* ================== Render ================== */
   return (
@@ -1299,11 +1334,17 @@ export default function ManageStaffPage() {
                           className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                           value={form.role}
                           onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
+                          disabled={isLastAdminEditing} // NEW: lock if last Admin
                         >
                           {ROLE_OPTIONS.map((r) => (
                             <option key={r.value} value={r.value}>{r.label}</option>
                           ))}
                         </select>
+                        {isLastAdminEditing && (
+                          <div className="mt-1 text-xs text-amber-600">
+                            You must have at least one Admin. Assign another user as Admin first.
+                          </div>
+                        )}
                       </div>
 
                       <div>
@@ -1462,9 +1503,9 @@ export default function ManageStaffPage() {
                 <div>
                   <div><b>Format (columns):</b> <code>full_name</code>, <code>email</code>, <code>role</code>, <code>status</code> (optional), <code>image_url</code> (optional)</div>
                   <div className="mt-1">
-              <b>Role must be one of:</b>
-              <span className="ml-2"><b>AD</b> - Administrator, <b>HT</b> - Headteacher, <b>TE</b> - Teacher, <b>AC</b> - Accountant</span>
-            </div>
+                    <b>Role must be one of:</b>
+                    <span className="ml-2"><b>AD</b> - Administrator, <b>HT</b> - Headteacher, <b>TE</b> - Teacher, <b>AC</b> - Accountant</span>
+                  </div>
                   <div className="mt-1">IDs and <code>school_id</code> are not needed — they’re generated/attached automatically.</div>
                 </div>
               </div>
@@ -1566,7 +1607,7 @@ export default function ManageStaffPage() {
                   Close
                 </button>
                 <button
-                                    onClick={doImport}
+                  onClick={doImport}
                   disabled={
                     importing ||
                     !previewRows.length ||
@@ -1681,5 +1722,3 @@ function PlanBanner({ planHuman, expiryISO, count, max }) {
     </div>
   );
 }
-
-                    

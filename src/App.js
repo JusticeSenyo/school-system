@@ -1,5 +1,6 @@
+// src/App.jsx
 import React, { Suspense, lazy } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import IdleLogout from './components/IdleLogout';
 import SessionManager from './components/SessionManager'; // <-- FIX: default import
 import SupportChat from './components/support/SupportChat';
@@ -84,11 +85,20 @@ const normalizeRole = (role) => {
   return r;
 };
 
+/** ---------- ROUTE GUARDS ---------- **/
+
 // Protect private routes
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, isLoading, isInitializing } = useAuth();
+  const location = useLocation();
+
+  // Don't redirect anywhere while auth is hydrating/loading
   if (isInitializing || isLoading) return <DashboardLoading />;
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
+
+  if (!isAuthenticated) {
+    // Pass the original location so we can return here after login
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  }
   return children;
 };
 
@@ -152,13 +162,19 @@ const DashboardRouter = () => {
 // Public login route
 const LoginRoute = () => {
   const { isAuthenticated, isLoading, isInitializing } = useAuth();
+  const location = useLocation();
+  // where did we come from? (/settings, /print-bill, etc.)
+  const from =
+    (location.state?.from?.pathname || '') + (location.state?.from?.search || '');
+
   if (isAuthenticated && !isLoading && !isInitializing) {
-    return <Navigate to="/dashboard" replace />;
+    // After refresh or successful login, go back to the original path if present
+    return <Navigate to={from || "/dashboard"} replace />;
   }
   return <SchoolLogin />;
 };
 
-// All routes
+/** ---------- ROUTES ---------- **/
 const AppRoutes = () => {
   const { isAuthenticated, isLoading, isInitializing } = useAuth();
 
@@ -504,7 +520,7 @@ const AppRoutes = () => {
   );
 };
 
-// Theme Wrapper
+/** ---------- THEME WRAPPER ---------- */
 const ThemeWrapper = ({ children }) => {
   const { theme } = useTheme();
   return (
@@ -516,7 +532,7 @@ const ThemeWrapper = ({ children }) => {
   );
 };
 
-// App Root
+/** ---------- APP ROOT ---------- */
 function App() {
   return (
     <ErrorBoundary>
@@ -534,7 +550,8 @@ function App() {
                     absoluteMs={8 * 60 * 60 * 1000}
                     warnBeforeMs={60 * 1000}
                   />
-                {/* Global Support Chat */}
+
+                  {/* Global Support Chat */}
                   <SupportChat />
 
                   <AppRoutes />
@@ -548,8 +565,7 @@ function App() {
   );
 }
 
-
-// Optional DataContext fallback (kept at bottom to avoid hoisting issues)
+// Optional DataContext fallback
 let DataProvider;
 try {
   // eslint-disable-next-line global-require

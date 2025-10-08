@@ -669,23 +669,28 @@ export default function ManageStudentsPage() {
         }
       ]));
 
-      if (form.email) {
-        const emailResult = await sendWelcomeEmail({
-          full_name: form.full_name.trim(),
-          email: (form.email || '').trim().toLowerCase(),
-          tempPassword: tempPwd,
-          schoolName: SCHOOL_NAME || undefined,
-          replyTo: user?.email || user?.EMAIL || undefined,
-          subject: `Your ${SCHOOL_NAME || 'SchoolMasterHub'} student account`
-        });
-        setFormSuccess(
-          emailResult.ok
-            ? 'Student added successfully. Email sent with login details.'
-            : `Student added, but email failed: ${emailResult.error}`
-        );
-      } else {
-        setFormSuccess('Student added successfully.');
-      }
+      // inside submitAddStudent(), right after setStudents([...]) and before setTimeout(...)
+if (planCode === 'PREMIUM' && form.email) {
+  const emailResult = await sendWelcomeEmail({
+    full_name: form.full_name.trim(),
+    email: (form.email || '').trim().toLowerCase(),
+    tempPassword: tempPwd,
+    schoolName: SCHOOL_NAME || undefined,
+    replyTo: user?.email || user?.EMAIL || undefined,
+    subject: `Your ${SCHOOL_NAME || 'SchoolMasterHub'} student account`,
+  });
+  setFormSuccess(
+    emailResult.ok
+      ? 'Student added successfully. Email sent with login details.'
+      : `Student added, but email failed: ${emailResult.error}`
+  );
+} else {
+  setFormSuccess(
+    'Student added successfully.' +
+    (form.email && planCode !== 'PREMIUM' ? ' (Sending credentials by email is a Premium feature.)' : '')
+  );
+}
+
 
       setTimeout(async () => {
         await fetchStudents();

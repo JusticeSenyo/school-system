@@ -6,8 +6,6 @@ import { LogOut, Search, Sun, Moon, Menu, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "../../contexts/ThemeContext";
 import { roleBasedMenus } from "../../constants/roleBasedMenus";
-
-// 👇 Add the tour component (path is correct for this file location)
 import OnboardingTourDriver from "../OnboardingTourDriver";
 
 const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
@@ -16,29 +14,29 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false); // mobile overlay
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false); // desktop mini/full
   const [query, setQuery] = useState("");
-  const [runTour, setRunTour] = useState(false); // ⬅️ run first-login tour
+  const [runTour, setRunTour] = useState(false);
   const navigate = useNavigate();
 
-  // 🔒 Prevent body scroll when mobile sidebar is open
+  // Prevent body scroll when mobile sidebar is open
   useEffect(() => {
-    if (isSidebarOpen) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-    }
+    if (isSidebarOpen) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
     return () => {
       document.body.style.overflow = "";
     };
   }, [isSidebarOpen]);
 
-  // 🎯 First-time login tour (per user)
+  // First-time login tour (per user) — focuses on Academics setup
   useEffect(() => {
     const uid =
       user?.user_id ?? user?.id ?? user?.USER_ID ?? user?.email ?? "anon";
-    const TOUR_KEY = `smh:tour:v1:${uid}`;
+    const TOUR_KEY = `smh:tour:v2:${uid}`; // bump to v2 for new flow
     const seen = localStorage.getItem(TOUR_KEY);
     if (!seen) {
-      const t = setTimeout(() => setRunTour(true), 300); // delay so DOM is ready
+      // Ensure sidebars are visible so Academics items are targetable
+      setIsSidebarCollapsed(false); // desktop expanded
+      setIsSidebarOpen(true); // mobile visible
+      const t = setTimeout(() => setRunTour(true), 400); // slight delay so DOM renders
       localStorage.setItem(TOUR_KEY, "1");
       return () => clearTimeout(t);
     }
@@ -73,14 +71,21 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
       .filter((m) => m.score > 0)
       .sort((a, b) => b.score - a.score);
 
-    const fallback =
-      q.includes("student") ? "/dashboard/manage-students" :
-        q.includes("staff") ? "/dashboard/manage-staff" :
-          q.includes("class") ? "/dashboard/classes" :
-            q.includes("exam") ? "/dashboard/manage-exam" :
-              q.includes("fees") ? "/dashboard/manage-fees" :
-                q.includes("attend") ? "/dashboard/attendance" :
-                  "/dashboard";
+    const fallback = q.includes("academic")
+      ? "/dashboard/academic-years"
+      : q.includes("student")
+      ? "/dashboard/manage-students"
+      : q.includes("staff")
+      ? "/dashboard/manage-staff"
+      : q.includes("class")
+      ? "/dashboard/classes"
+      : q.includes("exam")
+      ? "/dashboard/manage-exam"
+      : q.includes("fees")
+      ? "/dashboard/manage-fees"
+      : q.includes("attend")
+      ? "/dashboard/attendance"
+      : "/dashboard";
 
     const target = scored[0]?.path || fallback;
     navigate(target);
@@ -91,23 +96,27 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
     try {
       await Promise.resolve(logout?.());
     } finally {
-      const schoolId = user?.schoolId ?? user?.school_id ?? user?.school?.id ?? "";
-      window.location.href = `http://app.schoolmasterhub.net/login/?p_school_id=${encodeURIComponent(schoolId ?? "")}`;
+      const schoolId =
+        user?.schoolId ?? user?.school_id ?? user?.school?.id ?? "";
+      window.location.href = `http://app.schoolmasterhub.net/login/?p_school_id=${encodeURIComponent(
+        schoolId ?? ""
+      )}`;
     }
   };
 
-  const toggleSidebar = () => setIsSidebarCollapsed(prev => !prev);
+  const toggleSidebar = () => setIsSidebarCollapsed((prev) => !prev);
 
-  const rawSchoolName = user?.schoolName || user?.school?.name || user?.school_name || "Your School";
+  const rawSchoolName =
+    user?.schoolName || user?.school?.name || user?.school_name || "Your School";
   const displaySchoolName = String(rawSchoolName).toUpperCase();
 
   return (
     <div className="flex min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
-
-      {/* 📌 Mobile overlay sidebar */}
+      {/* Mobile overlay sidebar */}
       <div
-        className={`fixed inset-y-0 left-0 z-40 w-64 transform bg-white dark:bg-gray-900 shadow-lg transition-transform duration-300 xl:hidden
-          ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
+        className={`fixed inset-y-0 left-0 z-40 w-64 transform bg-white dark:bg-gray-900 shadow-lg transition-transform duration-300 xl:hidden ${
+          isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
         data-tour="sidebar"
       >
         <div className="flex flex-col h-full overflow-y-auto">
@@ -124,14 +133,14 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
           </div>
           <Sidebar
             isCollapsed={false}
-            onExpand={() => { }}
+            onExpand={() => {}}
             role={role}
             menus={menusForRole}
           />
         </div>
       </div>
 
-      {/* 🔲 Dark overlay under sidebar */}
+      {/* Dark overlay under sidebar */}
       {isSidebarOpen && (
         <div
           className="fixed inset-0 bg-black bg-opacity-50 z-30 xl:hidden"
@@ -139,7 +148,7 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
         />
       )}
 
-      {/* 📌 Desktop sidebar */}
+      {/* Desktop sidebar */}
       <div className="hidden xl:flex">
         <div className="fixed top-0 left-0 h-screen z-30" data-tour="sidebar">
           <Sidebar
@@ -151,10 +160,11 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
         </div>
       </div>
 
-      {/* 📌 Main content */}
+      {/* Main content */}
       <div
-        className={`flex-1 flex flex-col transition-all duration-300 ${isSidebarCollapsed ? "xl:ml-20" : "xl:ml-64"
-          }`}
+        className={`flex-1 flex flex-col transition-all duration-300 ${
+          isSidebarCollapsed ? "xl:ml-20" : "xl:ml-64"
+        }`}
       >
         {/* Header */}
         <header className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
@@ -198,8 +208,7 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
                 placeholder="Search pages…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                className="pl-10 pr-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 
-                w-32 sm:w-40 md:w-56 lg:w-64"
+                className="pl-10 pr-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 w-32 sm:w-40 md:w-56 lg:w-64"
               />
             </form>
 
@@ -242,8 +251,15 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
         </main>
       </div>
 
-      {/* 🎉 First-login walk-through */}
-      <OnboardingTourDriver run={runTour} onClose={() => setRunTour(false)} />
+      {/* Onboarding tour */}
+      <OnboardingTourDriver
+        run={runTour}
+        onClose={() => {
+          setRunTour(false);
+          // Close mobile overlay after tour, keep desktop state as-is
+          setIsSidebarOpen(false);
+        }}
+      />
     </div>
   );
 };

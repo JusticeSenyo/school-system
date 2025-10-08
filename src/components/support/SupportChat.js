@@ -8,7 +8,7 @@ function injectStyles() {
   const css = `
   .sc-card { width: 300px; border-radius: 12px; box-shadow: 0 10px 28px rgba(0,0,0,.12); overflow: hidden; border: 1px solid var(--sc-bd); background: var(--sc-bg); color: var(--sc-fg); font-size:12.5px; }
   .sc-header { display:flex; align-items:center; justify-content:space-between; padding:8px 10px; font-weight:700; background: var(--sc-header-bg); color: var(--sc-header-fg); }
-  .sc-body { height: 200px; overflow-y:auto; padding:8px; background: var(--sc-bg); }
+  .sc-body { height: 200px; overflow-y:auto; padding:8px; background: var(--sc-bg); -webkit-overflow-scrolling: touch; }
   .sc-quick { display:flex; flex-wrap:wrap; gap:6px; padding:6px 8px; border-top: 1px solid var(--sc-bd); border-bottom: 1px solid var(--sc-bd);}
   .sc-chip { font-size:11px; padding:3px 8px; border-radius:999px; border:1px solid var(--sc-bd-2); background: var(--sc-chip-bg); cursor:pointer; }
   .sc-footer { display:flex; gap:6px; padding:8px; border-top: 1px solid var(--sc-bd); align-items:flex-start; }
@@ -21,7 +21,9 @@ function injectStyles() {
   .sc-bubble { display:inline-block; padding:7px 9px; border-radius:12px; font-size:12.5px; max-width: 90%; background: var(--sc-bubble-bot-bg); color: var(--sc-fg); line-height:1.35; white-space:pre-wrap; }
   .sc-bubble.user { background:#2563eb; color:#fff; }
 
-  .sc-wrap { position:fixed; inset: auto var(--sc-right) var(--sc-bottom) auto; z-index: 9999; touch-action: none; }
+  /* Wrapper: DO NOT block scrolling; allow taps to be responsive */
+  .sc-wrap { position:fixed; inset: auto var(--sc-right) var(--sc-bottom) auto; z-index: 9999; touch-action: manipulation; }
+
   .sc-open { border-radius:999px; padding:9px 12px; background:#2563eb; color:white; font-weight:700; border:none; box-shadow:0 10px 30px rgba(0,0,0,.2); cursor:pointer; font-size:12.5px; }
   .sc-close { color:inherit; background:transparent; border:none; font-size:16px; cursor:pointer; padding:2px 4px; }
   .sc-list { display:flex; flex-direction:column; gap:6px; }
@@ -33,7 +35,7 @@ function injectStyles() {
     --sc-bg:#ffffff; --sc-fg:#0f172a; --sc-bd:#e5e7eb; --sc-bd-2:#d1d5db;
     --sc-header-bg:#0f172a; --sc-header-fg:#fff;
     --sc-chip-bg:#f8fafc; --sc-input-bg:#ffffff; --sc-bubble-bot-bg:#f3f4f6;
-    --sc-bottom: calc(16px + env(safe-area-inset-bottom)); /* safe area */
+    --sc-bottom: calc(16px + env(safe-area-inset-bottom));
     --sc-right: calc(16px + env(safe-area-inset-right));
   }
   /* Dark theme variables */
@@ -73,7 +75,7 @@ function useTheme(theme = "system") {
   }, [theme]);
 }
 
-/* ---------- App-specific FAQs (kept from previous improved version) ---------- */
+/* ---------- App-specific FAQs ---------- */
 const DEFAULT_FAQ = [
   {
     q: "Set up Academics (Years → Terms → Classes → Subjects)",
@@ -91,9 +93,8 @@ Tip: Do this before attendance, exams, or billing.`
   { q: "Add staff / teachers (incl. bulk import)", a:
 `Admin/Owner:
 • Dashboard → Manage Staff → Add New Staff
-• "Bulk Import" supports: full_name, email, role[AD/HT/TE/AC], status, image_url
-• Use "Reset & send" to email credentials if needed`
-  },
+• Bulk Import supports: full_name, email, role[AD/HT/TE/AC], status, image_url
+• Use "Reset & send" to email credentials if needed` },
   { q: "Add students / bulk import", a:
 `Admin/Owner:
 • Dashboard → Manage Students → Add
@@ -138,15 +139,13 @@ function matchFaq(faqs, text) {
   let best = null, bestScore = 0;
 
   for (const item of faqs) {
-    const q = item.q.toLowerCase();
-    const a = item.a.toLowerCase();
-    const hay = `${q} ${a}`;
+    const hay = `${item.q.toLowerCase()} ${item.a.toLowerCase()}`;
     let score = 0;
     if (hay.includes(t)) score += 6;
     for (const w of words) {
       if (w.length >= 3) {
-        if (q.includes(w)) score += 2;
-        if (a.includes(w)) score += 1;
+        if (item.q.toLowerCase().includes(w)) score += 2;
+        if (item.a.toLowerCase().includes(w)) score += 1;
       }
     }
     if (/start|setup|set\s*up|begin|onboard|first/i.test(t) && /academic/i.test(hay)) score += 3;
@@ -164,17 +163,14 @@ export default function SupportChat({
   faqs = DEFAULT_FAQ,
   theme = "system", // "light" | "dark" | "system"
   openByDefault = false,
-  publicToken, // optional tiny guard header
+  publicToken,
   autoCloseOnEscalate = true,
   autoCloseDelayMs = 1200,
 
-  /** NEW: positioning / overlap controls */
+  // Positioning / overlap controls
   fabOffset = { right: 16, bottom: 16 },
-  /** Raised bottom on mobile by default to clear modal footers; auto-adjusts further if a dialog is open */
   mobileFabOffset = { right: 16, bottom: 88 },
-  /** Detect dialogs & lift FAB automatically on mobile */
   avoidDialogsOnMobile = true,
-  /** Enable small drag to reposition the FAB (mobile) */
   draggableOnMobile = true,
 }) {
   useTheme(theme);
@@ -193,21 +189,24 @@ export default function SupportChat({
   const [needsHuman, setNeedsHuman] = useState(false);
   const [sending, setSending] = useState(false);
 
-  // FAB dynamic positioning
-  const isMobile = useRef(window.matchMedia("(max-width: 640px)").matches);
+  // Mobile detection
+  const isMobile = useRef(typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches);
+
+  // Position state
   const [fabPos, setFabPos] = useState(() =>
     isMobile.current ? { ...mobileFabOffset } : { ...fabOffset }
   );
-  const [dragPos, setDragPos] = useState(null); // {x,y} in px from viewport edges (right/bottom)
+  const [dragPreview, setDragPreview] = useState(null); // ephemeral during drag
 
   const wrapRef = useRef(null);
+  const btnRef = useRef(null);
 
-  // Observe dialogs and adjust bottom offset on mobile so we don’t cover footer buttons
+  // Observe modals/dialogs to lift FAB on mobile
   useEffect(() => {
     if (!avoidDialogsOnMobile || !isMobile.current) return;
 
     const hasOpenDialog = () => {
-      if (document.body.classList.contains("modal-open")) return true; // bootstrap/tw pattern
+      if (document.body.classList.contains("modal-open")) return true;
       const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
       return dialogs.some((el) => {
         const style = window.getComputedStyle(el);
@@ -218,14 +217,13 @@ export default function SupportChat({
 
     const applyOffset = () => {
       const base = isMobile.current ? mobileFabOffset.bottom : fabOffset.bottom;
-      const lift = hasOpenDialog() ? 72 : 0; // nudge up if a modal is visible
+      const lift = hasOpenDialog() ? 72 : 0;
       setFabPos((p) => ({ ...p, bottom: Math.max(12, base + lift) }));
     };
 
     const mo = new MutationObserver(applyOffset);
     mo.observe(document.body, { attributes: true, childList: true, subtree: true });
     window.addEventListener("resize", applyOffset);
-    // initial
     applyOffset();
 
     return () => {
@@ -234,70 +232,79 @@ export default function SupportChat({
     };
   }, [avoidDialogsOnMobile, fabOffset.bottom, mobileFabOffset.bottom]);
 
-  // Draggable FAB (mobile)
+  // Drag handler — bound ONLY to the FAB button, and only when CLOSED.
   useEffect(() => {
     if (!draggableOnMobile || !isMobile.current) return;
-    const el = wrapRef.current;
-    if (!el) return;
+    const btn = btnRef.current;
+    if (!btn) return;
 
-    let startX = 0, startY = 0, origRight = 0, origBottom = 0, dragging = false, tId;
+    let startX = 0, startY = 0, origRight = 0, origBottom = 0;
+    let moved = false;
+
+    const MOVE_THRESHOLD = 6; // px to differentiate tap from drag
 
     const onPointerDown = (e) => {
-      // only start drag if targeting the FAB button (not the card)
-      if (!(e.target && (e.target.closest(".sc-open") || (!open && e.target.closest(".sc-wrap"))))) return;
-      dragging = true;
-      el.setPointerCapture?.(e.pointerId);
+      if (open) return; // drag only when closed
+      // capture starting state
+      const cs = getComputedStyle(wrapRef.current);
+      origRight = parseFloat(cs.getPropertyValue("--sc-right")) || fabPos.right || 16;
+      origBottom = parseFloat(cs.getPropertyValue("--sc-bottom")) || fabPos.bottom || 16;
+
       startX = e.clientX;
       startY = e.clientY;
-      // compute from current style (right/bottom)
-      const cs = getComputedStyle(el);
-      origRight = parseFloat(cs.right) || 16;
-      origBottom = parseFloat(cs.bottom) || 16;
-      clearTimeout(tId);
-    };
-    const onPointerMove = (e) => {
-      if (!dragging) return;
-      const dx = startX - e.clientX; // moving left increases right
-      const dy = e.clientY - startY; // moving down increases bottom
-      const newRight = Math.max(8, origRight + dx);
-      const newBottom = Math.max(8, origBottom + dy);
-      setDragPos({ right: newRight, bottom: newBottom });
-    };
-    const onPointerUp = (e) => {
-      if (!dragging) return;
-      dragging = false;
-      el.releasePointerCapture?.(e.pointerId);
-      // snap into state as base for next time
-      setFabPos((p) => ({
-        right: dragPos?.right ?? p.right,
-        bottom: dragPos?.bottom ?? p.bottom,
-      }));
-      // clear drag preview
-      tId = setTimeout(() => setDragPos(null), 50);
+      moved = false;
+
+      // Use non-capture so click can still happen if no move
+      window.addEventListener("pointermove", onPointerMove, { passive: true });
+      window.addEventListener("pointerup", onPointerUp, { passive: true, once: true });
     };
 
-    el.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
+    const onPointerMove = (e) => {
+      const dx = startX - e.clientX;
+      const dy = e.clientY - startY;
+      const dist = Math.hypot(dx, dy);
+      if (dist > MOVE_THRESHOLD) moved = true;
+
+      const newRight = Math.max(8, (fabPos.right ?? 16) + dx);
+      const newBottom = Math.max(8, (fabPos.bottom ?? 16) + dy);
+      setDragPreview({ right: newRight, bottom: newBottom });
+    };
+
+    const onPointerUp = (e) => {
+      window.removeEventListener("pointermove", onPointerMove);
+
+      if (moved) {
+        // Commit drag
+        setFabPos((p) => ({
+          right: dragPreview?.right ?? p.right,
+          bottom: dragPreview?.bottom ?? p.bottom,
+        }));
+        setDragPreview(null);
+      } else {
+        // Treat as a tap to open
+        setOpen(true);
+      }
+    };
+
+    btn.addEventListener("pointerdown", onPointerDown, { passive: true });
 
     return () => {
-      el.removeEventListener("pointerdown", onPointerDown);
+      btn.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
     };
-  }, [draggableOnMobile, open, dragPos]);
+  }, [draggableOnMobile, isMobile.current, open, fabPos.right, fabPos.bottom, dragPreview]);
 
   // Apply CSS variables for position (supports safe-area)
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    const right = (dragPos?.right ?? fabPos.right ?? 16) + "px";
-    const bottom = (dragPos?.bottom ?? fabPos.bottom ?? 16) + "px";
+    const right = (dragPreview?.right ?? fabPos.right ?? 16) + "px";
+    const bottom = (dragPreview?.bottom ?? fabPos.bottom ?? 16) + "px";
     el.style.setProperty("--sc-right", `calc(${right} + env(safe-area-inset-right))`);
     el.style.setProperty("--sc-bottom", `calc(${bottom} + env(safe-area-inset-bottom))`);
-  }, [fabPos, dragPos]);
+  }, [fabPos, dragPreview]);
 
-  // --- Chat logic (same as improved version) ---
+  // Chat logic
   const nameRef = useRef(null);
   const emailRef = useRef(null);
   const subjectRef = useRef(null);
@@ -404,13 +411,23 @@ Email: ${email}
   return (
     <div ref={wrapRef} className="sc-wrap" aria-live="polite">
       {!open && (
-        <button className="sc-open" onClick={() => setOpen(true)} aria-label="Open Support">
+        <button
+          ref={btnRef}
+          className="sc-open"
+          // NOTE: no onClick here; the drag handler will open on tap (when not moved)
+          aria-label="Open Support"
+        >
           Support
         </button>
       )}
 
       {open && (
-        <div className="sc-card" role="dialog" aria-label={`${productName} SupportChat`}>
+        <div
+          className="sc-card"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${productName} SupportChat`}
+        >
           <div className="sc-header">
             <span>{productName} Support</span>
             <button className="sc-close" onClick={() => setOpen(false)} aria-label="Close">✕</button>

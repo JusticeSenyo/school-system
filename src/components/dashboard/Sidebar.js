@@ -1,10 +1,9 @@
-// src/components/dashboard/Sidebar.js
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   ChevronDown, ChevronRight, LogOut, Home, Users, GraduationCap, BookOpen,
   Settings, MessageSquare, ClipboardList, FileText, FileCheck, CalendarCheck,
-  Layers, Flag, CalendarRange, UserCog, ListPlus
+  Layers, Flag, CalendarRange, UserCog, ListPlus, HelpCircle
 } from "lucide-react";
 import { useAuth } from "../../AuthContext";
 import { roleBasedMenus } from "../../constants/roleBasedMenus";
@@ -96,7 +95,7 @@ function useMenusAugmentedByAcademics(baseMenus) {
 }
 
 /* -------------------- Component -------------------- */
-const Sidebar = ({ isCollapsed, onExpand, role: roleProp, menus: menusProp }) => {
+const Sidebar = ({ isCollapsed, onExpand, role: roleProp, menus: menusProp, onContactSupport }) => {
   const location = useLocation();
   const { user, logout } = useAuth();
   const { isClassTeacher } = useTeacherAccess();
@@ -193,26 +192,25 @@ const Sidebar = ({ isCollapsed, onExpand, role: roleProp, menus: menusProp }) =>
         ${isCollapsed ? "w-20" : "w-64"} min-h-screen flex flex-col`}
     >
       {/* Logo / Title */}
-{!isCollapsed ? (
-  <div className="hidden xl:flex items-center justify-center mb-6 ">
-    <h1
-      className="text-xl font-bold text-indigo-600 dark:text-white truncate max-w-full tracking-wide"
-      title={displaySchoolName}
-    >
-      {displaySchoolName}
-    </h1>
-  </div>
-) : (
-  <div className="flex items-center justify-center mb-6">
-    <div
-      className="h-9 w-9 rounded-lg bg-indigo-600 text-white grid place-items-center font-semibold"
-      title={displaySchoolName}
-    >
-      {displaySchoolName.slice(0, 2)}
-    </div>
-  </div>
-)}
-
+      {!isCollapsed ? (
+        <div className="hidden xl:flex items-center justify-center mb-6 ">
+          <h1
+            className="text-xl font-bold text-indigo-600 dark:text-white truncate max-w-full tracking-wide"
+            title={displaySchoolName}
+          >
+            {displaySchoolName}
+          </h1>
+        </div>
+      ) : (
+        <div className="flex items-center justify-center mb-6">
+          <div
+            className="h-9 w-9 rounded-lg bg-indigo-600 text-white grid place-items-center font-semibold"
+            title={displaySchoolName}
+          >
+            {displaySchoolName.slice(0, 2)}
+          </div>
+        </div>
+      )}
 
       {/* Navigation */}
       <nav className="flex-1 space-y-2 overflow-y-auto">
@@ -309,8 +307,20 @@ const Sidebar = ({ isCollapsed, onExpand, role: roleProp, menus: menusProp }) =>
         )}
       </nav>
 
+      {/* Contact Support (all roles) */}
+      <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+        <button
+          onClick={() => onContactSupport?.()}
+          title="Contact Support"
+          className="w-full flex items-center space-x-2 px-3 py-2 rounded-md text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/40 transition"
+        >
+          <HelpCircle size={18} />
+          {!isCollapsed && <span>Contact Support</span>}
+        </button>
+      </div>
+
       {/* Logout */}
-      <div className="mt-auto pt-4 border-t border-gray-200 dark:border-gray-700">
+      <div className="mt-1 pt-3 border-t border-gray-200 dark:border-gray-700">
         <button
           onClick={handleLogout}
           title="Logout"

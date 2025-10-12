@@ -1,3 +1,4 @@
+// src/SchoolLogin.jsx
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import {
@@ -12,9 +13,8 @@ const LOCK_ONLY_WHEN_PRESELECTED = true; // if true, field is read-only only whe
 const RESTORE_LAST_SCHOOL = false;       // restore last chosen school from localStorage?
 // ===================================================================
 
-// ORDS endpoint (returns [{ school_name, school_id, created_at }, ...])
-const SCHOOLS_LIST_ENDPOINT =
-  "https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/academic/get/school/";
+// ✅ ORDS now goes through Vercel proxy (same-origin → no CORS)
+const SCHOOLS_LIST_ENDPOINT = "/api/ords/schools/academic/get/school/";
 
 export default function SchoolLogin() {
   const [showPassword, setShowPassword] = useState(false);
@@ -45,41 +45,71 @@ export default function SchoolLogin() {
     if (sidFromUrl) setSchoolId(String(sidFromUrl));
   }, [searchParams]);
 
-  // Load schools
+  // Load schools (via proxy)
   useEffect(() => {
+    let cancelled = false;
+
     const loadSchools = async () => {
       try {
         setIsLoadingSchools(true);
-        const res = await fetch(SCHOOLS_LIST_ENDPOINT, { method: "GET", headers: { Accept: "application/json" } });
-        const arr = await res.json();
-        const mapped = (Array.isArray(arr) ? arr : [])
-          .map(r => ({ id: r.school_id, name: r.school_name }))
-          .filter(x => x.id != null && x.name)
-          .sort((a, b) => a.name.localeCompare(b.name));
-        setSchools(mapped);
+        const res = await fetch(SCHOOLS_LIST_ENDPOINT, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          // credentials are same-origin by default; proxy handles upstream
+        });
 
-        // Optionally restore last selection (only if URL didn’t set it)
-        if (!searchParams.get("p_school_id") && RESTORE_LAST_SCHOOL) {
-          try {
-            const saved = localStorage.getItem("last_school_id");
-            if (saved && mapped.some(s => String(s.id) === String(saved))) {
-              setSchoolId(saved);
-            }
-          } catch {}
+        // Non-OK still returns a body sometimes; try to parse, but guard.
+        let data = null;
+        try { data = await res.json(); } catch { data = null; }
+        if (!res.ok) {
+          console.error("Schools endpoint error:", res.status, data);
+          if (!cancelled) setSchools([]);
+          return;
+        }
+
+        // ORDS may return {items:[...]} or an array; normalize
+        const arr = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.items)
+          ? data.items
+          : [];
+
+        const mapped = arr
+          .map((r) => ({
+            id: r.school_id ?? r.SCHOOL_ID ?? r.id,
+            name: r.school_name ?? r.SCHOOL_NAME ?? r.name,
+          }))
+          .filter((x) => x.id != null && x.name)
+          .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+
+        if (!cancelled) {
+          setSchools(mapped);
+
+          // Optionally restore last selection (only if URL didn’t set it)
+          if (!searchParams.get("p_school_id") && RESTORE_LAST_SCHOOL) {
+            try {
+              const saved = localStorage.getItem("last_school_id");
+              if (saved && mapped.some((s) => String(s.id) === String(saved))) {
+                setSchoolId(saved);
+              }
+            } catch {}
+          }
         }
       } catch (e) {
         console.error("Failed to load schools:", e);
-        setSchools([]);
+        if (!cancelled) setSchools([]);
       } finally {
-        setIsLoadingSchools(false);
+        if (!cancelled) setIsLoadingSchools(false);
       }
     };
+
     loadSchools();
+    return () => { cancelled = true; };
   }, [searchParams]);
 
   // Resolve a nice display name for read-only view
   const resolvedSchoolName = useMemo(() => {
-    const found = schools.find(s => String(s.id) === String(schoolId));
+    const found = schools.find((s) => String(s.id) === String(schoolId));
     if (found) return found.name;
     if (isLoadingSchools) return "Loading schools...";
     if (!schoolId) return "No school selected";
@@ -90,7 +120,7 @@ export default function SchoolLogin() {
   const filteredSchools = useMemo(() => {
     const q = (lovQuery || "").toLowerCase();
     if (!q) return schools;
-    return schools.filter(s => s.name.toLowerCase().includes(q));
+    return schools.filter((s) => String(s.name).toLowerCase().includes(q));
   }, [schools, lovQuery]);
 
   // The field is read-only only when we already have a school preselected
@@ -109,7 +139,7 @@ export default function SchoolLogin() {
     (location.state?.from?.pathname || "") + (location.state?.from?.search || "");
 
   const onSubmit = async (e) => {
-    e?.preventDefault?.(); // 🔒 stop full page reload
+    e?.preventDefault?.();
     setError("");
 
     const eMail = email.trim();
@@ -128,7 +158,6 @@ export default function SchoolLogin() {
       if (!result?.success) {
         setError(result?.error || "Login failed. Please check your credentials.");
       } else {
-        // 🧭 Go back to the original protected route if present, else dashboard
         navigate(fromPath || "/dashboard", { replace: true });
       }
     } catch (err) {
@@ -188,7 +217,7 @@ export default function SchoolLogin() {
             </div>
           </div>
 
-          {/* ✅ Use a real form to control submit & prevent reload */}
+          {/* Form */}
           <form
             className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8 border border-gray-100 dark:border-gray-700"
             onSubmit={onSubmit}

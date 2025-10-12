@@ -1,3 +1,4 @@
+// src/AuthContext.js
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext();
@@ -11,15 +12,15 @@ export const useAuth = () => {
 };
 
 // ---- Safe API base & joiner (prevents double slashes) ----
-const API_BASE_RAW =
-  'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/';
+// ✅ Use same-origin Vercel proxy instead of hitting ORDS directly
+const API_BASE_RAW = '/api/ords/schools/';
 // Ensure exactly one trailing slash
 const API_BASE = API_BASE_RAW.replace(/\/+$/, '') + '/';
 
 const buildApiUrl = (path = '', params = {}) => {
   // strip any leading slashes from path
   const cleanPath = String(path).replace(/^\/+/, '');
-  const url = new URL(cleanPath, API_BASE);
+  const url = new URL(cleanPath, window.location.origin + API_BASE); // ensure absolute against current origin
   Object.entries(params).forEach(([k, v]) => {
     if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
   });
@@ -115,12 +116,12 @@ export const AuthProvider = ({ children }) => {
     console.error(`${operation} error:`, error);
 
     const msg = String(error?.message || '');
-    // Browser CORS/network hints
-    if (msg.includes('NetworkError') || msg.includes('fetch')) {
+    // Browser/network hints
+    if (msg.includes('NetworkError') || msg.includes('fetch') || msg.includes('Failed to fetch')) {
       return {
         success: false,
         error:
-          'Connection blocked or failed (possibly CORS). Contact your system administrator or check your network.',
+          'Connection blocked or failed (possibly network or upstream). If this persists, contact support.',
         type: 'cors_or_network',
       };
     }
@@ -152,7 +153,6 @@ export const AuthProvider = ({ children }) => {
     setIsLoading(true);
 
     try {
-      // Guard against missing school id
       if (schoolId === undefined || schoolId === null || schoolId === '') {
         setIsLoading(false);
         return {
@@ -170,8 +170,7 @@ export const AuthProvider = ({ children }) => {
 
       const response = await fetch(url, {
         method: 'GET',
-        // IMPORTANT: no 'Content-Type' on GET => avoid preflight
-        headers: { Accept: 'application/json' },
+        headers: { Accept: 'application/json' }, // no 'Content-Type' on GET
       });
 
       const { json, raw } = await parseMaybeJson(response);
@@ -190,7 +189,6 @@ export const AuthProvider = ({ children }) => {
       if (data.success && data.user) {
         const apiRole = mapRole(data.user.role);
 
-        // Block login if role not supported (e.g., ST)
         if (!apiRole) {
           setIsLoading(false);
           return {
@@ -211,24 +209,19 @@ export const AuthProvider = ({ children }) => {
 
         const finalRole = selectedUserType || apiRole;
 
-        // Prefer schoolId from API if present; otherwise use the one the user picked
+        // Prefer schoolId from API if present; otherwise the one the user picked
         const resolvedSchoolId =
           data.user.schoolId ??
           data.user.school_id ??
           (Number.isNaN(Number(schoolId)) ? schoolId : Number(schoolId));
 
-        // NEW: plan/currency/school from API
+        // plan/currency/school from API (if provided)
         const schoolObj = data.school || {};
         const planFromApi = Number(
-          schoolObj.package ??
-          data.user.package ??
-          data.user.plan ??
-          NaN
+          schoolObj.package ?? data.user.package ?? data.user.plan ?? NaN
         );
         const currencyFromApi =
-          schoolObj.currency ||
-          data.user.currency ||
-          'GHS';
+          schoolObj.currency || data.user.currency || 'GHS';
 
         const userData = {
           id: data.user.id,
@@ -240,22 +233,23 @@ export const AuthProvider = ({ children }) => {
           originalRole: data.user.role,
           schoolId: resolvedSchoolId,
 
-          // NEW: expose plan/currency/school
-          plan: planFromApi,           // 1=Basic, 2=Standard, 3=Premium
-          package: planFromApi,        // alias for convenience
-          currency: currencyFromApi,   // e.g. "GHS"
-          school: Object.keys(schoolObj).length ? {
-            id: schoolObj.id,
-            name: schoolObj.name,
-            address: schoolObj.address,
-            phone: schoolObj.phone,
-            email: schoolObj.email,
-            status: schoolObj.status,
-            expiry: schoolObj.expiry,
-            createdAt: schoolObj.createdAt,
-            package: schoolObj.package,
-            currency: schoolObj.currency,
-          } : undefined,
+          plan: planFromApi,
+          package: planFromApi,
+          currency: currencyFromApi,
+          school: Object.keys(schoolObj).length
+            ? {
+                id: schoolObj.id,
+                name: schoolObj.name,
+                address: schoolObj.address,
+                phone: schoolObj.phone,
+                email: schoolObj.email,
+                status: schoolObj.status,
+                expiry: schoolObj.expiry,
+                createdAt: schoolObj.createdAt,
+                package: schoolObj.package,
+                currency: schoolObj.currency,
+              }
+            : undefined,
 
           avatar: getAvatar(finalRole),
           isRoleMismatch: !!selectedUserType && selectedUserType !== apiRole,
@@ -294,30 +288,27 @@ export const AuthProvider = ({ children }) => {
   /**
    * apiCall(endpoint, { method, headers, body, params, skipAuth })
    * - Uses safe builder to avoid //
-   * - Avoids Content-Type on GET/HEAD (reduces CORS preflights)
-   * - If skipAuth=true, omits Authorization header (for public endpoints)
+   * - Avoids Content-Type on GET/HEAD (reduces preflights)
+   * - If skipAuth=true, omits Authorization header
    */
   const apiCall = async (endpoint, options = {}) => {
     const { skipAuth = false, params, ...rest } = options || {};
     const url = buildApiUrl(endpoint, params);
 
-    // Build headers
     const baseHeaders = { Accept: 'application/json' };
     const finalHeaders = { ...baseHeaders, ...(rest.headers || {}) };
 
-    // Add Authorization only if not skipped and we have a token
     if (!skipAuth && token) {
       finalHeaders.Authorization = `Bearer ${token}`;
     }
 
-    // Only set Content-Type if we actually send a JSON body
     const hasBody = rest.body !== undefined && rest.body !== null;
     const method = (rest.method || 'GET').toUpperCase();
 
     if (hasBody && method !== 'GET' && method !== 'HEAD') {
-      finalHeaders['Content-Type'] = finalHeaders['Content-Type'] || 'application/json';
+      finalHeaders['Content-Type'] =
+        finalHeaders['Content-Type'] || 'application/json';
     } else {
-      // Ensure we don't set JSON Content-Type on GET/HEAD
       if (finalHeaders['Content-Type'] === 'application/json') {
         delete finalHeaders['Content-Type'];
       }
@@ -357,7 +348,7 @@ export const AuthProvider = ({ children }) => {
     isLoading,
     apiCall,
     API_BASE,
-    buildApiUrl, // expose for other modules (so everyone joins paths the same way)
+    buildApiUrl,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

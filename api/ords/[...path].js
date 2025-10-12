@@ -1,5 +1,5 @@
 // api/ords/[...path].js
-// Vercel serverless proxy → Oracle ORDS, with CORS headers added.
+// Vercel serverless proxy → Oracle ORDS, with CORS headers added (CommonJS).
 
 const ORDS_BASE =
   process.env.ORDS_BASE ||
@@ -7,8 +7,7 @@ const ORDS_BASE =
 
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*'; // e.g. "https://app.schoolmasterhub.net"
 
-export default async function handler(req, res) {
-  // Preflight
+async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     setCors(res);
     res.status(204).end();
@@ -32,13 +31,12 @@ export default async function handler(req, res) {
     let body;
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       const ct = String(req.headers['content-type'] || '').toLowerCase();
-
       if (ct.includes('application/json') && req.body && typeof req.body === 'object') {
         body = JSON.stringify(req.body);
       } else if (typeof req.body === 'string' || Buffer.isBuffer(req.body)) {
-        body = req.body; // already a string/buffer
+        body = req.body;
       } else {
-        body = undefined; // add multipart/form-data handling here if you need it later
+        body = undefined; // add multipart support later if needed
       }
     }
 
@@ -50,7 +48,6 @@ export default async function handler(req, res) {
     setCors(res);
     res.setHeader('Content-Type', contentType);
     if (req.method === 'GET') {
-      // Optional CDN cache
       res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=120');
     }
     res.status(resp.status).send(buf);
@@ -70,7 +67,5 @@ function setCors(res) {
   res.setHeader('Access-Control-Max-Age', '86400');
 }
 
-// ✅ Correct runtime key for Vercel
-export const config = {
-  runtime: 'nodejs',
-};
+module.exports = handler;
+module.exports.config = { runtime: 'nodejs' };

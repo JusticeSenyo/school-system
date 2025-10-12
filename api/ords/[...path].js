@@ -1,18 +1,13 @@
-// api/ords/[...path].js
-// Catch-all proxy to Oracle ORDS with CORS headers (ESM version)
-
+// api/ords/[...path].js  (ESM)
 export const config = { runtime: 'nodejs' };
 
 const RAW_ORDS_BASE =
   process.env.ORDS_BASE ||
   'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords';
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
-
-// normalize base (no trailing slash)
 const ORDS_BASE = RAW_ORDS_BASE.replace(/\/+$/, '');
 
 export default async function handler(req, res) {
-  // CORS preflight
   if (req.method === 'OPTIONS') {
     setCors(res);
     res.status(204).end();
@@ -21,7 +16,6 @@ export default async function handler(req, res) {
 
   const segsIn = Array.isArray(req.query.path) ? req.query.path : [];
 
-  // Health
   if (segsIn[0] === 'health') {
     setCors(res);
     res.setHeader('Content-Type', 'application/json');
@@ -29,10 +23,8 @@ export default async function handler(req, res) {
     return;
   }
 
-  // Echo (debug)
   if (segsIn[0] === 'echo') {
-    const segs = segsIn.slice(1);
-    const targetUrl = buildTargetUrl(segs, req.url);
+    const targetUrl = buildTargetUrl(segsIn.slice(1), req.url);
     setCors(res);
     res.setHeader('Content-Type', 'application/json');
     res.status(200).send(JSON.stringify({ ok: true, targetUrl }));
@@ -41,7 +33,6 @@ export default async function handler(req, res) {
 
   try {
     const targetUrl = buildTargetUrl(segsIn.slice(), req.url);
-
     const headers = new Headers();
     for (const [k, v] of Object.entries(req.headers || {})) {
       const kl = k.toLowerCase();
@@ -74,13 +65,6 @@ export default async function handler(req, res) {
 }
 
 function buildTargetUrl(segs, reqUrl) {
-  // If ORDS_BASE already ends with /ords/complete, don’t add another "complete"
-  const baseHasComplete = /\/ords\/complete$/i.test(ORDS_BASE);
-  if (!baseHasComplete && segs[0]?.toLowerCase() !== 'complete') {
-    // inject 'complete' as the 1st segment by default (matches your other endpoints)
-    segs = ['complete', ...segs];
-  }
-
   const qs = reqUrl.includes('?') ? `?${reqUrl.split('?')[1]}` : '';
   return `${ORDS_BASE}/${segs.join('/')}${qs}`.replace(/([^:]\/)\/+/g, '$1');
 }

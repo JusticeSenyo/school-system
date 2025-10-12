@@ -5,8 +5,7 @@ const ORDS_BASE =
   process.env.ORDS_BASE ||
   'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords';
 
-const ALLOWED_ORIGIN =
-  process.env.ALLOWED_ORIGIN || '*'; // e.g. "https://app.schoolmasterhub.net"
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*'; // e.g. "https://app.schoolmasterhub.net"
 
 export default async function handler(req, res) {
   // Preflight
@@ -22,37 +21,36 @@ export default async function handler(req, res) {
     const qs = qsIndex >= 0 ? req.url.slice(qsIndex) : '';
     const targetUrl = `${ORDS_BASE}/${segs.join('/')}${qs}`;
 
-    // Forward a minimal, safe header set
+    // Minimal safe header forward
     const headers = new Headers();
     const pass = ['authorization', 'content-type', 'accept'];
     for (const [k, v] of Object.entries(req.headers || {})) {
       if (pass.includes(k.toLowerCase())) headers.set(k, v);
     }
 
-    // Build the body
+    // Build body for non-GET/HEAD
     let body;
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       const ct = String(req.headers['content-type'] || '').toLowerCase();
+
       if (ct.includes('application/json') && req.body && typeof req.body === 'object') {
         body = JSON.stringify(req.body);
       } else if (typeof req.body === 'string' || Buffer.isBuffer(req.body)) {
-        body = req.body;
+        body = req.body; // already a string/buffer
       } else {
-        // If you need to support form-data, add a parser and forward here.
-        body = undefined;
+        body = undefined; // add multipart/form-data handling here if you need it later
       }
     }
 
     const resp = await fetch(targetUrl, { method: req.method, headers, body });
 
-    // Copy status and content-type
     const contentType = resp.headers.get('content-type') || 'application/octet-stream';
     const buf = Buffer.from(await resp.arrayBuffer());
 
     setCors(res);
     res.setHeader('Content-Type', contentType);
-    // (Optional) CDN cache for GETs:
     if (req.method === 'GET') {
+      // Optional CDN cache
       res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=120');
     }
     res.status(resp.status).send(buf);
@@ -72,4 +70,7 @@ function setCors(res) {
   res.setHeader('Access-Control-Max-Age', '86400');
 }
 
-export const config = { runtime: 'nodejs18.x' };
+// ✅ Correct runtime key for Vercel
+export const config = {
+  runtime: 'nodejs',
+};

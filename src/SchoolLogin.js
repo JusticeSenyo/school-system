@@ -1,46 +1,22 @@
-// src/pages/SchoolLogin.js
+// src/SchoolLogin.jsx
 import { useState, useEffect, useMemo } from "react";
-import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Eye, EyeOff, Mail, Lock, GraduationCap,
   Users, BookOpen, Shield, Loader2, AlertCircle, Sun, Moon, Search
 } from "lucide-react";
-import { useAuth } from "./AuthContext";
-import { useTheme } from "./contexts/ThemeContext";
+import { useAuth } from './AuthContext';
+import { useTheme } from './contexts/ThemeContext';
 
 // === Config =========================================================
 const LOCK_ONLY_WHEN_PRESELECTED = true; // if true, field is read-only only when preselected
 const RESTORE_LAST_SCHOOL = false;       // restore last chosen school from localStorage?
+const AFTER_LOGIN_ROUTE = "/";           // change to "/dashboard" if you prefer
 // ===================================================================
 
-// Use an ABSOLUTE path so it works from any route.
-// Your serverless proxy should point ORDS_BASE to .../ords/complete
-const SCHOOLS_LIST_ENDPOINT = "/api/ords/schools/academic/get/school/";
-
-/** Small helper: fetch JSON defensively (logs HTML bodies instead of crashing) */
-async function fetchJsonOrLog(url, init) {
-  const res = await fetch(url, init);
-  const ct = (res.headers.get("content-type") || "").toLowerCase();
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.error("Schools endpoint HTTP error:", res.status, res.statusText, body.slice(0, 500));
-    const err = new Error(`HTTP ${res.status}`);
-    err.status = res.status;
-    err.body = body;
-    throw err;
-  }
-
-  if (!ct.includes("application/json")) {
-    const body = await res.text().catch(() => "");
-    console.error("Expected JSON but got:", ct || "unknown", body.slice(0, 500));
-    const err = new Error("Non-JSON response");
-    err.body = body;
-    throw err;
-  }
-
-  return res.json();
-}
+// ORDS endpoint (returns [{ school_name, school_id, created_at }, ...])
+const SCHOOLS_LIST_ENDPOINT =
+  "https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/academic/get/school/";
 
 export default function SchoolLogin() {
   const [showPassword, setShowPassword] = useState(false);
@@ -63,7 +39,6 @@ export default function SchoolLogin() {
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const location = useLocation();
 
   // Read p_school_id from URL if present
   useEffect(() => {
@@ -71,27 +46,17 @@ export default function SchoolLogin() {
     if (sidFromUrl) setSchoolId(String(sidFromUrl));
   }, [searchParams]);
 
-  // Load schools (defensive: handles HTML error pages gracefully)
+  // Load schools
   useEffect(() => {
-    const ac = new AbortController();
-
     const loadSchools = async () => {
       try {
         setIsLoadingSchools(true);
-        const arr = await fetchJsonOrLog(SCHOOLS_LIST_ENDPOINT, {
-          method: "GET",
-          headers: { Accept: "application/json" },
-          signal: ac.signal,
-        });
-
+        const res = await fetch(SCHOOLS_LIST_ENDPOINT, { method: "GET", headers: { Accept: "application/json" } });
+        const arr = await res.json();
         const mapped = (Array.isArray(arr) ? arr : [])
-          .map(r => ({
-            id: r.school_id ?? r.SCHOOL_ID ?? r.id,
-            name: r.school_name ?? r.SCHOOL_NAME ?? r.name
-          }))
+          .map(r => ({ id: r.school_id, name: r.school_name }))
           .filter(x => x.id != null && x.name)
-          .sort((a, b) => String(a.name).localeCompare(String(b.name)));
-
+          .sort((a, b) => a.name.localeCompare(b.name));
         setSchools(mapped);
 
         // Optionally restore last selection (only if URL didn’t set it)
@@ -101,21 +66,16 @@ export default function SchoolLogin() {
             if (saved && mapped.some(s => String(s.id) === String(saved))) {
               setSchoolId(saved);
             }
-          } catch { /* ignore */ }
+          } catch {}
         }
       } catch (e) {
-        if (e.name === "AbortError") return;
         console.error("Failed to load schools:", e);
         setSchools([]);
-        // Show a user-friendly message while preserving console details
-        setError("Failed to load schools. Please try again shortly.");
       } finally {
         setIsLoadingSchools(false);
       }
     };
-
     loadSchools();
-    return () => ac.abort();
   }, [searchParams]);
 
   // Resolve a nice display name for read-only view
@@ -131,7 +91,7 @@ export default function SchoolLogin() {
   const filteredSchools = useMemo(() => {
     const q = (lovQuery || "").toLowerCase();
     if (!q) return schools;
-    return schools.filter(s => String(s.name).toLowerCase().includes(q));
+    return schools.filter(s => s.name.toLowerCase().includes(q));
   }, [schools, lovQuery]);
 
   // The field is read-only only when we already have a school preselected
@@ -145,38 +105,34 @@ export default function SchoolLogin() {
     return !!sid && emailOk && p.length > 0 && !isLoading;
   }, [email, password, schoolId, isLoading]);
 
-  // compute the post-login target from where user came
-  const fromPath =
-    (location.state?.from?.pathname || "") + (location.state?.from?.search || "");
-
-  const onSubmit = async (e) => {
-    e?.preventDefault?.(); // stop full page reload
+  const handleSubmit = async () => {
     setError("");
 
-    const eMail = email.trim();
+    const e = email.trim();
     const p = password.trim();
     const sid = String(schoolId || "").trim();
 
     if (!sid) return setError("Please select your school.");
-    if (!eMail || !p) return setError("Please fill in all fields.");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(eMail)) return setError("Please enter a valid email address.");
+    if (!e || !p) return setError("Please fill in all fields.");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return setError("Please enter a valid email address.");
 
     try {
       // Save last selection only if present
-      try { if (sid) localStorage.setItem("last_school_id", sid); } catch { /* ignore */ }
+      try { if (sid) localStorage.setItem("last_school_id", sid); } catch {}
 
-      const result = await login(eMail, p, userType, isDemoMode, Number(sid));
+      const result = await login(e, p, userType, isDemoMode, Number(sid));
       if (!result?.success) {
         setError(result?.error || "Login failed. Please check your credentials.");
       } else {
-        // Go back to the original protected route if present, else dashboard
-        navigate(fromPath || "/dashboard", { replace: true });
+        navigate(AFTER_LOGIN_ROUTE, { replace: true });
       }
     } catch (err) {
       console.error("Login error:", err);
       setError("An unexpected error occurred. Please try again.");
     }
   };
+
+  const handleKeyPress = (e) => { if (e.key === "Enter" && canSubmit) handleSubmit(); };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex relative text-gray-900 dark:text-gray-100">
@@ -185,7 +141,6 @@ export default function SchoolLogin() {
         onClick={toggleTheme}
         className="absolute top-4 right-4 z-50 p-2 rounded-full shadow bg-white dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100"
         title="Toggle Theme"
-        type="button"
       >
         {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
       </button>
@@ -198,33 +153,25 @@ export default function SchoolLogin() {
             <h1 className="text-3xl font-bold">SchoolMaster Hub</h1>
           </div>
           <h2 className="text-4xl font-bold mb-6 leading-tight">Empowering Education Through Technology</h2>
-          <p className="text-xl text-blue-100 mb-12">
-            Streamline your school management with our comprehensive platform designed for modern educational institutions.
-          </p>
+          <p className="text-xl text-blue-100 mb-12">Streamline your school management with our comprehensive platform designed for modern educational institutions.</p>
         </div>
         <div className="grid grid-cols-1 gap-6">
-          {[
-            { Icon: Users, title: "Student Management", desc: "Comprehensive student profiles and tracking" },
-            { Icon: BookOpen, title: "Academic Planning", desc: "Curriculum management and lesson planning" },
-            { Icon: Shield, title: "Secure & Reliable", desc: "Enterprise-grade security for student data" }
-          ].map(({ Icon, title, desc }, idx) => (
-            <div className="flex items-center space-x-4" key={idx}>
-              <div className="flex-shrink-0 w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
-                <Icon className="h-6 w-6" />
+          {[{Icon: Users, title: "Student Management", desc: "Comprehensive student profiles and tracking"},
+            {Icon: BookOpen, title: "Academic Planning", desc: "Curriculum management and lesson planning"},
+            {Icon: Shield, title: "Secure & Reliable", desc: "Enterprise-grade security for student data"}]
+            .map(({ Icon, title, desc }, idx) => (
+              <div className="flex items-center space-x-4" key={idx}>
+                <div className="flex-shrink-0 w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
+                  <Icon className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="font-semibold">{title}</h3>
+                  <p className="text-blue-100 text-sm">{desc}</p>
+                </div>
               </div>
-              <div>
-                <h3 className="font-semibold">{title}</h3>
-                <p className="text-blue-100 text-sm">{desc}</p>
-              </div>
-            </div>
-          ))}
+            ))}
         </div>
-        <div className="text-sm text-blue-200">
-          © 2025 SchoolMaster Hub. All rights reserved. Powered by{" "}
-          <a href="https://www.johrit.tech" target="_blank" rel="noopener noreferrer" className="underline">
-            Johrit Technology
-          </a>
-        </div>
+        <div className="text-sm text-blue-200">© 2025 SchoolMaster Hub. All rights reserved.</div>
       </div>
 
       {/* Right Panel - Login Form */}
@@ -237,12 +184,7 @@ export default function SchoolLogin() {
             </div>
           </div>
 
-          {/* Form */}
-          <form
-            className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8 border border-gray-100 dark:border-gray-700"
-            onSubmit={onSubmit}
-            noValidate
-          >
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8 border border-gray-100 dark:border-gray-700">
             <div className="text-center mb-8">
               <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Welcome Back</h2>
               <p className="text-gray-600 dark:text-gray-400">Sign in to access your dashboard</p>
@@ -262,7 +204,6 @@ export default function SchoolLogin() {
                         ? 'bg-indigo-600 text-white border-indigo-600'
                         : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-100 border-gray-300 dark:border-gray-500 hover:bg-gray-100 dark:hover:bg-gray-600'
                     }`}
-                    aria-pressed={userType === type}
                   >
                     {type === 'headteacher' ? 'HeadTeacher' : type.charAt(0).toUpperCase() + type.slice(1)}
                   </button>
@@ -336,6 +277,7 @@ export default function SchoolLogin() {
                   type="email"
                   value={email}
                   onChange={(e) => { setEmail(e.target.value); if (error) setError(""); }}
+                  onKeyPress={handleKeyPress}
                   disabled={isLoading}
                   className="pl-10 pr-4 py-2 w-full border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   placeholder="you@example.com"
@@ -353,6 +295,7 @@ export default function SchoolLogin() {
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => { setPassword(e.target.value); if (error) setError(""); }}
+                  onKeyPress={handleKeyPress}
                   disabled={isLoading}
                   className="pl-10 pr-12 py-2 w-full border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   placeholder="••••••••"
@@ -363,7 +306,6 @@ export default function SchoolLogin() {
                   onClick={() => setShowPassword(!showPassword)}
                   disabled={isLoading}
                   className="absolute right-3 top-2.5 text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-white"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
                 >
                   {showPassword ? <EyeOff /> : <Eye />}
                 </button>
@@ -372,7 +314,7 @@ export default function SchoolLogin() {
 
             {/* Submit */}
             <button
-              type="submit"
+              onClick={handleSubmit}
               disabled={!canSubmit}
               className={`w-full py-2 rounded-lg font-semibold transition text-white ${canSubmit ? "bg-indigo-600 hover:bg-indigo-700" : "bg-indigo-400 cursor-not-allowed"}`}
             >
@@ -397,14 +339,13 @@ export default function SchoolLogin() {
             <div className="mt-6 text-center">
               <p className="text-sm text-gray-600 dark:text-gray-400">Don't have an account?</p>
               <button
-                type="button"
-                onClick={() => (window.location.href = "https://www.schoolmasterhub.net/#pricing")}
+                onClick={() => window.location.href = 'https://www.schoolmasterhub.net/#pricing'}
                 className="mt-2 inline-block text-indigo-600 dark:text-indigo-400 hover:underline font-semibold text-sm"
               >
                 Sign Up for Free Trial
               </button>
             </div>
-          </form>
+          </div>
         </div>
       </div>
     </div>

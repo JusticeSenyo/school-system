@@ -1,36 +1,60 @@
+// src/AuthContext.js
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext();
 
 export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within an AuthProvider');
+  return ctx;
 };
 
-// ---- Safe API base & joiner (prevents double slashes) ----
-const API_BASE_RAW =
-  'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/';
-// Ensure exactly one trailing slash
-const API_BASE = API_BASE_RAW.replace(/\/+$/, '') + '/';
+/* ========= API base (env-driven) =========
+ * Local dev (CRA proxy):   REACT_APP_API_BASE=/api/ords/schools/
+ * Vercel / prod:           REACT_APP_API_BASE=https://<your-host>/ords/schools/
+ */
+const RAW_ENV_BASE = process.env.REACT_APP_API_BASE || '/api/ords/schools/';
+// normalize to exactly one trailing slash
+const API_BASE = RAW_ENV_BASE.replace(/\/+$/, '') + '/';
 
+/** Join base + path without double slashes */
+const joinPath = (base, path = '') => {
+  const b = String(base || '');
+  const p = String(path || '');
+  if (!b) return p;
+  if (!p) return b;
+  return b.replace(/\/+$/, '') + '/' + p.replace(/^\/+/, '');
+};
+
+/** Build URL that supports both absolute and relative API_BASE */
 const buildApiUrl = (path = '', params = {}) => {
-  // strip any leading slashes from path
-  const cleanPath = String(path).replace(/^\/+/, '');
-  const url = new URL(cleanPath, API_BASE);
-  Object.entries(params).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
+  const cleanPath = String(path || '').replace(/^\/+/, '');
+  const base = API_BASE;
+
+  // Absolute base -> use URL()
+  if (/^https?:\/\//i.test(base)) {
+    const url = new URL(joinPath(base, cleanPath));
+    Object.entries(params || {}).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
+    });
+    return url.toString();
+  }
+
+  // Relative base -> manual query building (keeps /api/... intact)
+  const urlStr = joinPath(base, cleanPath);
+  const usp = new URLSearchParams();
+  Object.entries(params || {}).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') usp.set(k, String(v));
   });
-  return url.toString();
+  const qs = usp.toString();
+  return qs ? `${urlStr}?${qs}` : urlStr;
 };
 
-// ---- Error helpers (nicer Oracle/ORDS messages) ----
+/* ===== Friendlier Oracle/ORDS error mapping ===== */
 const mapOracleError = (text = '') => {
   const t = String(text);
   if (/ORDS-25001/i.test(t)) return 'Server error in REST handler (ORDS-25001). Check required parameters / SQL/PLSQL.';
-  if (/ORA-00001/i.test(t)) return 'Unique constraint: the value already exists (e.g., email).';
+  if (/ORA-00001/i.test(t)) return 'Unique constraint: the value already exists.';
   if (/ORA-01400/i.test(t)) return 'A required value was missing (NULL into NOT NULL).';
   if (/ORA-12899/i.test(t)) return 'Value too long for column (exceeds size).';
   if (/ORA-06502|numeric or value error/i.test(t)) return 'Numeric or value error (type/length).';
@@ -54,124 +78,65 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [token, setToken] = useState(() => {
-    try {
-      return localStorage?.getItem('token') || null;
-    } catch {
-      return null;
-    }
+    try { return localStorage.getItem('token') || null; } catch { return null; }
   });
 
-  // Only allow app-supported roles (excluding student)
-  const mapRole = (apiRole) => {
-    const roleMap = {
-      TE: 'teacher',
-      AD: 'admin',
-      AC: 'accountant',
-      HT: 'headteacher',
-      SO: 'owner',
-    };
-    return roleMap[apiRole] || null;
-  };
+  const mapRole = (apiRole) => ({
+    TE: 'teacher',
+    AD: 'admin',
+    AC: 'accountant',
+    HT: 'headteacher',
+    SO: 'owner',
+  }[apiRole] || null);
 
-  const saveToStorage = (key, value) => {
-    try {
-      localStorage?.setItem(key, value);
-    } catch (error) {
-      console.warn('localStorage not available:', error);
-    }
-  };
-
-  const getFromStorage = (key) => {
-    try {
-      return localStorage?.getItem(key);
-    } catch {
-      return null;
-    }
-  };
-
-  const removeFromStorage = (key) => {
-    try {
-      localStorage?.removeItem(key);
-    } catch (error) {
-      console.warn('localStorage not available:', error);
-    }
-  };
+  const save = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+  const read = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+  const del  = (k) => { try { localStorage.removeItem(k); } catch {} };
 
   useEffect(() => {
-    const savedUser = getFromStorage('user');
+    const savedUser = read('user');
     if (token && savedUser) {
-      try {
-        const userData = JSON.parse(savedUser);
-        setUser(userData);
-      } catch (error) {
-        console.error('Error parsing saved user data:', error);
-        removeFromStorage('user');
-        removeFromStorage('token');
-      }
+      try { setUser(JSON.parse(savedUser)); }
+      catch { del('user'); del('token'); }
     }
   }, [token]);
 
   const handleApiError = (error, operation = 'API call') => {
     console.error(`${operation} error:`, error);
-
     const msg = String(error?.message || '');
+
     // Browser CORS/network hints
     if (msg.includes('NetworkError') || msg.includes('fetch')) {
       return {
         success: false,
-        error:
-          'Connection blocked or failed (possibly CORS). Contact your system administrator or check your network.',
+        error: 'Connection blocked or failed (possibly CORS). Check your proxy/env setup.',
         type: 'cors_or_network',
       };
     }
-
     const mapped = mapOracleError(msg);
-    if (mapped) {
-      return { success: false, error: mapped, type: 'db' };
-    }
-
-    return {
-      success: false,
-      error: msg || 'An unexpected error occurred.',
-      type: 'unknown',
-    };
+    if (mapped) return { success: false, error: mapped, type: 'db' };
+    return { success: false, error: msg || 'An unexpected error occurred.', type: 'unknown' };
   };
 
-  // ---- Login (GET; avoid Content-Type header to prevent preflight) ----
-  /**
-   * login(email, password, selectedUserType, isDemoMode, schoolId)
-   * ORDS endpoint: staff/login/staff/ expects :email, :password, :p_school_id
-   */
-  const login = async (
-    email,
-    password,
-    selectedUserType = null,
-    isDemoMode = false,
-    schoolId // <-- required as p_school_id
-  ) => {
+  // ===== Login via GET (no Content-Type => avoids preflight) =====
+  // schoolId is OPTIONAL; backend may return school info regardless.
+  const login = async (email, password, selectedUserType = null, isDemoMode = false, schoolId) => {
     setIsLoading(true);
-
     try {
-      // Guard against missing school id
-      if (schoolId === undefined || schoolId === null || schoolId === '') {
-        setIsLoading(false);
-        return {
-          success: false,
-          error: 'Please select your school before logging in.',
-          type: 'validation',
-        };
-      }
-
-      const url = buildApiUrl('staff/login/staff/', {
+      // Build params; only include p_school_id if provided
+      const params = {
         email: String(email || ''),
         password: String(password || ''),
-        p_school_id: String(schoolId),
-      });
+      };
+      if (schoolId !== undefined && schoolId !== null && String(schoolId) !== '') {
+        params.p_school_id = String(schoolId);
+      }
+
+      const url = buildApiUrl('staff/login/staff/', params);
 
       const response = await fetch(url, {
         method: 'GET',
-        // IMPORTANT: no 'Content-Type' on GET => avoid preflight
-        headers: { Accept: 'application/json' },
+        headers: { Accept: 'application/json' }, // no Content-Type on GET
       });
 
       const { json, raw } = await parseMaybeJson(response);
@@ -180,55 +145,35 @@ export const AuthProvider = ({ children }) => {
       if (!response.ok) {
         const mapped = mapOracleError(JSON.stringify(data) || raw);
         setIsLoading(false);
-        return {
-          success: false,
-          error: mapped || data?.message || `Login failed (HTTP ${response.status})`,
-          type: 'auth_failed',
-        };
+        return { success: false, error: mapped || data?.message || `Login failed (HTTP ${response.status})`, type: 'auth_failed' };
       }
 
       if (data.success && data.user) {
         const apiRole = mapRole(data.user.role);
-
-        // Block login if role not supported (e.g., ST)
         if (!apiRole) {
           setIsLoading(false);
-          return {
-            success: false,
-            error: 'This login type is not supported in this system.',
-            type: 'role_unsupported',
-          };
+          return { success: false, error: 'This login type is not supported in this system.', type: 'role_unsupported' };
         }
 
         if (selectedUserType && selectedUserType !== apiRole && !isDemoMode) {
           setIsLoading(false);
-          return {
-            success: false,
-            error: `Invalid login! Your account is registered as ${apiRole}, but you selected ${selectedUserType}.`,
-            type: 'role_mismatch',
-          };
+          return { success: false, error: `Invalid login! Your account is registered as ${apiRole}, but you selected ${selectedUserType}.`, type: 'role_mismatch' };
         }
 
         const finalRole = selectedUserType || apiRole;
 
-        // Prefer schoolId from API if present; otherwise use the one the user picked
+        // Prefer school id from API; fallback to provided schoolId only if API doesn’t include it
         const resolvedSchoolId =
-          data.user.schoolId ??
-          data.user.school_id ??
-          (Number.isNaN(Number(schoolId)) ? schoolId : Number(schoolId));
+          data?.user?.schoolId ??
+          data?.user?.school_id ??
+          data?.school?.id ??
+          (schoolId !== undefined && schoolId !== null ? (Number.isNaN(Number(schoolId)) ? schoolId : Number(schoolId)) : null);
 
-        // NEW: plan/currency/school from API
         const schoolObj = data.school || {};
         const planFromApi = Number(
-          schoolObj.package ??
-          data.user.package ??
-          data.user.plan ??
-          NaN
+          schoolObj.package ?? data.user.package ?? data.user.plan ?? NaN
         );
-        const currencyFromApi =
-          schoolObj.currency ||
-          data.user.currency ||
-          'GHS';
+        const currencyFromApi = schoolObj.currency || data.user.currency || 'GHS';
 
         const userData = {
           id: data.user.id,
@@ -239,11 +184,9 @@ export const AuthProvider = ({ children }) => {
           apiRole,
           originalRole: data.user.role,
           schoolId: resolvedSchoolId,
-
-          // NEW: expose plan/currency/school
-          plan: planFromApi,           // 1=Basic, 2=Standard, 3=Premium
-          package: planFromApi,        // alias for convenience
-          currency: currencyFromApi,   // e.g. "GHS"
+          plan: planFromApi,
+          package: planFromApi,
+          currency: currencyFromApi,
           school: Object.keys(schoolObj).length ? {
             id: schoolObj.id,
             name: schoolObj.name,
@@ -256,7 +199,6 @@ export const AuthProvider = ({ children }) => {
             package: schoolObj.package,
             currency: schoolObj.currency,
           } : undefined,
-
           avatar: getAvatar(finalRole),
           isRoleMismatch: !!selectedUserType && selectedUserType !== apiRole,
           isDemoMode,
@@ -265,18 +207,14 @@ export const AuthProvider = ({ children }) => {
 
         setUser(userData);
         setToken(data.token);
-        saveToStorage('user', JSON.stringify(userData));
-        saveToStorage('token', data.token);
+        save('user', JSON.stringify(userData));
+        save('token', data.token);
 
         setIsLoading(false);
         return { success: true, user: userData };
       } else {
         setIsLoading(false);
-        return {
-          success: false,
-          error: data?.message || 'Invalid credentials',
-          type: 'auth_failed',
-        };
+        return { success: false, error: data?.message || 'Invalid credentials', type: 'auth_failed' };
       }
     } catch (error) {
       setIsLoading(false);
@@ -287,37 +225,32 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     setUser(null);
     setToken(null);
-    removeFromStorage('user');
-    removeFromStorage('token');
+    del('user');
+    del('token');
   };
 
   /**
    * apiCall(endpoint, { method, headers, body, params, skipAuth })
-   * - Uses safe builder to avoid //
+   * - Works for both absolute and relative API_BASE
    * - Avoids Content-Type on GET/HEAD (reduces CORS preflights)
-   * - If skipAuth=true, omits Authorization header (for public endpoints)
    */
   const apiCall = async (endpoint, options = {}) => {
     const { skipAuth = false, params, ...rest } = options || {};
     const url = buildApiUrl(endpoint, params);
 
-    // Build headers
     const baseHeaders = { Accept: 'application/json' };
     const finalHeaders = { ...baseHeaders, ...(rest.headers || {}) };
 
-    // Add Authorization only if not skipped and we have a token
     if (!skipAuth && token) {
       finalHeaders.Authorization = `Bearer ${token}`;
     }
 
-    // Only set Content-Type if we actually send a JSON body
     const hasBody = rest.body !== undefined && rest.body !== null;
     const method = (rest.method || 'GET').toUpperCase();
 
     if (hasBody && method !== 'GET' && method !== 'HEAD') {
       finalHeaders['Content-Type'] = finalHeaders['Content-Type'] || 'application/json';
     } else {
-      // Ensure we don't set JSON Content-Type on GET/HEAD
       if (finalHeaders['Content-Type'] === 'application/json') {
         delete finalHeaders['Content-Type'];
       }
@@ -334,10 +267,7 @@ export const AuthProvider = ({ children }) => {
       const { json, raw } = await parseMaybeJson(response);
       if (!response.ok) {
         const mapped = mapOracleError(JSON.stringify(json) || raw);
-        return {
-          success: false,
-          error: mapped || json?.message || `Request failed (HTTP ${response.status})`,
-        };
+        return { success: false, error: mapped || json?.message || `Request failed (HTTP ${response.status})` };
       }
 
       return json ?? { success: true };
@@ -357,13 +287,13 @@ export const AuthProvider = ({ children }) => {
     isLoading,
     apiCall,
     API_BASE,
-    buildApiUrl, // expose for other modules (so everyone joins paths the same way)
+    buildApiUrl,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-// ---- Permissions / Avatars ----
+/* ===== Permissions / Avatars ===== */
 const getUserPermissions = (apiRole) => {
   const permissions = {
     AD: ['manage_users', 'view_reports', 'system_settings', 'manage_courses', 'view_all_data'],

@@ -1,24 +1,38 @@
 // src/setupProxy.js
-const { createProxyMiddleware } = require('http-proxy-middleware');
+/* eslint-disable @typescript-eslint/no-var-requires */
+const { createProxyMiddleware } = require("http-proxy-middleware");
+
+// Helpful for troubleshooting in the terminal
+const COMMON_OPTS = {
+  changeOrigin: true,
+  secure: true,  // Oracle uses valid certs; if you ever hit TLS issues, set to false
+  logLevel: "debug",
+};
 
 module.exports = function (app) {
-  // 1) Proxy for Oracle APEX/ORDS (external)
+  // Proxy Oracle ORDS through /api/ords -> https://.../ords
   app.use(
-    '/api/ords',
+    "/api/ords",
     createProxyMiddleware({
-      target: 'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com',
-      changeOrigin: true,
-      secure: true,
-      pathRewrite: { '^/api/ords': '/ords' },
+      ...COMMON_OPTS,
+      target: "https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com",
+      pathRewrite: { "^/api/ords": "/ords" },
+      // Optional: ensure Host header is target’s host (some backends care)
+      onProxyReq: (proxyReq) => {
+        proxyReq.setHeader(
+          "Host",
+          "gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com"
+        );
+      },
     })
   );
 
-  // 2) Proxy for your local Express API (send-email, etc.)
+  // (Optional) local API if you have one running at :4000
   app.use(
-    '/api',
+    "/api",
     createProxyMiddleware({
-      target: 'http://localhost:4000',
-      changeOrigin: true,
+      ...COMMON_OPTS,
+      target: "http://localhost:4000",
     })
   );
 };

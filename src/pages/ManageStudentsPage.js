@@ -1469,6 +1469,16 @@ if (planCode === 'PREMIUM' && form.email) {
                         placeholder="student@gmail.com"
                       />
                     </label>
+                    
+                    <label className="grid gap-1">
+                      <span className="text-sm text-gray-700 dark:text-gray-300">Primary Phone</span>
+                      <input
+                        className="border rounded-lg px-3 py-2 bg-white dark:bg-gray-800"
+                        value={form.phone}
+                        onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                        placeholder="e.g. 024..."
+                      />
+                    </label>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <label className="grid gap-1">
@@ -1549,15 +1559,7 @@ if (planCode === 'PREMIUM' && form.email) {
                       </label>
                     </div>
 
-                    <label className="grid gap-1">
-                      <span className="text-sm text-gray-700 dark:text-gray-300">Primary Phone</span>
-                      <input
-                        className="border rounded-lg px-3 py-2 bg-white dark:bg-gray-800"
-                        value={form.phone}
-                        onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                        placeholder="e.g. 024..."
-                      />
-                    </label>
+                    
 
                     {/* Parents & Guardians */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

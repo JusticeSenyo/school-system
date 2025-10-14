@@ -1,8 +1,16 @@
 {
   "rewrites": [
     {
-      "source": "/ords/(.*)",
-      "destination": "https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/$1"
+      "source": "/api/ords/(.*)",
+      "destination": "https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/$1"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/ords/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" }
+      ]
     }
   ]
 }

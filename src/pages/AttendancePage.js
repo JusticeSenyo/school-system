@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 import { RotateCcw, Download, Search as SearchIcon } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { useAuth } from '../AuthContext';
 
 const BASE = 'https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/';
 const buildUrl = (path, params) => {
@@ -15,8 +16,10 @@ const buildUrl = (path, params) => {
 };
 const fmt = (d) => new Date(d).toISOString().slice(0, 10);
 
-const TERMS_API = 'academic/get/terms/'; // ?p_school_id
-const YEARS_API = 'academic/get/years/'; // ?p_school_id
+/** 🔁 Use the SAME endpoints as FeesReportPage (these are the ones that return data) */
+const CLASSES_API = 'academic/get/classes/';        // ?p_school_id
+const YEARS_API   = 'academic/get/academic_year/';  // ?p_school_id
+const TERMS_API   = 'academic/get/term/';           // ?p_school_id
 
 const btnPrimary =
   "flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition bg-emerald-600 text-white hover:bg-emerald-700 active:scale-[.99] " +
@@ -26,17 +29,19 @@ const btnGhost =
   "dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700 dark:hover:bg-gray-700";
 
 const AttendancePage = () => {
-  const SCHOOL_ID = 1; // TODO: replace with user.schoolId from AuthContext
+  const { user } = useAuth() || {};
+  const SCHOOL_ID = user?.schoolId ?? user?.school_id ?? user?.school?.id ?? 1;
+
   const today = fmt(new Date());
 
   const [classes, setClasses] = useState([]);             // [{ class_id, class_name }]
   const [selectedClass, setSelectedClass] = useState(''); // class_id (string)
 
   // Years/Terms: show names, pass IDs
-  const [terms, setTerms] = useState([]);   // [{id,name,status}]
-  const [years, setYears] = useState([]);   // [{id,name,status}]
-  const [selectedTermId, setSelectedTermId] = useState(''); // term_id
-  const [selectedYearId, setSelectedYearId] = useState(''); // academic_year_id
+  const [terms, setTerms] = useState([]);                 // [{id,name,status}]
+  const [years, setYears] = useState([]);                 // [{id,name,status}]
+  const [selectedTermId, setSelectedTermId] = useState('');   // term_id
+  const [selectedYearId, setSelectedYearId] = useState('');   // academic_year_id
 
   const [selectedDate, setSelectedDate] = useState(today);
   const [reports, setReports] = useState([]);
@@ -56,11 +61,11 @@ const AttendancePage = () => {
     }
   };
 
-  // Load classes
+  // Load classes (aligns with FeesReportPage)
   const loadClasses = async () => {
     setLoadingLOV(true); setErr('');
     try {
-      const url = buildUrl('student/get/classes/', { p_school_id: SCHOOL_ID });
+      const url = buildUrl(CLASSES_API, { p_school_id: SCHOOL_ID });
       const res = await fetch(url, { headers: { Accept: 'application/json' } });
       const { json, raw, ok, status } = await parseMaybeJson(res);
 
@@ -73,13 +78,12 @@ const AttendancePage = () => {
       const arr = Array.isArray(json) ? json : (Array.isArray(json?.items) ? json.items : []);
       const allClasses = (arr || [])
         .map((c) => ({
-          class_id: c.class_id ?? c.CLASS_ID,
-          class_name: c.class_name ?? c.CLASS_NAME,
+          class_id: c.class_id ?? c.CLASS_ID ?? c.id ?? c.ID,
+          class_name: c.class_name ?? c.CLASS_NAME ?? c.name ?? c.NAME,
         }))
         .filter((c) => c.class_id != null && c.class_name);
 
       setClasses(allClasses);
-
       if (!selectedClass && allClasses.length) {
         setSelectedClass(String(allClasses[0].class_id));
       }
@@ -91,7 +95,7 @@ const AttendancePage = () => {
     }
   };
 
-  // Load Year/Term LOVs (default CURRENT)
+  // Load Year/Term LOVs (default CURRENT) — aligned with FeesReportPage
   const loadYearsTerms = async () => {
     setErr(''); setLoadingYT(true);
     try {
@@ -161,9 +165,12 @@ const AttendancePage = () => {
     }
   };
 
-  useEffect(() => { loadClasses(); }, []);
-  useEffect(() => { loadYearsTerms(); }, []);
-  useEffect(() => { if (selectedClass && selectedTermId && selectedYearId) loadReport(); }, [selectedClass, selectedDate, selectedTermId, selectedYearId]);
+  useEffect(() => { loadClasses(); /* eslint-disable-next-line */ }, [SCHOOL_ID]);
+  useEffect(() => { loadYearsTerms(); /* eslint-disable-next-line */ }, [SCHOOL_ID]);
+  useEffect(() => {
+    if (selectedClass && selectedTermId && selectedYearId) loadReport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedClass, selectedDate, selectedTermId, selectedYearId]);
 
   // Live client-side filter
   const filtered = useMemo(() => {

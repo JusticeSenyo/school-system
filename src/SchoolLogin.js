@@ -1,4 +1,3 @@
-// src/SchoolLogin.jsx
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -7,6 +6,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "./AuthContext";
 import { useTheme } from "./contexts/ThemeContext";
+import { log, error as logError } from "./utils/logger";
 
 // === Config =========================================================
 const AFTER_LOGIN_ROUTE = "/"; // change to "/dashboard" if you prefer
@@ -52,14 +52,17 @@ export default function SchoolLogin() {
       const sidFromUrl = searchParams.get("p_school_id");
       const maybeSid = sidFromUrl ? Number(sidFromUrl) : undefined;
 
+      log("[Login] submitting", { email: e, userType, maybeSid });
+
       const result = await login(e, p, userType, isDemoMode, maybeSid);
       if (!result?.success) {
         setError(result?.error || "Login failed. Please check your credentials.");
       } else {
+        log("[Login] success, navigating to", AFTER_LOGIN_ROUTE);
         navigate(AFTER_LOGIN_ROUTE, { replace: true });
       }
     } catch (err) {
-      console.error("Login error:", err);
+      logError("Login error:", err);
       setError("An unexpected error occurred. Please try again.");
     }
   };

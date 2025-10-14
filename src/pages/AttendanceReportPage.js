@@ -1,6 +1,7 @@
 // src/pages/AttendanceReportPage.js
 import React, { useMemo, useState, useEffect } from "react";
 import DashboardLayout from "../components/dashboard/DashboardLayout";
+import { useAuth } from "../AuthContext";
 import {
   CalendarDays,
   Download,
@@ -17,33 +18,41 @@ import {
 
 /**
  * AttendanceReportPage (HeadTeacher) — RANGE VIEW
- * Endpoints used:
- * - Classes:           student/get/classes/?p_school_id
- * - Roster (students): student/get/students/?p_school_id&p_class_id
- * - Attendance (day):  report/get/attendance/?p_school_id&p_class_id&p_academic_year&p_term&p_date
- *   NOTE: p_academic_year and p_term are IDs (numbers), but LOVs show names.
- * - Terms:             academic/get/terms/?p_school_id
- * - Years:             academic/get/years/?p_school_id
+ * Endpoints used (aligned with FeesReportPage):
+ * - Classes:        academic/get/classes/?p_school_id
+ * - Years:          academic/get/academic_year/?p_school_id
+ * - Terms:          academic/get/term/?p_school_id
+ * - Roster:         student/get/students/?p_school_id&p_class_id
+ * - Attendance:     report/get/attendance/?p_school_id&p_class_id&p_academic_year&p_term&p_date
  */
 
-const BASE =
-  "https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools/";
+const HOST = "https://gb3c4b8d5922445-kingsford1.adb.af-johannesburg-1.oraclecloudapps.com/ords/schools";
 
-const buildUrl = (path, params) => {
-  const clean = String(path).replace(/^\/+/, "");
-  const url = new URL(clean, BASE.replace(/\/+$/, "") + "/");
-  Object.entries(params || {}).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
-  });
-  return url.toString();
+// Endpoints (match FeesReportPage)
+const ACADEMIC_CLASSES_API = `${HOST}/academic/get/classes/`;        // ?p_school_id
+const ACADEMIC_YEAR_API    = `${HOST}/academic/get/academic_year/`;  // ?p_school_id
+const ACADEMIC_TERM_API    = `${HOST}/academic/get/term/`;           // ?p_school_id
+
+// Other endpoints
+const ROSTER_API     = `${HOST}/student/get/students/`;              // ?p_school_id&p_class_id
+const DAILY_ATT_API  = `${HOST}/report/get/attendance/`;             // ?p_school_id&p_class_id&p_academic_year&p_term&p_date
+
+// ===== utils (same spirit as FeesReportPage) =====
+const jtxt = async (u) => {
+  const r = await fetch(u, { cache: "no-store", headers: { Accept: "application/json" } });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return (await r.text()).trim();
 };
-
-// Endpoints
-const CLASSES_API = "student/get/classes/";      // ?p_school_id
-const ROSTER_API = "student/get/students/";      // ?p_school_id&p_class_id
-const DAILY_ATT_API = "report/get/attendance/";  // ?p_school_id&p_class_id&p_academic_year&p_term&p_date
-const TERMS_API = "academic/get/terms/";         // ?p_school_id
-const YEARS_API = "academic/get/years/";         // ?p_school_id
+const jarr = async (u) => {
+  const t = await jtxt(u);
+  if (!t) return [];
+  try {
+    const d = JSON.parse(t);
+    return Array.isArray(d) ? d : (Array.isArray(d.items) ? d.items : []);
+  } catch {
+    return [];
+  }
+};
 
 // ================= Local helpers =================
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -83,8 +92,9 @@ const listDatesInclusive = (from, to) => {
 const RANGE_MAX_DAYS = 60; // safety cap
 
 export default function AttendanceReportPage() {
-  // If you have AuthContext, replace SCHOOL_ID below with user.schoolId
-  const SCHOOL_ID = 1;
+  const { user } = useAuth() || {};
+  const SCHOOL_ID =
+    user?.schoolId ?? user?.school_id ?? user?.school?.id ?? user?.SCHOOL_ID ?? null;
 
   // LOV - classes
   const [classes, setClasses] = useState([]); // [{class_id, class_name}]
@@ -95,8 +105,8 @@ export default function AttendanceReportPage() {
   // Year/Term from APIs (show names, pass IDs)
   const [years, setYears] = useState([]); // [{id,name,status}]
   const [terms, setTerms] = useState([]); // [{id,name,status}]
-  const [yearId, setYearId] = useState("");   // academic_year_id (string/number)
-  const [termId, setTermId] = useState("");   // term_id (string/number)
+  const [yearId, setYearId] = useState("");   // academic_year_id
+  const [termId, setTermId] = useState("");   // term_id
   const [ytErr, setYtErr] = useState("");
   const [ytLoading, setYtLoading] = useState(false);
 
@@ -119,114 +129,95 @@ export default function AttendanceReportPage() {
   // Raw daily fetch results: [{date, items:[{full_name,status,student_id?}]}]
   const [daily, setDaily] = useState([]);
 
-  // ========== JSON parser ==========
-  const parseMaybeJson = async (response) => {
-    const raw = await response.text();
-    try {
-      return { json: JSON.parse(raw), raw, ok: response.ok, status: response.status };
-    } catch {
-      return { json: null, raw, ok: response.ok, status: response.status };
-    }
-  };
-
-  // ========== Load classes ==========
-  const loadClasses = async () => {
-    setClassesLoading(true); setClassesErr("");
-    try {
-      const url = buildUrl(CLASSES_API, { p_school_id: SCHOOL_ID });
-      const res = await fetch(url, { headers: { Accept: "application/json" } });
-      const { json, raw, ok, status } = await parseMaybeJson(res);
-      if (!ok) {
-        setClassesErr(`Failed to load classes (HTTP ${status}). ${String(raw).slice(0, 160)}`);
+  // ========== Load classes (use academic/get/classes like FeesReportPage) ==========
+  useEffect(() => {
+    if (!SCHOOL_ID) return;
+    (async () => {
+      setClassesLoading(true); setClassesErr("");
+      try {
+        const url = `${ACADEMIC_CLASSES_API}?p_school_id=${encodeURIComponent(SCHOOL_ID)}`;
+        const arr = await jarr(url);
+        const all = (arr || [])
+          .map(c => ({
+            class_id: c.class_id ?? c.CLASS_ID ?? c.id ?? c.ID,
+            class_name: c.class_name ?? c.CLASS_NAME ?? c.name ?? c.NAME
+          }))
+          .filter(c => c.class_id != null && c.class_name);
+        setClasses(all);
+        if (!klass && all.length) setKlass(String(all[0].class_id));
+      } catch (e) {
+        setClassesErr(`Failed to load classes. ${e?.message || e}`);
         setClasses([]);
-        return;
+      } finally {
+        setClassesLoading(false);
       }
-      const arr = Array.isArray(json) ? json : Array.isArray(json?.items) ? json.items : [];
-      const all = (arr || [])
-        .map(c => ({
-          class_id: c.class_id ?? c.CLASS_ID ?? c.id ?? c.ID,
-          class_name: c.class_name ?? c.CLASS_NAME ?? c.name ?? c.NAME
-        }))
-        .filter(c => c.class_id != null && c.class_name);
-      setClasses(all);
-      if (!klass && all.length) setKlass(String(all[0].class_id));
-    } catch (e) {
-      setClassesErr(`Failed to load classes. ${e?.message || e}`);
-      setClasses([]);
-    } finally {
-      setClassesLoading(false);
-    }
-  };
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [SCHOOL_ID]);
 
-  useEffect(() => { loadClasses(); /* eslint-disable-next-line */ }, []);
+  // ========== Load Years & Terms (match FeesReportPage endpoints) ==========
+  useEffect(() => {
+    if (!SCHOOL_ID) return;
+    (async () => {
+      setYtErr(""); setYtLoading(true);
+      try {
+        // Years
+        const yUrl = `${ACADEMIC_YEAR_API}?p_school_id=${encodeURIComponent(SCHOOL_ID)}`;
+        const yArr = await jarr(yUrl);
+        const yNorm = (yArr || []).map(y => ({
+          id: y.academic_year_id ?? y.ACADEMIC_YEAR_ID,
+          name: y.academic_year_name ?? y.ACADEMIC_YEAR_NAME,
+          status: y.status ?? y.STATUS ?? null,
+        })).filter(x => x.id != null && x.name);
+        setYears(yNorm);
+        const yDefault = yNorm.find(x => String(x.status).toUpperCase() === "CURRENT") || yNorm[0];
+        if (!yearId && yDefault) setYearId(String(yDefault.id));
 
-  // ========== Load Years & Terms (LOVs) ==========
-  const loadYearsTerms = async () => {
-    setYtErr(""); setYtLoading(true);
-    try {
-      // Years
-      const yUrl = buildUrl(YEARS_API, { p_school_id: SCHOOL_ID });
-      const yRes = await fetch(yUrl, { headers: { Accept: "application/json" } });
-      const { json: yJson } = await parseMaybeJson(yRes);
-      const yArr = Array.isArray(yJson) ? yJson : Array.isArray(yJson?.items) ? yJson.items : [];
-      const yNorm = yArr.map(y => ({
-        id: y.academic_year_id ?? y.ACADEMIC_YEAR_ID,
-        name: y.academic_year_name ?? y.ACADEMIC_YEAR_NAME,
-        status: y.status ?? y.STATUS ?? null,
-      })).filter(x => x.id != null && x.name);
-      setYears(yNorm);
-      const yDefault = yNorm.find(x => String(x.status).toUpperCase() === "CURRENT") || yNorm[0];
-      if (!yearId && yDefault) setYearId(String(yDefault.id));
-
-      // Terms
-      const tUrl = buildUrl(TERMS_API, { p_school_id: SCHOOL_ID });
-      const tRes = await fetch(tUrl, { headers: { Accept: "application/json" } });
-      const { json: tJson } = await parseMaybeJson(tRes);
-      const tArr = Array.isArray(tJson) ? tJson : Array.isArray(tJson?.items) ? tJson.items : [];
-      const tNorm = tArr.map(t => ({
-        id: t.term_id ?? t.TERM_ID,
-        name: t.term_name ?? t.TERM_NAME,
-        status: t.status ?? t.STATUS ?? null,
-      })).filter(x => x.id != null && x.name);
-      setTerms(tNorm);
-      const tDefault = tNorm.find(x => String(x.status).toUpperCase() === "CURRENT") || tNorm[0];
-      if (!termId && tDefault) setTermId(String(tDefault.id));
-    } catch (e) {
-      setYtErr(e?.message || "Failed to load academic years/terms");
-    } finally {
-      setYtLoading(false);
-    }
-  };
-
-  useEffect(() => { loadYearsTerms(); /* eslint-disable-next-line */ }, []);
+        // Terms
+        const tUrl = `${ACADEMIC_TERM_API}?p_school_id=${encodeURIComponent(SCHOOL_ID)}`;
+        const tArr = await jarr(tUrl);
+        const tNorm = (tArr || []).map(t => ({
+          id: t.term_id ?? t.TERM_ID,
+          name: t.term_name ?? t.TERM_NAME,
+          status: t.status ?? t.STATUS ?? null,
+        })).filter(x => x.id != null && x.name);
+        setTerms(tNorm);
+        const tDefault = tNorm.find(x => String(x.status).toUpperCase() === "CURRENT") || tNorm[0];
+        if (!termId && tDefault) setTermId(String(tDefault.id));
+      } catch (e) {
+        setYtErr(e?.message || "Failed to load academic years/terms");
+      } finally {
+        setYtLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [SCHOOL_ID]);
 
   // ========== Load roster for selected class ==========
-  const loadRoster = async () => {
-    if (!klass) { setRoster([]); return; }
-    setRosterLoading(true);
-    try {
-      const url = buildUrl(ROSTER_API, { p_school_id: SCHOOL_ID, p_class_id: klass });
-      const res = await fetch(url, { headers: { Accept: "application/json" } });
-      const { json } = await parseMaybeJson(res);
-      const items = Array.isArray(json) ? json : Array.isArray(json?.items) ? json.items : [];
-      const normalized = items.map(s => ({
-        student_id: s.student_id ?? s.STUDENT_ID ?? s.id ?? s.ID ?? null,
-        full_name: s.full_name ?? s.FULL_NAME ?? s.name ?? s.NAME ?? "",
-      })).filter(s => s.full_name);
-      setRoster(normalized);
-    } catch {
-      setRoster([]);
-    } finally {
-      setRosterLoading(false);
-    }
-  };
-
-  useEffect(() => { loadRoster(); /* eslint-disable-next-line */ }, [klass]);
+  useEffect(() => {
+    if (!SCHOOL_ID || !klass) { setRoster([]); return; }
+    (async () => {
+      setRosterLoading(true);
+      try {
+        const url = `${ROSTER_API}?p_school_id=${encodeURIComponent(SCHOOL_ID)}&p_class_id=${encodeURIComponent(klass)}`;
+        const arr = await jarr(url);
+        const normalized = (arr || []).map(s => ({
+          student_id: s.student_id ?? s.STUDENT_ID ?? s.id ?? s.ID ?? null,
+          full_name: s.full_name ?? s.FULL_NAME ?? s.name ?? s.NAME ?? "",
+        })).filter(s => s.full_name);
+        setRoster(normalized);
+      } catch {
+        setRoster([]);
+      } finally {
+        setRosterLoading(false);
+      }
+    })();
+  }, [SCHOOL_ID, klass]);
 
   // ========== Load attendance for each day in range ==========
   const loadAttendanceRange = async () => {
     setErr(""); setDaily([]); setRangeWarn("");
-    if (!klass || !yearId || !termId) return;
+    if (!SCHOOL_ID || !klass || !yearId || !termId) return;
 
     const dates = listDatesInclusive(from, to);
     if (!dates.length) { setDaily([]); return; }
@@ -238,17 +229,9 @@ export default function AttendanceReportPage() {
     setLoadingReport(true);
     try {
       const fetchOne = async (d) => {
-        const url = buildUrl(DAILY_ATT_API, {
-          p_school_id: SCHOOL_ID,
-          p_class_id: klass,
-          p_academic_year: yearId, // pass ID
-          p_term: termId,          // pass ID
-          p_date: d,
-        });
-        const res = await fetch(url, { headers: { Accept: "application/json" } });
-        const { json } = await parseMaybeJson(res);
-        const items = Array.isArray(json) ? json : Array.isArray(json?.items) ? json.items : [];
-        const norm = items.map(r => ({
+        const url = `${DAILY_ATT_API}?p_school_id=${encodeURIComponent(SCHOOL_ID)}&p_class_id=${encodeURIComponent(klass)}&p_academic_year=${encodeURIComponent(yearId)}&p_term=${encodeURIComponent(termId)}&p_date=${encodeURIComponent(d)}`;
+        const arr = await jarr(url);
+        const norm = (arr || []).map(r => ({
           student_id: r.student_id ?? r.STUDENT_ID ?? null,
           full_name: r.full_name ?? r.FULL_NAME ?? "",
           status: String(r.status ?? r.STATUS ?? "").toUpperCase() || "ABSENT",
@@ -408,7 +391,7 @@ export default function AttendanceReportPage() {
               className="border rounded-lg px-3 py-2 bg-white dark:bg-gray-900 dark:border-gray-700"
               value={klass}
               onChange={(e) => setKlass(e.target.value)}
-              disabled={classesLoading || classes.length === 0}
+              disabled={!SCHOOL_ID || classesLoading || classes.length === 0}
             >
               {classesLoading ? (
                 <option>Loading classes…</option>

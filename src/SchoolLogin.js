@@ -6,11 +6,8 @@ import {
 } from "lucide-react";
 import { useAuth } from "./AuthContext";
 import { useTheme } from "./contexts/ThemeContext";
-import { log, error as logError } from "./utils/logger";
 
-// === Config =========================================================
-const AFTER_LOGIN_ROUTE = "/"; // change to "/dashboard" if you prefer
-// ===================================================================
+const AFTER_LOGIN_ROUTE = "/";
 
 export default function SchoolLogin() {
   const [showPassword, setShowPassword] = useState(false);
@@ -32,43 +29,40 @@ export default function SchoolLogin() {
     return emailOk && p.length > 0 && !isLoading;
   })();
 
-  const handleSubmit = async () => {
+  const doLogin = async () => {
     setError("");
-
     const e = email.trim();
     const p = password.trim();
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) {
-      setError("Please enter a valid email address.");
-      return;
-    }
-    if (!p) {
-      setError("Please enter your password.");
-      return;
-    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return setError("Please enter a valid email address.");
+    if (!p) return setError("Please enter your password.");
 
     try {
-      // School is OPTIONAL. If present in URL (?p_school_id=), pass it; else omit.
+      // School optional: read from URL if present
       const sidFromUrl = searchParams.get("p_school_id");
       const maybeSid = sidFromUrl ? Number(sidFromUrl) : undefined;
-
-      log("[Login] submitting", { email: e, userType, maybeSid });
 
       const result = await login(e, p, userType, isDemoMode, maybeSid);
       if (!result?.success) {
         setError(result?.error || "Login failed. Please check your credentials.");
       } else {
-        log("[Login] success, navigating to", AFTER_LOGIN_ROUTE);
         navigate(AFTER_LOGIN_ROUTE, { replace: true });
       }
     } catch (err) {
-      logError("Login error:", err);
+      console.error("Login error:", err);
       setError("An unexpected error occurred. Please try again.");
     }
   };
 
-  const handleKeyPress = (e) => {
-    if (e.key === "Enter" && canSubmit) handleSubmit();
+  const onSubmit = (e) => {
+    e.preventDefault();           // <- stop full page reload
+    if (canSubmit) void doLogin();
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();         // <- stop implicit submit
+      if (canSubmit) void doLogin();
+    }
   };
 
   return (
@@ -137,102 +131,105 @@ export default function SchoolLogin() {
               </p>
             </div>
 
-            {/* User Type Selector */}
-            <div className="mb-6 text-center">
-              <p className="text-sm text-gray-700 dark:text-gray-300 mb-2 font-medium">
-                Login as:
-              </p>
-              <div className="flex justify-center gap-3 flex-wrap">
-                {["admin", "teacher", "headteacher", "accountant"].map((type) => (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => {
-                      setUserType(type);
+            {/* form wrapper prevents reloads */}
+            <form onSubmit={onSubmit}>
+              {/* User Type Selector */}
+              <div className="mb-6 text-center">
+                <p className="text-sm text-gray-700 dark:text-gray-300 mb-2 font-medium">
+                  Login as:
+                </p>
+                <div className="flex justify-center gap-3 flex-wrap">
+                  {["admin", "teacher", "headteacher", "accountant"].map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => {
+                        setUserType(type);
+                        if (error) setError("");
+                      }}
+                      className={`px-4 py-1 rounded-full border text-sm font-medium transition ${
+                        userType === type
+                          ? "bg-indigo-600 text-white border-indigo-600"
+                          : "bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-100 border-gray-300 dark:border-gray-500 hover:bg-gray-100 dark:hover:bg-gray-600"
+                      }`}
+                    >
+                      {type === "headteacher" ? "HeadTeacher" : type.charAt(0).toUpperCase() + type.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Email */}
+              <div className="mb-4">
+                <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">
+                  Email
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-3 text-gray-400" />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
                       if (error) setError("");
                     }}
-                    className={`px-4 py-1 rounded-full border text-sm font-medium transition ${
-                      userType === type
-                        ? "bg-indigo-600 text-white border-indigo-600"
-                        : "bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-100 border-gray-300 dark:border-gray-500 hover:bg-gray-100 dark:hover:bg-gray-600"
-                    }`}
+                    onKeyDown={onKeyDown}
+                    disabled={isLoading}
+                    className="pl-10 pr-4 py-2 w-full border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    placeholder="you@example.com"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Password */}
+              <div className="mb-4">
+                <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">
+                  Password
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-3 text-gray-400" />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (error) setError("");
+                    }}
+                    onKeyDown={onKeyDown}
+                    disabled={isLoading}
+                    className="pl-10 pr-12 py-2 w-full border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    placeholder="••••••••"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    disabled={isLoading}
+                    className="absolute right-3 top-2.5 text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-white"
                   >
-                    {type === "headteacher" ? "HeadTeacher" : type.charAt(0).toUpperCase() + type.slice(1)}
+                    {showPassword ? <EyeOff /> : <Eye />}
                   </button>
-                ))}
+                </div>
               </div>
-            </div>
 
-            {/* Email */}
-            <div className="mb-4">
-              <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">
-                Email
-              </label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-3 text-gray-400" />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    if (error) setError("");
-                  }}
-                  onKeyPress={handleKeyPress}
-                  disabled={isLoading}
-                  className="pl-10 pr-4 py-2 w-full border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  placeholder="you@example.com"
-                  required
-                />
-              </div>
-            </div>
-
-            {/* Password */}
-            <div className="mb-4">
-              <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">
-                Password
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-3 text-gray-400" />
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    if (error) setError("");
-                  }}
-                  onKeyPress={handleKeyPress}
-                  disabled={isLoading}
-                  className="pl-10 pr-12 py-2 w-full border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  placeholder="••••••••"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  disabled={isLoading}
-                  className="absolute right-3 top-2.5 text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-white"
-                >
-                  {showPassword ? <EyeOff /> : <Eye />}
-                </button>
-              </div>
-            </div>
-
-            {/* Submit */}
-            <button
-              onClick={handleSubmit}
-              disabled={!canSubmit}
-              className={`w-full py-2 rounded-lg font-semibold transition text-white ${
-                canSubmit ? "bg-indigo-600 hover:bg-indigo-700" : "bg-indigo-400 cursor-not-allowed"
-              }`}
-            >
-              {isLoading ? (
-                <span className="flex items-center justify-center">
-                  <Loader2 className="animate-spin mr-2 h-4 w-4" /> Logging in...
-                </span>
-              ) : (
-                `Sign in as ${userType === "headteacher" ? "HeadTeacher" : userType.charAt(0).toUpperCase() + userType.slice(1)}`
-              )}
-            </button>
+              {/* Submit */}
+              <button
+                type="submit"
+                disabled={!canSubmit}
+                className={`w-full py-2 rounded-lg font-semibold transition text-white ${
+                  canSubmit ? "bg-indigo-600 hover:bg-indigo-700" : "bg-indigo-400 cursor-not-allowed"
+                }`}
+              >
+                {isLoading ? (
+                  <span className="flex items-center justify-center">
+                    <Loader2 className="animate-spin mr-2 h-4 w-4" /> Logging in...
+                  </span>
+                ) : (
+                  `Sign in as ${userType === "headteacher" ? "HeadTeacher" : userType.charAt(0).toUpperCase() + userType.slice(1)}`
+                )}
+              </button>
+            </form>
 
             {/* Error */}
             {error && (

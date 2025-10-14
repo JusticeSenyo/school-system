@@ -1,4 +1,3 @@
-// src/AuthContext.js
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext();
@@ -74,12 +73,23 @@ const parseMaybeJson = async (res) => {
   }
 };
 
+/** Synchronous hydration to avoid redirect flicker */
+const initUserFromStorage = () => {
+  try {
+    const t = localStorage.getItem('token');
+    const u = localStorage.getItem('user');
+    return t && u ? JSON.parse(u) : null;
+  } catch { return null; }
+};
+const initTokenFromStorage = () => {
+  try { return localStorage.getItem('token') || null; }
+  catch { return null; }
+};
+
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(initUserFromStorage);
   const [isLoading, setIsLoading] = useState(false);
-  const [token, setToken] = useState(() => {
-    try { return localStorage.getItem('token') || null; } catch { return null; }
-  });
+  const [token, setToken] = useState(initTokenFromStorage);
 
   const mapRole = (apiRole) => ({
     TE: 'teacher',
@@ -94,18 +104,19 @@ export const AuthProvider = ({ children }) => {
   const del  = (k) => { try { localStorage.removeItem(k); } catch {} };
 
   useEffect(() => {
-    const savedUser = read('user');
-    if (token && savedUser) {
-      try { setUser(JSON.parse(savedUser)); }
-      catch { del('user'); del('token'); }
+    // If token exists but user state didn't hydrate yet, restore it
+    if (!user && token) {
+      try {
+        const savedUser = read('user');
+        if (savedUser) setUser(JSON.parse(savedUser));
+      } catch {
+        del('user'); del('token');
+      }
     }
-  }, [token]);
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleApiError = (error, operation = 'API call') => {
-    console.error(`${operation} error:`, error);
     const msg = String(error?.message || '');
-
-    // Browser CORS/network hints
     if (msg.includes('NetworkError') || msg.includes('fetch')) {
       return {
         success: false,
@@ -123,7 +134,6 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password, selectedUserType = null, isDemoMode = false, schoolId) => {
     setIsLoading(true);
     try {
-      // Build params; only include p_school_id if provided
       const params = {
         email: String(email || ''),
         password: String(password || ''),
@@ -167,7 +177,9 @@ export const AuthProvider = ({ children }) => {
           data?.user?.schoolId ??
           data?.user?.school_id ??
           data?.school?.id ??
-          (schoolId !== undefined && schoolId !== null ? (Number.isNaN(Number(schoolId)) ? schoolId : Number(schoolId)) : null);
+          (schoolId !== undefined && schoolId !== null
+            ? (Number.isNaN(Number(schoolId)) ? schoolId : Number(schoolId))
+            : null);
 
         const schoolObj = data.school || {};
         const planFromApi = Number(

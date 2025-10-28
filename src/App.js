@@ -9,8 +9,12 @@ import SchoolLogin from './SchoolLogin';
 
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { TeacherAccessProvider, useTeacherAccess } from './contexts/TeacherAccessContext';
+// import StudentDashboard from './dashboards/StudentDashboard';
 
 // Lazy-loaded dashboards
+//new student dashboard
+
+const StudentDashboard = lazy(() => import('./dashboards/StudentDashboard'));
 const TeacherDashboard = lazy(() => import('./dashboards/TeacherDashboard'));
 const AdminDashboard = lazy(() => import('./dashboards/AdminDashboard'));
 const AccountantDashboard = lazy(() => import('./dashboards/AccountantDashboard'));
@@ -52,6 +56,12 @@ const AttendanceReportPage = lazy(() => import('./pages/AttendanceReportPage'));
 // Exams
 const ExamScaleSetupPage = lazy(() => import('./pages/ExamScaleSetupPage')); // Admin-only
 const EnterScoresPage = lazy(() => import('./pages/EnterScoresPage')); // Teacher/HT/Admin
+
+
+//student
+const onlineQuizzes = lazy(() => import('./pages/student/onlineQuizzes'));
+
+
 
 const DashboardLoading = () => (
   <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
@@ -107,6 +117,7 @@ const DashboardRouter = () => {
     case 'admin': return <Suspense fallback={<DashboardLoading />}><AdminDashboard /></Suspense>;
     case 'accountant': return <Suspense fallback={<DashboardLoading />}><AccountantDashboard /></Suspense>;
     case 'headteacher': return <Suspense fallback={<DashboardLoading />}><HeadTeacherDashboard /></Suspense>;
+    case 'student': return <Suspense fallback={<DashboardLoading />}><StudentDashboard /></Suspense>;
     default: return <Navigate to="/login" replace />;
   }
 };
@@ -128,51 +139,56 @@ const AppRoutes = () => {
       {/* Public */}
       <Route path="/login" element={<LoginRoute />} />
 
+      <Route path="/test-student" element={<StudentDashboard />} />
+
+      <Route path="/dashboard/onlineQuizzes" element={<onlineQuizzes />} />
+
+
       {/* Dashboard */}
       <Route path="/dashboard" element={<ProtectedRoute><DashboardRouter /></ProtectedRoute>} />
 
       {/* Communication (not for teachers) */}
       <Route path="/dashboard/communication" element={
         <ProtectedRoute>
-          <RoleRoute allowed={['admin','accountant','headteacher','owner']}>
+          <RoleRoute allowed={['admin', 'accountant', 'headteacher', 'owner']}>
             <Suspense fallback={<DashboardLoading />}><CommunicationPage /></Suspense>
           </RoleRoute>
         </ProtectedRoute>
-      }/>
+      } />
 
       {/* Events: Admin + Headteacher */}
       <Route path="/dashboard/manage-events" element={
         <ProtectedRoute>
-          <RoleRoute allowed={['admin','headteacher']}>
+          <RoleRoute allowed={['admin', 'headteacher']}>
             <Suspense fallback={<DashboardLoading />}><ManageEventsPage /></Suspense>
           </RoleRoute>
         </ProtectedRoute>
-      }/>
+      } />
 
       {/* Staff */}
       <Route path="/dashboard/manage-staff" element={
         <ProtectedRoute>
           <Suspense fallback={<DashboardLoading />}><ManageStaffPage /></Suspense>
         </ProtectedRoute>
-      }/>
+      } />
 
       {/* Students (class teachers only) */}
       <Route path="/dashboard/manage-students" element={
         <ProtectedRoute>
-          <RoleRoute allowed={['admin','owner','headteacher','accountant','teacher']}>
+          <RoleRoute allowed={['admin', 'owner', 'headteacher', 'accountant', 'teacher']}>
             <FeatureRoute requireClassTeacher>
               <Suspense fallback={<DashboardLoading />}><ManageStudentsPage /></Suspense>
             </FeatureRoute>
           </RoleRoute>
         </ProtectedRoute>
-      }/>
+      } />
 
       {/* Attendance */}
       <Route path="/dashboard/attendance" element={
         <ProtectedRoute>
           <Suspense fallback={<DashboardLoading />}><AttendancePage /></Suspense>
         </ProtectedRoute>
-      }/>
+      } />
       <Route path="/dashboard/manage-attendance" element={
         <ProtectedRoute>
           <RoleRoute allowed={['teacher']}>
@@ -181,37 +197,37 @@ const AppRoutes = () => {
             </FeatureRoute>
           </RoleRoute>
         </ProtectedRoute>
-      }/>
+      } />
       <Route path="/dashboard/attendance-report" element={
         <ProtectedRoute>
           <RoleRoute allowed={['headteacher']}>
             <Suspense fallback={<DashboardLoading />}><AttendanceReportPage /></Suspense>
           </RoleRoute>
         </ProtectedRoute>
-      }/>
+      } />
 
       {/* Fees */}
       <Route path="/dashboard/manage-fees" element={
         <ProtectedRoute>
-          <RoleRoute allowed={['admin','accountant']}>
+          <RoleRoute allowed={['admin', 'accountant']}>
             <Suspense fallback={<DashboardLoading />}><ManageFeesPage /></Suspense>
           </RoleRoute>
         </ProtectedRoute>
-      }/>
+      } />
       <Route path="/dashboard/fees-report" element={
         <ProtectedRoute>
-          <RoleRoute allowed={['admin','accountant']}>
+          <RoleRoute allowed={['admin', 'accountant']}>
             <Suspense fallback={<DashboardLoading />}><FeesReportPage /></Suspense>
           </RoleRoute>
         </ProtectedRoute>
-      }/>
+      } />
       <Route path="/dashboard/print-bill" element={
         <ProtectedRoute>
-          <RoleRoute allowed={['admin','accountant']}>
+          <RoleRoute allowed={['admin', 'accountant']}>
             <Suspense fallback={<DashboardLoading />}><PrintBillPage /></Suspense>
           </RoleRoute>
         </ProtectedRoute>
-      }/>
+      } />
 
       {/* Academics (Admin only) */}
       <Route path="/dashboard/class-teacher" element={
@@ -220,14 +236,14 @@ const AppRoutes = () => {
             <Suspense fallback={<DashboardLoading />}><ManageClassTeacherPage /></Suspense>
           </RoleRoute>
         </ProtectedRoute>
-      }/>
+      } />
       <Route path="/dashboard/manage-subjects" element={
         <ProtectedRoute>
           <RoleRoute allowed={['admin']}>
             <Suspense fallback={<DashboardLoading />}><ManageSubjectsPage /></Suspense>
           </RoleRoute>
         </ProtectedRoute>
-      }/>
+      } />
       {/* ✅ AssignSubjectsPage kept */}
       <Route path="/dashboard/assign-subjects" element={
         <ProtectedRoute>
@@ -235,60 +251,60 @@ const AppRoutes = () => {
             <Suspense fallback={<DashboardLoading />}><AssignSubjectsPage /></Suspense>
           </RoleRoute>
         </ProtectedRoute>
-      }/>
+      } />
       <Route path="/dashboard/classes" element={
         <ProtectedRoute>
           <RoleRoute allowed={['admin']}>
             <Suspense fallback={<DashboardLoading />}><ManageClassesPage /></Suspense>
           </RoleRoute>
         </ProtectedRoute>
-      }/>
+      } />
       <Route path="/dashboard/academic-years" element={
         <ProtectedRoute>
           <RoleRoute allowed={['admin']}>
             <Suspense fallback={<DashboardLoading />}><ManageAcademicYearsPage /></Suspense>
           </RoleRoute>
         </ProtectedRoute>
-      }/>
+      } />
       <Route path="/dashboard/academic-terms" element={
         <ProtectedRoute>
           <RoleRoute allowed={['admin']}>
             <Suspense fallback={<DashboardLoading />}><ManageTermsPage /></Suspense>
           </RoleRoute>
         </ProtectedRoute>
-      }/>
+      } />
 
       {/* Exams */}
       <Route path="/dashboard/print-exam-report" element={
         <ProtectedRoute>
-          <RoleRoute allowed={['admin','headteacher']}>
+          <RoleRoute allowed={['admin', 'headteacher']}>
             <Suspense fallback={<DashboardLoading />}><PrintExamReportPage /></Suspense>
           </RoleRoute>
         </ProtectedRoute>
-      }/>
+      } />
       <Route path="/dashboard/manage-exam" element={
         <ProtectedRoute>
-          <RoleRoute allowed={['headteacher','teacher']}>
+          <RoleRoute allowed={['headteacher', 'teacher']}>
             <FeatureRoute requireClassTeacher>
               <Suspense fallback={<DashboardLoading />}><ManageExamReportPage /></Suspense>
             </FeatureRoute>
           </RoleRoute>
         </ProtectedRoute>
-      }/>
+      } />
       <Route path="/dashboard/exams/enter-scores" element={
         <ProtectedRoute>
-          <RoleRoute allowed={['teacher','headteacher','admin']}>
+          <RoleRoute allowed={['teacher', 'headteacher', 'admin']}>
             <Suspense fallback={<DashboardLoading />}><EnterScoresPage /></Suspense>
           </RoleRoute>
         </ProtectedRoute>
-      }/>
+      } />
       <Route path="/dashboard/exams/scale" element={
         <ProtectedRoute>
           <RoleRoute allowed={['admin']}>
             <Suspense fallback={<DashboardLoading />}><ExamScaleSetupPage /></Suspense>
           </RoleRoute>
         </ProtectedRoute>
-      }/>
+      } />
 
       {/* Profile & Settings */}
       <Route path="/profile" element={<ProtectedRoute><Suspense fallback={<DashboardLoading />}><Profile /></Suspense></ProtectedRoute>} />

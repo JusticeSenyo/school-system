@@ -89,6 +89,20 @@ export const roleBasedMenus = Object.freeze({
     { label: "Settings", path: "/settings" },
   ],
 
+  student: [
+    { label: "Dashboard", path: "/test-student" },
+    {
+      label: "online activities",
+      children: [
+        // { label: "Classes", path: "/student-dashboard/assignments" },
+        { label: "Quizzes/exams", path: "/dashboard/onlineQuizzes" },
+        { label: "Lessons", path: "/student-dashboard/lessons" },
+      ]
+    },
+    { label: "assignments", path: "/student-dashboard/assignments" },
+    // { label: "Profile", path: "/student-dashboard/profile" },
+  ],
+
   // Owner: NO Manage Events (per your requirement)
   owner: [
     { label: "Dashboard", path: "/dashboard" },

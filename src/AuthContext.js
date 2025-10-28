@@ -103,17 +103,55 @@ export const AuthProvider = ({ children }) => {
   const read = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
   const del  = (k) => { try { localStorage.removeItem(k); } catch {} };
 
+  // useEffect(() => {
+  //   // If token exists but user state didn't hydrate yet, restore it
+  //   if (!user && token) {
+  //     try {
+  //       const savedUser = read('user');
+  //       if (savedUser) setUser(JSON.parse(savedUser));
+  //     } catch {
+  //       del('user'); del('token');
+  //     }
+  //   }
+  // }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
-    // If token exists but user state didn't hydrate yet, restore it
     if (!user && token) {
       try {
         const savedUser = read('user');
-        if (savedUser) setUser(JSON.parse(savedUser));
-      } catch {
-        del('user'); del('token');
+
+        // ✅ Check if saved user exists and is valid
+        if (savedUser) {
+          const parsedUser = JSON.parse(savedUser);
+
+          // ✅ Optional: basic sanity checks (you can add more if needed)
+          if (typeof parsedUser === 'object' && parsedUser.userType) {
+            setUser(parsedUser);
+          } else {
+            // Invalid structure — clear data
+            del('user');
+            del('token');
+            setUser(null);
+            setToken(null);
+          }
+        } else {
+          // No user found but token exists — clear both
+          del('user');
+          del('token');
+          setUser(null);
+          setToken(null);
+        }
+      } catch (err) {
+        // If anything goes wrong parsing JSON or token is malformed
+        console.error('Invalid user data in storage, clearing session:', err);
+        del('user');
+        del('token');
+        setUser(null);
+        setToken(null);
       }
     }
-  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [token]);
+
 
   const handleApiError = (error, operation = 'API call') => {
     const msg = String(error?.message || '');

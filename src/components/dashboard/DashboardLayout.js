@@ -25,7 +25,17 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
     };
   }, [isSidebarOpen]);
 
-  const role = String(user?.userType || "guest").toLowerCase();
+  // const role = String(user?.userType || "guest").toLowerCase();
+
+  // Determine user role normally
+  let role = String(user?.userType || "guest").toLowerCase();
+
+  // ✅ Temporary override for student dashboard preview (no login logic yet)
+  const path = window.location.pathname;
+  if (path.startsWith("/test-student")) {
+    role = "student";
+  }
+
   const menusForRole = roleBasedMenus[role] || [];
 
   const menuIndex = useMemo(() => {

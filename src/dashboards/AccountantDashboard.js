@@ -139,7 +139,7 @@ export default function AccountantDashboard() {
   const H = useMemo(
     () =>
       token
-        ? { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
+        ? { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }}
         : {},
     [token]
   );

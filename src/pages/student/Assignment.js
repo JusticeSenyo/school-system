@@ -254,13 +254,13 @@ export default function Assignments() {
     if (assignment.status === "submitted") {
       return { text: "Submitted", className: "bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300" };
     }
-    return { text: "Pending", className: "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" };
+    return { text: "Pending", className: "bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300" };
   };
 
   return (
     <DashboardLayout title="Assignments">
       {/* Hero Section */}
-      <div className="relative overflow-hidden rounded-xl mb-6 shadow-lg border border-amber-200/40 dark:border-amber-900/30">
+      <div className="relative overflow-hidden rounded-xl mb-6 shadow-lg border border-green-200/40 dark:border-green-900/30">
         <div className="absolute inset-0 bg-gradient-to-r from-indigo-600 via-blue-600 to-purple-700" />
         <div className="absolute -top-10 -right-8 h-48 w-48 rounded-full bg-white/10 blur-3xl" />
 
@@ -270,7 +270,7 @@ export default function Assignments() {
               <ClipboardList className="h-6 w-6" />
               <div>
                 <h2 className="text-2xl font-bold">My Assignments</h2>
-                <p className="text-amber-100 text-sm mt-1">
+                <p className="text-green-100 text-sm mt-1">
                   View, submit, and track your assignments
                 </p>
               </div>
@@ -287,7 +287,7 @@ export default function Assignments() {
           </div>
 
           {!!lastUpdated && (
-            <div className="text-xs text-amber-100/90 mt-3">
+            <div className="text-xs text-green-100/90 mt-3">
               Last updated: {lastUpdated}
             </div>
           )}
@@ -298,8 +298,8 @@ export default function Assignments() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-100 dark:border-gray-700 p-5">
           <div className="flex items-center justify-between mb-2">
-            <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-900/20">
-              <Clock className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            <div className="p-2 rounded-lg bg-green-50 dark:bg-green-900/20">
+              <Clock className="h-5 w-5 text-green-600 dark:text-green-400" />
             </div>
           </div>
           <div className="text-3xl font-bold text-gray-900 dark:text-white">
@@ -352,7 +352,7 @@ export default function Assignments() {
               key={tab.id}
               onClick={() => setFilterStatus(tab.id)}
               className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${filterStatus === tab.id
-                  ? "border-amber-600 text-amber-600 dark:text-amber-400"
+                  ? "border-green-600 text-green-600 dark:text-green-400"
                   : "border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
                 }`}
             >
@@ -365,7 +365,7 @@ export default function Assignments() {
       {/* Assignments List */}
       {loading ? (
         <div className="text-center py-12">
-          <RefreshCw className="h-8 w-8 animate-spin text-amber-600 mx-auto mb-3" />
+          <RefreshCw className="h-8 w-8 animate-spin text-green-600 mx-auto mb-3" />
           <p className="text-gray-600 dark:text-gray-400">Loading assignments...</p>
         </div>
       ) : filteredAssignments.length === 0 ? (
@@ -432,7 +432,7 @@ export default function Assignments() {
                       <span>{assignment.total_marks} marks</span>
                     </div>
                     {assignment.status === "pending" && !isOverdue && daysUntilDue >= 0 && (
-                      <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-medium">
+                      <div className="flex items-center gap-2 text-green-600 dark:text-green-400 font-medium">
                         <Clock className="h-4 w-4 flex-shrink-0" />
                         <span>{daysUntilDue === 0 ? "Due today" : `${daysUntilDue} day${daysUntilDue > 1 ? 's' : ''} left`}</span>
                       </div>
@@ -483,7 +483,7 @@ export default function Assignments() {
                           setDetailsAssignment(assignment);
                           setShowDetailsModal(true);
                         }}
-                        className="text-sm text-amber-600 dark:text-amber-400 hover:underline"
+                        className="text-sm text-green-600 dark:text-green-400 hover:underline"
                       >
                         View Details
                       </button>
@@ -504,7 +504,7 @@ export default function Assignments() {
                           setSelectedAssignment(assignment);
                           setShowSubmitModal(true);
                         }}
-                          className="flex-1 py-2.5 rounded-lg font-medium bg-purple-600 bg-purple-700 text-white transition-colors flex items-center justify-center gap-2"
+                          className="flex-1 py-2.5 rounded-lg font-medium bg-purple-600 hover:bg-purple-700 text-white transition-colors flex items-center justify-center gap-2"
                       >
                         <Upload className="h-4 w-4" />
                         Submit Assignment
@@ -553,7 +553,7 @@ export default function Assignments() {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Upload File *
                 </label>
-                <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center hover:border-amber-500 dark:hover:border-amber-500 transition-colors">
+                <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center hover:border-green-500 dark:hover:border-green-500 transition-colors">
                   <input
                     type="file"
                     onChange={(e) => setSubmissionFile(e.target.files[0])}
@@ -596,7 +596,7 @@ export default function Assignments() {
                   onChange={(e) => setSubmissionNotes(e.target.value)}
                   rows={4}
                   placeholder="Add any comments or notes about your submission..."
-                  className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none resize-none"
+                  className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none resize-none"
                 />
               </div>
 
@@ -616,7 +616,7 @@ export default function Assignments() {
                 <button
                   onClick={handleSubmitAssignment}
                   disabled={submitting}
-                  className="flex-1 px-4 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-400 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                  className="flex-1 px-4 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-green-400 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
                 >
                   {submitting ? (
                     <>
@@ -778,7 +778,7 @@ export default function Assignments() {
                       setSelectedAssignment(detailsAssignment);
                       setShowSubmitModal(true);
                     }}
-                    className="flex-1 px-4 py-2.5 bg-purple-600 bg-purple-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                    className="flex-1 px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
                   >
                     <Upload className="h-4 w-4" />
                     Submit Assignment

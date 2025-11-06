@@ -95,11 +95,11 @@ export const roleBasedMenus = Object.freeze({
       label: "online activities",
       children: [
         // { label: "Classes", path: "/student-dashboard/assignments" },
-        { label: "Quizzes/exams", path: "/dashboard/onlineQuizzes" },
-        { label: "Lessons", path: "/student-dashboard/lessons" },
+        { label: "Quizzes/exams", path: "/test-student/onlineQuizzes" },
+        { label: "Lessons", path: "/test-student/OnlineLessons" },
       ]
     },
-    { label: "assignments", path: "/student-dashboard/assignments" },
+    { label: "assignments", path: "/test-student/Assignment" },
     // { label: "Profile", path: "/student-dashboard/profile" },
   ],
 

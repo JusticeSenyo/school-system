@@ -59,7 +59,9 @@ const EnterScoresPage = lazy(() => import('./pages/EnterScoresPage')); // Teache
 
 
 //student
-const onlineQuizzes = lazy(() => import('./pages/student/onlineQuizzes'));
+const OnlineQuizzes = lazy(() => import('./pages/student/OnlineQuizzes'));
+const OnlineLessons = lazy(() => import('./pages/student/OnlineLessons'));
+const Assignment = lazy(() => import('./pages/student/Assignment'));
 
 
 
@@ -141,8 +143,11 @@ const AppRoutes = () => {
 
       <Route path="/test-student" element={<StudentDashboard />} />
 
-      <Route path="/dashboard/onlineQuizzes" element={<onlineQuizzes />} />
+      <Route path="/test-student/onlineQuizzes" element={<OnlineQuizzes />} />
 
+      <Route path="/test-student/OnlineLessons" element={<OnlineLessons />} />
+
+      <Route path="/test-student/Assignment" element={<Assignment />} />
 
       {/* Dashboard */}
       <Route path="/dashboard" element={<ProtectedRoute><DashboardRouter /></ProtectedRoute>} />

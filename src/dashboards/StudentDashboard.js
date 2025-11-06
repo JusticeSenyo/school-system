@@ -64,13 +64,13 @@ const API_ENDPOINTS = {
   STUDENT_GRADES: `${HOST}/academic/get/student_grades/`, // ?p_student_id&p_academic_year&p_term
 
   // Online Exams
-  STUDENT_EXAMS: `${HOST}/exam/get/student_exams/`, // ?p_student_id&p_status (upcoming/active/completed)
-  EXAM_START: `${HOST}/exam/start/`, // POST with exam_id, student_id
-  EXAM_SUBMIT: `${HOST}/exam/submit/`, // POST with exam_id, student_id, answers
+  // STUDENT_EXAMS: `${HOST}/exam/get/student_exams/`, // ?p_student_id&p_status (upcoming/active/completed)
+  // EXAM_START: `${HOST}/exam/start/`, // POST with exam_id, student_id
+  // EXAM_SUBMIT: `${HOST}/exam/submit/`, // POST with exam_id, student_id, answers
 
-  // Online Classes
-  ONLINE_CLASSES: `${HOST}/class/get/online_classes/`, // ?p_student_id&p_date
-  JOIN_CLASS_VALIDATE: `${HOST}/class/validate_link/`, // POST with class_link
+  // // Online Classes
+  // ONLINE_CLASSES: `${HOST}/class/get/online_classes/`, // ?p_student_id&p_date
+  // JOIN_CLASS_VALIDATE: `${HOST}/class/validate_link/`, // POST with class_link
 
   // Assignments
   STUDENT_ASSIGNMENTS: `${HOST}/assignment/get/student_assignments/`, // ?p_student_id&p_status
@@ -488,17 +488,17 @@ export default function StudentDashboard() {
         <nav className="flex gap-1 overflow-x-auto">
           {[
             { id: "overview", label: "Overview", icon: BarChart2 },
-            { id: "exams", label: "Online Exams", icon: FileText },
-            { id: "classes", label: "Online Classes", icon: Video },
-            { id: "assignments", label: "Assignments", icon: ClipboardList },
             { id: "profile", label: "My Info", icon: User },
+            // { id: "exams", label: "Online Exams", icon: FileText },
+            // { id: "classes", label: "Online Classes", icon: Video },
+            // { id: "assignments", label: "Assignments", icon: ClipboardList },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${activeTab === tab.id
-                  ? "border-emerald-600 text-emerald-600 dark:text-emerald-400"
-                  : "border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+                ? "border-emerald-600 text-emerald-600 dark:text-emerald-400"
+                : "border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
                 }`}
             >
               <tab.icon className="h-4 w-4" />
@@ -801,10 +801,10 @@ export default function StudentDashboard() {
                         <p className="text-sm text-gray-600 dark:text-gray-400">{exam.subject}</p>
                       </div>
                       <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${exam.status === "upcoming"
-                          ? "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-                          : exam.status === "active"
-                            ? "bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300"
-                            : "bg-gray-50 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300"
+                        ? "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                        : exam.status === "active"
+                          ? "bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                          : "bg-gray-50 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300"
                         }`}>
                         {exam.status}
                       </span>
@@ -829,8 +829,8 @@ export default function StudentDashboard() {
                       onClick={() => handleStartExam(exam)}
                       disabled={exam.status !== "active"}
                       className={`w-full py-2.5 rounded-lg font-medium transition-colors ${exam.status === "active"
-                          ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                          : "bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
+                        ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                        : "bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
                         }`}
                     >
                       {exam.status === "active" ? "Start Exam" : "Not Available Yet"}
@@ -891,8 +891,8 @@ export default function StudentDashboard() {
                 <button
                   disabled={!cls.has_link}
                   className={`w-full py-2.5 rounded-lg font-medium transition-colors ${cls.has_link
-                      ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                      : "bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
+                    ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                    : "bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
                     }`}
                 >
                   {cls.has_link ? "Join Class" : "Link Not Available"}
@@ -955,10 +955,10 @@ export default function StudentDashboard() {
                           </p>
                         </div>
                         <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${assignment.status === "submitted"
-                            ? "bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300"
-                            : isOverdue
-                              ? "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300"
-                              : "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                          ? "bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                          : isOverdue
+                            ? "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                            : "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
                           }`}>
                           {assignment.status === "submitted" ? "Submitted" : isOverdue ? "Overdue" : "Pending"}
                         </span>
@@ -1362,8 +1362,8 @@ function BigCalendar({ monthStart, events }) {
         <div
           key={idx}
           className={`min-h-[80px] sm:min-h-[92px] rounded-lg border p-2 overflow-hidden ${c.inMonth
-              ? "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700"
-              : "bg-gray-50 dark:bg-gray-800/50 border-gray-200/60 dark:border-gray-700/60 opacity-70"
+            ? "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700"
+            : "bg-gray-50 dark:bg-gray-800/50 border-gray-200/60 dark:border-gray-700/60 opacity-70"
             }`}
         >
           <div className="flex items-center justify-between mb-1">

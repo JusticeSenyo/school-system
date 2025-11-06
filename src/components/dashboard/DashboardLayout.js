@@ -35,6 +35,9 @@ const DashboardLayout = ({ title = "Dashboard", subtitle = "", children }) => {
   if (path.startsWith("/test-student")) {
     role = "student";
   }
+  if (path.startsWith("/test-parent")) {
+    role = "parent";
+  }
 
   const menusForRole = roleBasedMenus[role] || [];
 

@@ -9,12 +9,14 @@ import SchoolLogin from './SchoolLogin';
 
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { TeacherAccessProvider, useTeacherAccess } from './contexts/TeacherAccessContext';
+// import ParentDashboard from './dashboards/ParentDashboard';
 // import StudentDashboard from './dashboards/StudentDashboard';
 
 // Lazy-loaded dashboards
 //new student dashboard
 
 const StudentDashboard = lazy(() => import('./dashboards/StudentDashboard'));
+const ParentDashboard = lazy(() => import('./dashboards/ParentDashboard'));
 const TeacherDashboard = lazy(() => import('./dashboards/TeacherDashboard'));
 const AdminDashboard = lazy(() => import('./dashboards/AdminDashboard'));
 const AccountantDashboard = lazy(() => import('./dashboards/AccountantDashboard'));
@@ -141,6 +143,8 @@ const AppRoutes = () => {
       {/* Public */}
       <Route path="/login" element={<LoginRoute />} />
 
+      {/* student */}
+
       <Route path="/test-student" element={<StudentDashboard />} />
 
       <Route path="/test-student/onlineQuizzes" element={<OnlineQuizzes />} />
@@ -148,6 +152,9 @@ const AppRoutes = () => {
       <Route path="/test-student/OnlineLessons" element={<OnlineLessons />} />
 
       <Route path="/test-student/Assignment" element={<Assignment />} />
+
+      {/* parent */}
+      <Route path="/test-parent" element={<ParentDashboard />} />
 
       {/* Dashboard */}
       <Route path="/dashboard" element={<ProtectedRoute><DashboardRouter /></ProtectedRoute>} />

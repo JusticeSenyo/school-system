@@ -102,6 +102,18 @@ export const roleBasedMenus = Object.freeze({
     { label: "assignments", path: "/test-student/Assignment" },
     // { label: "Profile", path: "/student-dashboard/profile" },
   ],
+parent: [
+  {
+  label : "dashboard", path: "/test-parent"},
+  {
+  label : "teachers", path: "/Teachers/Teachers"},
+  {
+  label : "fees & payments", path: "/Teachers/Fees"},
+  {
+  label : "notices", path: "/Teachers/Notices"},
+
+],
+  
 
   // Owner: NO Manage Events (per your requirement)
   owner: [

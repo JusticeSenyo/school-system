@@ -327,7 +327,7 @@ export default function ParentDashboard() {
             { id: "grades", label: "Grades & Reports", icon: Award },
             { id: "attendance", label: "Attendance", icon: Calendar },
             { id: "assignments", label: "Assignments", icon: ClipboardList },
-            { id: "teachers", label: "Teachers", icon: Users },
+            // { id: "teachers", label: "Teachers", icon: Users },
             { id: "fees", label: "Fees & Payments", icon: DollarSign },
             { id: "notices", label: "Notices", icon: Megaphone },
             { id: "settings", label: "Settings", icon: Settings },

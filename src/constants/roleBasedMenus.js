@@ -106,7 +106,7 @@ parent: [
   {
   label : "dashboard", path: "/test-parent"},
   {
-  label : "teachers", path: "/Teachers/Teachers"},
+  label : "teachers", path: "/test-parent/teachercontacts"},
   {
   label : "fees & payments", path: "/Teachers/Fees"},
   {

@@ -65,6 +65,9 @@ const OnlineQuizzes = lazy(() => import('./pages/student/OnlineQuizzes'));
 const OnlineLessons = lazy(() => import('./pages/student/OnlineLessons'));
 const Assignment = lazy(() => import('./pages/student/Assignment'));
 
+// parent
+const TeacherContacts = lazy(() => import('./pages/teacher/TeacherContacts'));
+
 
 
 const DashboardLoading = () => (
@@ -156,6 +159,7 @@ const AppRoutes = () => {
       {/* parent */}
       <Route path="/test-parent" element={<ParentDashboard />} />
 
+      <Route path="/test-parent/teachercontacts" element={<TeacherContacts />} />
       {/* Dashboard */}
       <Route path="/dashboard" element={<ProtectedRoute><DashboardRouter /></ProtectedRoute>} />
 
